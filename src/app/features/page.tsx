@@ -1,0 +1,154 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useI18n } from "@/context/I18nContext";
+import { useApp } from "@/context/AppContext";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import Badge from "@/components/ui/Badge";
+import StepIndicator from "@/components/layout/StepIndicator";
+import { featureIcons, CheckIcon } from "@/components/ui/Icons";
+import { mockFeatures } from "@/lib/mock/features";
+import type { FeatureId, PlanId } from "@/lib/types";
+
+const featureTranslationKeys: Record<FeatureId, { title: string; desc: string }> = {
+  "linkedin-audit": { title: "linkedinAuditTitle", desc: "linkedinAuditDesc" },
+  "cv-rewrite": { title: "cvRewriteTitle", desc: "cvRewriteDesc" },
+  "job-optimization": { title: "jobOptimizationTitle", desc: "jobOptimizationDesc" },
+  "cover-letter": { title: "coverLetterTitle", desc: "coverLetterDesc" },
+};
+
+const planNameKeys: Record<PlanId, string> = {
+  starter: "starterName",
+  recommended: "recommendedName",
+  pro: "proName",
+  coach: "coachName",
+};
+
+export default function FeaturesPage() {
+  const { t } = useI18n();
+  const { selectedFeatures, toggleFeature } = useApp();
+  const router = useRouter();
+
+  const canContinue = selectedFeatures.length > 0;
+
+  return (
+    <div className="animate-fade-in">
+      <StepIndicator currentStep="features" />
+
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-[var(--text-primary)] mb-2">
+            {t.features.title}
+          </h1>
+          <p className="text-[var(--text-secondary)]">{t.features.subtitle}</p>
+        </div>
+
+        {/* Feature Cards */}
+        <div className="space-y-3 mb-8">
+          {mockFeatures.map((feature, idx) => {
+            const keys = featureTranslationKeys[feature.id];
+            const title = (t.features as Record<string, string>)[keys.title];
+            const desc = (t.features as Record<string, string>)[keys.desc];
+            const isSelected = selectedFeatures.includes(feature.id);
+            const Icon = featureIcons[feature.icon];
+
+            return (
+              <Card
+                key={feature.id}
+                variant={isSelected ? "highlighted" : "default"}
+                padding="md"
+                hoverable
+                className="animate-slide-up relative"
+                style={{ animationDelay: `${idx * 60}ms` }}
+                onClick={() => toggleFeature(feature.id)}
+              >
+                <div className="flex items-start gap-4">
+                  {/* Selection indicator */}
+                  <div
+                    className={`
+                      w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 mt-0.5
+                      transition-all duration-200
+                      ${
+                        isSelected
+                          ? "bg-[var(--accent)] border-[var(--accent)]"
+                          : "border-[var(--border)] bg-white"
+                      }
+                    `}
+                  >
+                    {isSelected && <CheckIcon size={14} className="text-white" />}
+                  </div>
+
+                  {/* Icon */}
+                  <div
+                    className={`
+                      w-10 h-10 rounded-xl flex items-center justify-center shrink-0
+                      ${isSelected ? "bg-[var(--accent-light)] text-[var(--accent)]" : "bg-[var(--surface-secondary)] text-[var(--text-muted)]"}
+                    `}
+                  >
+                    {Icon && <Icon size={20} />}
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">
+                      {title}
+                    </h3>
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-2">
+                      {desc}
+                    </p>
+                    {/* Plan inclusion badges */}
+                    <div className="flex flex-wrap gap-1">
+                      {feature.includedInPlans.map((planId) => {
+                        const planName = (t.pricing as Record<string, string>)[planNameKeys[planId]];
+                        return (
+                          <Badge key={planId} variant="muted" className="text-[10px]">
+                            {planName}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Summary bar */}
+        <div className="bg-[var(--surface-secondary)] rounded-xl px-5 py-4 flex items-center justify-between mb-8">
+          <p className="text-sm font-medium text-[var(--text-primary)]">
+            {t.features.selectedCount.replace("{count}", String(selectedFeatures.length))}
+          </p>
+          <div className="flex items-center gap-1">
+            {selectedFeatures.map((id) => (
+              <div key={id} className="w-2 h-2 rounded-full bg-[var(--accent)]" />
+            ))}
+          </div>
+        </div>
+
+        {/* Error */}
+        {!canContinue && (
+          <p className="text-sm text-[var(--text-muted)] text-center mb-4">
+            {t.features.noSelection}
+          </p>
+        )}
+
+        {/* Navigation */}
+        <div className="flex items-center justify-between gap-4">
+          <Link href="/input">
+            <Button variant="ghost">{t.common.back}</Button>
+          </Link>
+          <Button
+            onClick={() => router.push("/results")}
+            disabled={!canContinue}
+          >
+            {t.common.continue}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

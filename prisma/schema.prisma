@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Audit {
+  id        String   @id @default(uuid())
+  results   Json
+  planId    String?  @map("plan_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("audits")
+}
+
+model Export {
+  id           String   @id @default(uuid())
+  userId       String?  @map("user_id")
+  auditId      String   @map("audit_id")
+  exportType   String   @map("export_type")
+  format       String
+  language     String
+  status       String   @default("queued")
+  fileUrl      String?  @map("file_url")
+  errorMessage String?  @map("error_message")
+  planId       String?  @map("plan_id")
+  isAdmin      Boolean  @default(false) @map("is_admin")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([auditId])
+  @@map("exports")
+}
+
+model PromptRegistry {
+  id          String   @id @default(uuid())
+  promptKey   String   @map("prompt_key")
+  version     Int      @default(1)
+  locale      String   @default("en")
+  modelTarget String?  @map("model_target")
+  content     String
+  status      String   @default("draft")
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([promptKey, version, locale])
+  @@index([promptKey, locale, status])
+  @@map("prompt_registry")
+}
