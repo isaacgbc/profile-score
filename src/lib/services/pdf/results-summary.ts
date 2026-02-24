@@ -1,4 +1,4 @@
-import type { ProfileResult } from "@/lib/types";
+import type { ProfileResult, Locale } from "@/lib/types";
 import { getSectionLabel } from "@/lib/section-labels";
 import {
   createBasePdf,
@@ -8,6 +8,7 @@ import {
   TIER_COLORS,
   TIER_LABELS,
 } from "./shared";
+import { getActivePrompt, interpolatePrompt } from "@/lib/services/prompt-resolver";
 
 // Load i18n section labels
 import en from "@/lib/i18n/en.json";
@@ -32,8 +33,20 @@ export async function generateResultsSummaryPdf(
   let page = addPage(doc);
   let y = page.getHeight() - margin;
 
-  // Title
-  const title = language === "es" ? "Resumen de Resultados" : "Results Summary";
+  // Title — resolve from prompt registry, fallback to hardcoded
+  const headerPrompt = await getActivePrompt(
+    "export.results-summary.header",
+    language as Locale
+  );
+  const headerText = headerPrompt
+    ? interpolatePrompt(headerPrompt, {
+        export_date: new Date().toLocaleDateString(language === "es" ? "es-ES" : "en-US"),
+      })
+    : null;
+
+  // Use first line of prompt as title, rest as subtitle
+  const headerLines = headerText?.split("\n").filter(Boolean) ?? [];
+  const title = headerLines[0] ?? (language === "es" ? "Resumen de Resultados" : "Results Summary");
   page.drawText(title, {
     x: margin,
     y,
@@ -41,7 +54,23 @@ export async function generateResultsSummaryPdf(
     font: fontBold,
     color: COLORS.primary,
   });
-  y -= 35;
+  y -= 22;
+
+  // Draw subtitle lines from prompt (lines 2+)
+  for (let i = 1; i < Math.min(headerLines.length, 4); i++) {
+    const subLines = wrapText(headerLines[i], fontRegular, 9, contentWidth);
+    for (const sl of subLines) {
+      page.drawText(sl, {
+        x: margin,
+        y,
+        size: 9,
+        font: fontRegular,
+        color: COLORS.textMuted,
+      });
+      y -= 13;
+    }
+  }
+  y -= 13;
 
   // Overall Score
   const scoreText = `${results.overallScore} / ${results.maxScore}`;

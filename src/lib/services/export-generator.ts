@@ -41,13 +41,13 @@ export async function generateExport(
 
     case "linkedin-updates": {
       if (format !== "json") throw new Error("LinkedIn Updates only supports JSON format");
-      const bytes = generateLinkedinUpdatesJson(results, language);
+      const bytes = await generateLinkedinUpdatesJson(results, language);
       return { bytes, contentType: "application/json", ext: "json" };
     }
 
     case "cover-letter": {
       if (format !== "json") throw new Error("Cover Letter only supports JSON format");
-      const bytes = generateCoverLetterJson(results, language);
+      const bytes = await generateCoverLetterJson(results, language);
       return { bytes, contentType: "application/json", ext: "json" };
     }
 

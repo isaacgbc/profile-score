@@ -30,6 +30,17 @@ export default function Header() {
 
         {/* Right controls */}
         <div className="flex items-center gap-3">
+          {/* Admin prompts link */}
+          {isAdmin && (
+            <Link
+              href="/admin/prompts"
+              className="hidden sm:flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium
+                text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
+            >
+              Prompts
+            </Link>
+          )}
+
           {/* Admin toggle (dev only) */}
           <button
             onClick={toggleAdmin}

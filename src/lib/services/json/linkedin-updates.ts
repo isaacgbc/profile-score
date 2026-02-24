@@ -1,13 +1,21 @@
-import type { ProfileResult } from "@/lib/types";
+import type { ProfileResult, Locale } from "@/lib/types";
+import { getActivePrompt } from "@/lib/services/prompt-resolver";
 
-export function generateLinkedinUpdatesJson(
+export async function generateLinkedinUpdatesJson(
   results: ProfileResult,
   language: string
-): Uint8Array {
+): Promise<Uint8Array> {
+  // Resolve rewrite instruction prompt from registry
+  const rewritePrompt = await getActivePrompt(
+    "rewrite.linkedin.section",
+    language as Locale
+  );
+
   const payload = {
     exportType: "linkedin-updates",
     language,
     generatedAt: new Date().toISOString(),
+    rewriteInstruction: rewritePrompt ?? null,
     sections: results.linkedinRewrites.map((r) => ({
       sectionId: r.sectionId,
       source: r.source,
