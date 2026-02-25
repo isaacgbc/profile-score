@@ -21,6 +21,7 @@ BS Computer Science - State University (2014-2018)
 Skills
 JavaScript, Python, SQL, HTML, CSS, React, Node.js, Git`,
   cvFileName: null,
+  cvText: "",
   jobDescription:
     "Senior Full-Stack Engineer at a Series B SaaS startup. Requirements: 5+ years experience, React, Node.js, AWS, system design skills. Team lead experience preferred.",
   targetAudience:
@@ -38,6 +39,7 @@ export const emptyUserInput: UserInput = {
   linkedinUrl: "",
   linkedinText: "",
   cvFileName: null,
+  cvText: "",
   jobDescription: "",
   targetAudience: "",
   objectiveMode: "job",

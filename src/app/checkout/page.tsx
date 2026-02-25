@@ -26,6 +26,8 @@ import {
 import { mockPlans } from "@/lib/mock/plans";
 import { mockExportModules } from "@/lib/mock/export-modules";
 import type { PlanId, ExportModuleId, ExportFormat } from "@/lib/types";
+import { useEffect } from "react";
+import { trackEvent, hasTrackedThisSession, markTrackedThisSession } from "@/lib/analytics/tracker";
 
 const planNameKeys: Record<PlanId, string> = {
   starter: "starterName",
@@ -86,6 +88,26 @@ export default function CheckoutPage() {
 
   const { getModuleState, createExport, downloadExport, retryExport } = useExport();
 
+  // ── Analytics: checkout_opened (deduped per browser session) ──
+  useEffect(() => {
+    if (!hasTrackedThisSession("checkout_opened")) {
+      trackEvent("checkout_opened", {
+        planId: selectedPlan,
+        auditId: auditId ?? undefined,
+      });
+      markTrackedThisSession("checkout_opened");
+    }
+    // Also track checkout_started with plan context when user reaches checkout
+    if (selectedPlan && !hasTrackedThisSession("checkout_started_page")) {
+      trackEvent("checkout_started", {
+        planId: selectedPlan,
+        auditId: auditId ?? undefined,
+        metadata: { source: "checkout_page" },
+      });
+      markTrackedThisSession("checkout_started_page");
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Admin token from session storage (typed by admin at /admin page)
   const adminToken = typeof window !== "undefined"
     ? sessionStorage.getItem("adminToken") ?? undefined
@@ -93,6 +115,14 @@ export default function CheckoutPage() {
 
   function handleGenerate(moduleId: ExportModuleId, format: ExportFormat) {
     if (!auditId) return;
+
+    // ── Analytics: export_clicked ──
+    trackEvent("export_clicked", {
+      auditId,
+      planId: selectedPlan,
+      metadata: { moduleId, format },
+    });
+
     createExport({
       auditId,
       exportType: moduleId,

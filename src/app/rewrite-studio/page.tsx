@@ -21,7 +21,8 @@ export default function RewriteStudioPage() {
   const { t } = useI18n();
   const {
     results,
-    generateMockResults,
+    generateResults,
+    isGenerating,
     isAdmin,
     setShowPricingModal,
     userImprovements,
@@ -46,17 +47,31 @@ export default function RewriteStudioPage() {
     }
   }, []);
 
+  // Auto-select available source when only one exists
   useEffect(() => {
-    if (!results) {
-      const timer = setTimeout(() => {
-        generateMockResults();
-        setLoading(false);
-      }, 500);
-      return () => clearTimeout(timer);
-    } else {
+    if (results) {
+      if (results.linkedinRewrites.length === 0 && results.cvRewrites.length > 0) {
+        setActiveSource("cv");
+      } else if (results.cvRewrites.length === 0 && results.linkedinRewrites.length > 0) {
+        setActiveSource("linkedin");
+      }
+    }
+  }, [results]);
+
+  useEffect(() => {
+    if (!results && !isGenerating) {
+      let cancelled = false;
+      async function run() {
+        await generateResults();
+        if (!cancelled) setLoading(false);
+      }
+      run();
+      return () => { cancelled = true; };
+    } else if (results) {
       setLoading(false);
     }
-  }, [results, generateMockResults]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results]);
 
   function handleSourceChange(source: SourceType) {
     setActiveSource(source);
@@ -138,13 +153,15 @@ export default function RewriteStudioPage() {
           <p className="text-[var(--text-secondary)]">{t.rewriteStudio.subtitle}</p>
         </div>
 
-        {/* ─── Source Toggle ─── */}
-        <div className="flex justify-center mb-6">
-          <SourceToggle
-            active={activeSource}
-            onChange={handleSourceChange}
-          />
-        </div>
+        {/* ─── Source Toggle (only show when both sources have rewrites) ─── */}
+        {results.linkedinRewrites.length > 0 && results.cvRewrites.length > 0 && (
+          <div className="flex justify-center mb-6">
+            <SourceToggle
+              active={activeSource}
+              onChange={handleSourceChange}
+            />
+          </div>
+        )}
 
         {/* ─── Context Badge ─── */}
         <div className="flex justify-center mb-8">

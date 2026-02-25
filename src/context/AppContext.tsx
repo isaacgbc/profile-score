@@ -16,11 +16,17 @@ import type {
   ProfileResult,
   Locale,
   ExportModuleId,
+  GenerationMetaClient,
 } from "@/lib/types";
 import { emptyUserInput } from "@/lib/mock/profile-data";
-import { mockResults } from "@/lib/mock/results";
 import { mockPlans } from "@/lib/mock/plans";
 import { featureFlags } from "@/lib/feature-flags";
+import { trackEvent } from "@/lib/analytics/tracker";
+import {
+  getUnlockedLinkedinIds,
+  getUnlockedCvIds,
+  isCoverLetterUnlockedForPlan,
+} from "@/lib/services/unlock-matrix";
 
 interface AppContextValue extends AppState {
   setStep: (step: JourneyStep) => void;
@@ -39,7 +45,7 @@ interface AppContextValue extends AppState {
   isSectionLocked: (sectionId: string) => boolean;
   isCoverLetterUnlocked: () => boolean;
   isExportModuleUnlocked: (moduleId: ExportModuleId) => boolean;
-  generateMockResults: () => void;
+  generateResults: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -51,7 +57,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     "linkedin-audit",
   ]);
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
-  const [results, setResults] = useState<ProfileResult | null>(null);
+  const [results, setResultsState] = useState<ProfileResult | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [exportLocale, setExportLocale] = useState<Locale>("en");
   const [showPricingModal, setShowPricingModal] = useState(false);
@@ -60,6 +66,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [userImprovements, setUserImprovements] = useState<Record<string, string>>({});
   const [unlockAnimationTriggered, setUnlockAnimationTriggered] = useState(false);
   const [auditId, setAuditId] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [generationMeta, setGenerationMeta] = useState<GenerationMetaClient | null>(null);
 
   const setStep = useCallback((step: JourneyStep) => {
     setCurrentStep(step);
@@ -75,9 +84,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const selectPlan = useCallback((id: PlanId) => {
-    setSelectedPlan(id);
-    setUnlockAnimationTriggered(true);
+  // ── Re-apply plan locking to existing results (single source of truth) ──
+  const reapplyPlanLocking = useCallback(
+    (planId: PlanId, currentResults: ProfileResult): ProfileResult => {
+      const adminOverride = isAdmin;
+      const ulLi = getUnlockedLinkedinIds(
+        currentResults.linkedinSections.map((s) => s.id),
+        planId,
+        adminOverride
+      );
+      const ulCv = getUnlockedCvIds(
+        currentResults.cvSections.map((s) => s.id),
+        planId,
+        adminOverride
+      );
+
+      return {
+        ...currentResults,
+        linkedinSections: currentResults.linkedinSections.map((s) => ({
+          ...s,
+          locked: !ulLi.includes(s.id),
+        })),
+        cvSections: currentResults.cvSections.map((s) => ({
+          ...s,
+          locked: !ulCv.includes(s.id),
+        })),
+        linkedinRewrites: currentResults.linkedinRewrites.map((r) => ({
+          ...r,
+          locked: !ulLi.includes(r.sectionId),
+        })),
+        cvRewrites: currentResults.cvRewrites.map((r) => ({
+          ...r,
+          locked: !ulCv.includes(r.sectionId),
+        })),
+        coverLetter: currentResults.coverLetter
+          ? {
+              ...currentResults.coverLetter,
+              locked: !isCoverLetterUnlockedForPlan(planId, adminOverride),
+            }
+          : null,
+      };
+    },
+    [isAdmin]
+  );
+
+  const selectPlan = useCallback(
+    (id: PlanId) => {
+      setSelectedPlan(id);
+      setUnlockAnimationTriggered(true);
+      // Re-apply locking to existing results with new plan
+      setResultsState((prev) => (prev ? reapplyPlanLocking(id, prev) : prev));
+      // ── Analytics: plan_selected ──
+      trackEvent("plan_selected", { planId: id });
+    },
+    [reapplyPlanLocking]
+  );
+
+  const setResults = useCallback((r: ProfileResult) => {
+    setResultsState(r);
   }, []);
 
   const toggleAdmin = useCallback(() => {
@@ -130,89 +194,98 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [isAdmin, selectedPlan]
   );
 
-  const generateMockResults = useCallback(() => {
-    // Determine which LinkedIn sections to unlock based on plan
-    const unlockedLinkedinIds: string[] = (() => {
-      if (isAdmin) return mockResults.linkedinSections.map((s) => s.id);
-      switch (selectedPlan) {
-        case "coach":
-        case "pro":
-          return mockResults.linkedinSections.map((s) => s.id);
-        case "recommended":
-          return mockResults.linkedinSections.map((s) => s.id);
-        case "starter":
-          return ["headline", "summary"];
-        default:
-          return []; // Free tier — no sections unlocked
-      }
-    })();
+  const generateResults = useCallback(async () => {
+    setIsGenerating(true);
+    setGenerationError(null);
 
-    // Determine which CV sections to unlock based on plan
-    const unlockedCvIds: string[] = (() => {
-      if (isAdmin) return mockResults.cvSections.map((s) => s.id);
-      switch (selectedPlan) {
-        case "coach":
-        case "pro":
-          return mockResults.cvSections.map((s) => s.id);
-        case "recommended":
-          return ["contact-info", "professional-summary", "work-experience"];
-        case "starter":
-          return [];
-        default:
-          return []; // Free tier — no CV sections
-      }
-    })();
-
-    const adjustedResults: ProfileResult = {
-      ...mockResults,
-      linkedinSections: mockResults.linkedinSections.map((s) => ({
-        ...s,
-        locked: !unlockedLinkedinIds.includes(s.id),
-      })),
-      cvSections: mockResults.cvSections.map((s) => ({
-        ...s,
-        locked: !unlockedCvIds.includes(s.id),
-      })),
-      linkedinRewrites: mockResults.linkedinRewrites.map((r) => ({
-        ...r,
-        locked: !unlockedLinkedinIds.includes(r.sectionId),
-      })),
-      cvRewrites: mockResults.cvRewrites.map((r) => ({
-        ...r,
-        locked: !unlockedCvIds.includes(r.sectionId),
-      })),
-      coverLetter: mockResults.coverLetter
-        ? {
-            ...mockResults.coverLetter,
-            locked: !(isAdmin || selectedPlan === "coach"),
-          }
-        : null,
-    };
-    setResults(adjustedResults);
-
-    // Persist results server-side for export generation
-    fetch("/api/audits", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ results: adjustedResults, planId: selectedPlan }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.auditId) setAuditId(data.auditId);
-      })
-      .catch(() => {
-        // Audit persistence failed — exports won't work but UI still functions
+    try {
+      const res = await fetch("/api/audit/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          linkedinText: userInput.linkedinText,
+          cvText: userInput.cvText || undefined,
+          jobDescription: userInput.jobDescription,
+          targetAudience: userInput.targetAudience,
+          objectiveMode: userInput.objectiveMode,
+          objectiveText: userInput.objectiveText,
+          planId: selectedPlan,
+          isAdmin,
+          locale: exportLocale,
+        }),
       });
 
-    // Initialize user improvements from mock data
-    const initialImprovements: Record<string, string> = {};
-    [...adjustedResults.linkedinRewrites, ...adjustedResults.cvRewrites].forEach((r) => {
-      if (!r.locked) {
-        initialImprovements[r.sectionId] = r.improvements;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Generation failed" }));
+        throw new Error(err.error || `Server error (${res.status})`);
       }
-    });
-    setUserImprovements(initialImprovements);
-  }, [isAdmin, selectedPlan]);
+
+      const data = await res.json();
+      const generatedResults: ProfileResult = data.results;
+
+      setResultsState(generatedResults);
+
+      // Store generation metadata (for fallback warning display)
+      if (data.meta) {
+        setGenerationMeta({
+          modelUsed: data.meta.modelUsed,
+          promptVersionsUsed: data.meta.promptVersionsUsed,
+          hasFallback: data.meta.hasFallback ?? data.meta.fallbackCount > 0,
+          durationMs: data.meta.durationMs,
+        });
+      } else {
+        setGenerationMeta(null);
+      }
+
+      // Persist results server-side for export generation
+      fetch("/api/audits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          results: generatedResults,
+          planId: selectedPlan,
+          // Persist sanitized userInput + generation metadata
+          userInput: {
+            jobDescription: userInput.jobDescription,
+            targetAudience: userInput.targetAudience,
+            objectiveMode: userInput.objectiveMode,
+            objectiveText: userInput.objectiveText,
+          },
+          generationMeta: data.meta ?? null,
+        }),
+      })
+        .then((r) => r.json())
+        .then((persistData) => {
+          if (persistData.auditId) {
+            setAuditId(persistData.auditId);
+            // ── Analytics: audit_completed ──
+            trackEvent("audit_completed", {
+              auditId: persistData.auditId,
+              planId: selectedPlan,
+              sourceType: userInput.method ?? undefined,
+            });
+          }
+        })
+        .catch(() => {
+          // Audit persistence failed — exports won't work but UI still functions
+        });
+
+      // Initialize user improvements from generated data
+      const initialImprovements: Record<string, string> = {};
+      [...generatedResults.linkedinRewrites, ...generatedResults.cvRewrites].forEach((r) => {
+        if (!r.locked) {
+          initialImprovements[r.sectionId] = r.improvements;
+        }
+      });
+      setUserImprovements(initialImprovements);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Generation failed. Please try again.";
+      setGenerationError(message);
+      console.error("generateResults error:", message);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [userInput, selectedPlan, isAdmin, exportLocale]);
 
   return (
     <AppContext.Provider
@@ -231,6 +304,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         userImprovements,
         unlockAnimationTriggered,
         auditId,
+        isGenerating,
+        generationError,
+        generationMeta,
         setStep,
         setUserInput,
         toggleFeature,
@@ -247,7 +323,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         isSectionLocked,
         isCoverLetterUnlocked,
         isExportModuleUnlocked,
-        generateMockResults,
+        generateResults,
       }}
     >
       {children}

@@ -28,6 +28,7 @@ export interface UserInput {
   linkedinUrl: string;
   linkedinText: string;
   cvFileName: string | null;
+  cvText: string;
   jobDescription: string;
   targetAudience: string;
   objectiveMode: "job" | "objective";
@@ -161,6 +162,13 @@ export interface PromptRecord {
 }
 
 // ─── App State ────────────────────────────────────────
+export interface GenerationMetaClient {
+  modelUsed: string;
+  promptVersionsUsed: Record<string, number>;
+  hasFallback: boolean;
+  durationMs: number;
+}
+
 export interface AppState {
   currentStep: JourneyStep;
   userInput: UserInput;
@@ -176,6 +184,9 @@ export interface AppState {
   userImprovements: Record<string, string>;
   unlockAnimationTriggered: boolean;
   auditId: string | null;
+  isGenerating: boolean;
+  generationError: string | null;
+  generationMeta: GenerationMetaClient | null;
 }
 
 // ─── Feature Flags ────────────────────────────────────

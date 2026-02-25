@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/context/I18nContext";
 import { useApp } from "@/context/AppContext";
+import { extractTextFromPdf } from "@/lib/utils/pdf-extract";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
@@ -18,6 +19,7 @@ import {
   FileTextIcon,
 } from "@/components/ui/Icons";
 import type { Locale } from "@/lib/types";
+import { trackEvent } from "@/lib/analytics/tracker";
 
 export default function InputPage() {
   const { t } = useI18n();
@@ -28,12 +30,20 @@ export default function InputPage() {
   const [targetDragOver, setTargetDragOver] = useState(false);
   const [error, setError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const linkedinFileRef = useRef<HTMLInputElement>(null);
   const targetFileRef = useRef<HTMLInputElement>(null);
 
-  const hasLinkedin =
-    userInput.linkedinUrl.trim().length > 5 ||
-    userInput.linkedinText.trim().length > 20;
-  const hasCv = !!userInput.cvFileName;
+  // PDF extraction state
+  const [linkedinPdfExtracting, setLinkedinPdfExtracting] = useState(false);
+  const [cvPdfExtracting, setCvPdfExtracting] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [linkedinPdfName, setLinkedinPdfName] = useState<string | null>(null);
+  const [linkedinDragOver, setLinkedinDragOver] = useState(false);
+
+  // LinkedIn requires actual text content (from PDF extraction or paste)
+  const hasLinkedin = userInput.linkedinText.trim().length > 20;
+  // CV requires actual text content (from PDF extraction or paste)
+  const hasCv = userInput.cvText.trim().length > 20;
   const canContinue = hasLinkedin || hasCv;
 
   function handleContinue() {
@@ -44,8 +54,69 @@ export default function InputPage() {
     setError("");
     const method =
       hasLinkedin && hasCv ? "both" : hasLinkedin ? "linkedin" : "cv";
+
+    // ── Analytics: start_audit ──
+    trackEvent("start_audit", {
+      sourceType: method,
+      locale: exportLocale,
+    });
+
     setUserInput({ method });
     router.push("/features");
+  }
+
+  // ── LinkedIn PDF upload handler ──
+  async function handleLinkedinPdfUpload(file: File) {
+    if (file.type !== "application/pdf") return;
+    setLinkedinPdfExtracting(true);
+    setPdfError(null);
+    const result = await extractTextFromPdf(file);
+    setLinkedinPdfExtracting(false);
+
+    if (result.error === "insufficient_text") {
+      setPdfError(t.input.pdfScanError);
+      return;
+    }
+    if (result.error) {
+      setPdfError(t.input.pdfParseError);
+      return;
+    }
+    setLinkedinPdfName(file.name);
+    setUserInput({ linkedinText: result.text });
+  }
+
+  function handleLinkedinPdfDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setLinkedinDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleLinkedinPdfUpload(file);
+  }
+
+  function handleLinkedinPdfSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleLinkedinPdfUpload(file);
+  }
+
+  // ── CV file handlers — extract text from PDF ──
+  async function handleCvPdfUpload(file: File) {
+    if (file.type === "application/pdf") {
+      setCvPdfExtracting(true);
+      setPdfError(null);
+      const result = await extractTextFromPdf(file);
+      setCvPdfExtracting(false);
+      if (result.error === "insufficient_text") {
+        setPdfError(t.input.pdfScanError);
+        return;
+      }
+      if (result.error) {
+        setPdfError(t.input.pdfParseError);
+        return;
+      }
+      setUserInput({ cvText: result.text, cvFileName: file.name });
+    } else if (file.name.endsWith(".docx")) {
+      // DOCX: keep filename only (no text extraction for docx yet)
+      setUserInput({ cvFileName: file.name });
+    }
   }
 
   function handleFileDrop(e: React.DragEvent) {
@@ -56,14 +127,14 @@ export default function InputPage() {
       file &&
       (file.type === "application/pdf" || file.name.endsWith(".docx"))
     ) {
-      setUserInput({ cvFileName: file.name });
+      handleCvPdfUpload(file);
     }
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) {
-      setUserInput({ cvFileName: file.name });
+      handleCvPdfUpload(file);
     }
   }
 
@@ -119,6 +190,13 @@ export default function InputPage() {
           </div>
         </div>
 
+        {/* PDF Error Banner */}
+        {pdfError && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-6">
+            <p className="text-xs text-amber-700">{pdfError}</p>
+          </div>
+        )}
+
         {/* ── Source Selection ────────────────────────────── */}
         <div className="mb-8">
           <div className="mb-3">
@@ -131,7 +209,7 @@ export default function InputPage() {
           </div>
 
           <div className="grid md:grid-cols-2 gap-4">
-            {/* LinkedIn Card */}
+            {/* LinkedIn Card — PDF-first */}
             <Card
               variant={hasLinkedin ? "highlighted" : "default"}
               padding="md"
@@ -163,21 +241,80 @@ export default function InputPage() {
               <p className="text-xs text-[var(--text-muted)] mb-2">
                 {t.input.linkedinDesc}
               </p>
-              <input
-                type="url"
-                value={userInput.linkedinUrl}
-                onChange={(e) => setUserInput({ linkedinUrl: e.target.value })}
-                placeholder={t.input.linkedinUrlPlaceholder}
-                className="w-full px-3 py-2.5 text-sm text-[var(--text-primary)] bg-[var(--surface-secondary)] border border-[var(--border-light)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent placeholder:text-[var(--text-muted)] mb-3 transition-shadow"
-                aria-label="LinkedIn URL"
-              />
-              <div className="flex items-center gap-2 mb-2">
+
+              {/* 1. PDF Upload Drop Zone (Primary) */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setLinkedinDragOver(true);
+                }}
+                onDragLeave={() => setLinkedinDragOver(false)}
+                onDrop={handleLinkedinPdfDrop}
+                onClick={() => linkedinFileRef.current?.click()}
+                className={`flex flex-col items-center justify-center py-6 px-4 rounded-xl border-2 border-dashed transition-all duration-200 cursor-pointer ${
+                  linkedinDragOver
+                    ? "border-[var(--accent)] bg-[var(--accent-light)]"
+                    : linkedinPdfName
+                      ? "border-emerald-300 bg-emerald-50"
+                      : "border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-secondary)]"
+                }`}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ")
+                    linkedinFileRef.current?.click();
+                }}
+              >
+                {linkedinPdfExtracting ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin mb-2" />
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      {t.input.extractingPdf}
+                    </p>
+                  </>
+                ) : linkedinPdfName ? (
+                  <>
+                    <CheckIcon size={18} className="text-emerald-600 mb-1.5" />
+                    <p className="text-sm font-medium text-emerald-700">
+                      {linkedinPdfName}
+                    </p>
+                    <p className="text-xs text-emerald-600 mt-0.5">
+                      {t.input.pdfExtracted}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <UploadIcon
+                      size={18}
+                      className="text-[var(--text-muted)] mb-1.5"
+                    />
+                    <p className="text-sm text-[var(--text-primary)]">
+                      {t.input.linkedinPdfUpload}
+                    </p>
+                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                      {t.input.linkedinPdfDesc}
+                    </p>
+                  </>
+                )}
+                <input
+                  ref={linkedinFileRef}
+                  type="file"
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={handleLinkedinPdfSelect}
+                />
+              </div>
+
+              {/* 2. "or" divider */}
+              <div className="flex items-center gap-2 my-3">
                 <div className="flex-1 h-px bg-[var(--border-light)]" />
                 <span className="text-[10px] text-[var(--text-muted)] uppercase">
                   {t.common.or}
                 </span>
                 <div className="flex-1 h-px bg-[var(--border-light)]" />
               </div>
+
+              {/* 3. Paste text textarea (Fallback) */}
               <textarea
                 value={userInput.linkedinText}
                 onChange={(e) =>
@@ -188,6 +325,35 @@ export default function InputPage() {
                 className="w-full px-3 py-2.5 text-sm text-[var(--text-primary)] bg-[var(--surface-secondary)] border border-[var(--border-light)] rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent placeholder:text-[var(--text-muted)] leading-relaxed transition-shadow"
                 aria-label="LinkedIn profile text"
               />
+
+              {/* Extracted text preview */}
+              {hasLinkedin && linkedinPdfName && (
+                <p className="text-xs text-[var(--text-muted)] mt-1 truncate">
+                  {userInput.linkedinText.substring(0, 100)}...
+                </p>
+              )}
+
+              {/* 4. URL input (Optional metadata, de-emphasized) */}
+              <div className="mt-3 pt-3 border-t border-[var(--border-light)]">
+                <label className="block text-xs text-[var(--text-muted)] mb-1">
+                  LinkedIn URL ({t.common.or.toLowerCase()}ptional)
+                </label>
+                <input
+                  type="url"
+                  value={userInput.linkedinUrl}
+                  onChange={(e) =>
+                    setUserInput({ linkedinUrl: e.target.value })
+                  }
+                  placeholder={t.input.linkedinUrlPlaceholder}
+                  className="w-full px-3 py-2 text-xs text-[var(--text-secondary)] bg-[var(--surface-secondary)] border border-[var(--border-light)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent placeholder:text-[var(--text-muted)] transition-shadow"
+                  aria-label="LinkedIn URL"
+                />
+                {userInput.linkedinUrl.trim().length > 5 && !hasLinkedin && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    {t.input.urlOnlyHint}
+                  </p>
+                )}
+              </div>
             </Card>
 
             {/* CV Card */}
@@ -245,11 +411,18 @@ export default function InputPage() {
                     fileRef.current?.click();
                 }}
               >
-                {hasCv ? (
+                {cvPdfExtracting ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin mb-2" />
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      {t.input.extractingPdf}
+                    </p>
+                  </>
+                ) : hasCv ? (
                   <>
                     <CheckIcon size={20} className="text-emerald-600 mb-2" />
                     <p className="text-sm font-medium text-emerald-700">
-                      {userInput.cvFileName}
+                      {userInput.cvFileName || t.input.pdfExtracted}
                     </p>
                   </>
                 ) : (
@@ -274,6 +447,24 @@ export default function InputPage() {
                   onChange={handleFileSelect}
                 />
               </div>
+              {/* Paste CV text alternative */}
+              <div className="flex items-center gap-2 my-3">
+                <div className="flex-1 h-px bg-[var(--border-light)]" />
+                <span className="text-[10px] text-[var(--text-muted)] uppercase">
+                  {t.common.or}
+                </span>
+                <div className="flex-1 h-px bg-[var(--border-light)]" />
+              </div>
+              <textarea
+                value={userInput.cvText}
+                onChange={(e) =>
+                  setUserInput({ cvText: e.target.value })
+                }
+                placeholder={t.input.cvTextPlaceholder}
+                rows={3}
+                className="w-full px-3 py-2.5 text-sm text-[var(--text-primary)] bg-[var(--surface-secondary)] border border-[var(--border-light)] rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent placeholder:text-[var(--text-muted)] leading-relaxed transition-shadow"
+                aria-label="CV text"
+              />
             </Card>
           </div>
 

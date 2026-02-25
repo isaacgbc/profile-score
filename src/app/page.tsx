@@ -3,6 +3,7 @@
 import { type ReactNode, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useI18n } from "@/context/I18nContext";
+import { trackEvent, hasTrackedThisSession, markTrackedThisSession } from "@/lib/analytics/tracker";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
@@ -127,6 +128,14 @@ function ChevronRight() {
 /* ─── Main Landing Page ────────────────────────────── */
 export default function LandingPage() {
   const { t } = useI18n();
+
+  // ── Analytics: landing_view (deduped per browser session) ──
+  useEffect(() => {
+    if (!hasTrackedThisSession("landing_view")) {
+      trackEvent("landing_view", { locale: "en" });
+      markTrackedThisSession("landing_view");
+    }
+  }, []);
 
   const features = [
     { icon: <SearchIcon size={22} />, title: t.landing.featureBenefit1Title, desc: t.landing.featureBenefit1Desc },

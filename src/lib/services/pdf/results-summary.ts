@@ -54,7 +54,7 @@ export async function generateResultsSummaryPdf(
     font: fontBold,
     color: COLORS.primary,
   });
-  y -= 22;
+  y -= 28;
 
   // Draw subtitle lines from prompt (lines 2+)
   for (let i = 1; i < Math.min(headerLines.length, 4); i++) {
@@ -70,7 +70,13 @@ export async function generateResultsSummaryPdf(
       y -= 13;
     }
   }
-  y -= 13;
+  y -= 28;
+
+  // Page-break safety for score block
+  if (y < 120) {
+    page = addPage(doc);
+    y = page.getHeight() - margin;
+  }
 
   // Overall Score
   const scoreText = `${results.overallScore} / ${results.maxScore}`;
@@ -91,7 +97,7 @@ export async function generateResultsSummaryPdf(
     font: fontRegular,
     color: TIER_COLORS[results.tier],
   });
-  y -= 45;
+  y -= 52;
 
   // Divider
   page.drawLine({

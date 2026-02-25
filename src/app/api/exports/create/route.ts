@@ -7,6 +7,7 @@ import { exportRateLimiter } from "@/lib/services/rate-limiter";
 import { generateExport } from "@/lib/services/export-generator";
 import { uploadExport } from "@/lib/db/storage";
 import type { ExportModuleId, ExportFormat, ProfileResult } from "@/lib/types";
+import type { ExportUserInput } from "@/lib/services/export-generator";
 
 export async function POST(request: Request) {
   try {
@@ -66,6 +67,17 @@ export async function POST(request: Request) {
 
     const results = audit.results as unknown as ProfileResult;
 
+    // Extract sanitized userInput from audit for export context
+    const storedUserInput = audit.userInput as Record<string, unknown> | null;
+    const exportUserInput: ExportUserInput | undefined = storedUserInput
+      ? {
+          jobDescription: typeof storedUserInput.jobDescription === "string" ? storedUserInput.jobDescription : undefined,
+          targetAudience: typeof storedUserInput.targetAudience === "string" ? storedUserInput.targetAudience : undefined,
+          objectiveMode: storedUserInput.objectiveMode === "job" || storedUserInput.objectiveMode === "objective" ? storedUserInput.objectiveMode : undefined,
+          objectiveText: typeof storedUserInput.objectiveText === "string" ? storedUserInput.objectiveText : undefined,
+        }
+      : undefined;
+
     // Create export record
     const exportRecord = await prisma.export.create({
       data: {
@@ -85,7 +97,8 @@ export async function POST(request: Request) {
         exportType as ExportModuleId,
         format as ExportFormat,
         language,
-        results
+        results,
+        exportUserInput
       );
 
       // Upload to Supabase Storage

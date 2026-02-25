@@ -1,0 +1,202 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/client";
+import { trackServerEvent } from "@/lib/analytics/server-tracker";
+import type { Prisma } from "@prisma/client";
+
+// ── Crea.la event types ──────────────────────────────────
+type CrealaEvent =
+  | "new_sale"
+  | "new_subscription"
+  | "subscription_renewal"
+  | "subscription_cancellation"
+  | "payment_failed";
+
+// ── Webhook payload shape (from Crea.la docs) ────────────
+interface CrealaWebhookPayload {
+  event: CrealaEvent;
+  timestamp: string;
+  test: boolean;
+  saleId: string;
+  product: {
+    id: string;
+    name: string;
+    price: number;
+    currency: string;
+  };
+  customer: {
+    id: string;
+    name: string;
+    email: string;
+    country: string;
+  };
+  subscription: {
+    id?: string;
+    interval?: string;
+    nextBillingDate?: string;
+    cancellationDate?: string;
+  };
+}
+
+// ── Map Crea.la product names → internal planIds ─────────
+// Configure these once your products are created in Crea.la
+const PRODUCT_TO_PLAN: Record<string, string> = {
+  // "ProfileScore Starter": "starter",
+  // "ProfileScore Recommended": "recommended",
+  // "ProfileScore Pro": "pro",
+  // "ProfileScore Coach": "coach",
+};
+
+function resolvePlanId(productName: string, price: number): string | null {
+  // First try exact product name mapping
+  if (PRODUCT_TO_PLAN[productName]) return PRODUCT_TO_PLAN[productName];
+
+  // Fallback: match by price
+  if (price <= 5) return "starter";
+  if (price <= 9.99) return "recommended";
+  if (price <= 14.99) return "pro";
+  if (price <= 49.99) return "coach";
+
+  return null;
+}
+
+// ── Map Crea.la event → our analytics event name ─────────
+const EVENT_TO_ANALYTICS: Record<CrealaEvent, string> = {
+  new_sale: "payment_success",
+  new_subscription: "payment_success",
+  subscription_renewal: "payment_success",
+  subscription_cancellation: "subscription_canceled",
+  payment_failed: "payment_failed",
+};
+
+// ── HMAC SHA-256 signature verification ──────────────────
+async function verifySignature(
+  rawBody: string,
+  signature: string,
+  secret: string
+): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(rawBody));
+  const computed = Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  // Constant-time comparison
+  if (computed.length !== signature.length) return false;
+  let diff = 0;
+  for (let i = 0; i < computed.length; i++) {
+    diff |= computed.charCodeAt(i) ^ signature.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+// ── Webhook handler ──────────────────────────────────────
+export async function POST(request: Request) {
+  const webhookSecret = process.env.CREALA_WEBHOOK_SECRET;
+  if (!webhookSecret || webhookSecret === "whsec_REPLACE_WITH_YOUR_CREALA_SECRET") {
+    console.error("[Creala] CREALA_WEBHOOK_SECRET not configured");
+    return NextResponse.json(
+      { error: "Webhook not configured" },
+      { status: 500 }
+    );
+  }
+
+  // ── Read raw body for signature verification ──
+  const rawBody = await request.text();
+
+  // ── Verify signature ──
+  const signature = request.headers.get("x-webhook-signature") ?? "";
+  const valid = await verifySignature(rawBody, signature, webhookSecret);
+  if (!valid) {
+    console.error("[Creala] Invalid webhook signature");
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  // ── Parse payload ──
+  let payload: CrealaWebhookPayload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const { event, saleId, product, customer, subscription, test: isTest } = payload;
+
+  // ── Idempotency: check if saleId already processed ──
+  const existing = await prisma.order.findUnique({
+    where: { saleId },
+  });
+  if (existing) {
+    console.log(`[Creala] Duplicate webhook ignored: saleId=${saleId}`);
+    return NextResponse.json({ status: "duplicate", saleId });
+  }
+
+  // ── Resolve plan ──
+  const planId = resolvePlanId(product.name, product.price);
+
+  // ── Persist order ──
+  try {
+    await prisma.order.create({
+      data: {
+        saleId,
+        event,
+        customerId: customer.id,
+        customerEmail: customer.email,
+        customerName: customer.name,
+        customerCountry: customer.country,
+        productId: product.id,
+        productName: product.name,
+        price: product.price,
+        currency: product.currency,
+        planId,
+        subscriptionId: subscription?.id ?? null,
+        subscriptionInterval: subscription?.interval ?? null,
+        nextBillingDate: subscription?.nextBillingDate
+          ? new Date(subscription.nextBillingDate)
+          : null,
+        cancellationDate: subscription?.cancellationDate
+          ? new Date(subscription.cancellationDate)
+          : null,
+        isTest,
+        rawPayload: payload as unknown as Prisma.InputJsonValue,
+      },
+    });
+  } catch (err) {
+    console.error("[Creala] Failed to persist order:", err);
+    return NextResponse.json(
+      { error: "Failed to persist order" },
+      { status: 500 }
+    );
+  }
+
+  // ── Track monetization analytics event ──
+  const analyticsEvent = EVENT_TO_ANALYTICS[event];
+  if (analyticsEvent) {
+    trackServerEvent(analyticsEvent, {
+      userId: customer.id,
+      planId: planId ?? undefined,
+      metadata: {
+        saleId,
+        productName: product.name,
+        price: product.price,
+        currency: product.currency,
+        event,
+        isTest,
+        subscriptionId: subscription?.id,
+      },
+    });
+  }
+
+  // ── Log for operational visibility ──
+  console.log(
+    `[Creala] ${event}: saleId=${saleId} customer=${customer.email} plan=${planId} price=${product.price} ${product.currency} test=${isTest}`
+  );
+
+  return NextResponse.json({ status: "ok", saleId, planId });
+}

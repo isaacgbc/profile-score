@@ -23,7 +23,10 @@ export default function ResultsPage() {
   const { t } = useI18n();
   const {
     results,
-    generateMockResults,
+    generateResults,
+    isGenerating,
+    generationError,
+    generationMeta,
     isAdmin,
     exportLocale,
     setShowPricingModal,
@@ -48,6 +51,17 @@ export default function ResultsPage() {
     }
   }, []);
 
+  // Auto-select available source when only one exists
+  useEffect(() => {
+    if (results) {
+      if (results.linkedinSections.length === 0 && results.cvSections.length > 0) {
+        setActiveSource("cv");
+      } else if (results.cvSections.length === 0 && results.linkedinSections.length > 0) {
+        setActiveSource("linkedin");
+      }
+    }
+  }, [results]);
+
   function handleSourceChange(source: SourceType) {
     setActiveSource(source);
     const url = new URL(window.location.href);
@@ -58,12 +72,15 @@ export default function ResultsPage() {
   const isPaid = !!selectedPlan || isAdmin;
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      generateMockResults();
-      setLoading(false);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [generateMockResults]);
+    let cancelled = false;
+    async function run() {
+      await generateResults();
+      if (!cancelled) setLoading(false);
+    }
+    run();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function getTierLabel(tier: ScoreTier): string {
     const map: Record<ScoreTier, string> = {
@@ -95,8 +112,42 @@ export default function ResultsPage() {
 
   const sectionLabels = t.sectionLabels as Record<string, string>;
 
+  // --- Error state ---
+  if (generationError && !isGenerating) {
+    return (
+      <div className="animate-fade-in">
+        <StepIndicator currentStep="results" />
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-20 text-center">
+          <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-red-50 flex items-center justify-center">
+            <span className="text-2xl">!</span>
+          </div>
+          <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
+            Generation failed
+          </h2>
+          <p className="text-sm text-[var(--text-secondary)] mb-6 max-w-md mx-auto">
+            {generationError}
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <Link href="/input">
+              <Button variant="ghost">Back to input</Button>
+            </Link>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setLoading(true);
+                generateResults().finally(() => setLoading(false));
+              }}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // --- Loading state ---
-  if (loading) {
+  if (loading || isGenerating) {
     return (
       <div className="animate-fade-in">
         <StepIndicator currentStep="results" />
@@ -106,7 +157,7 @@ export default function ResultsPage() {
             {isPaid ? t.results.unlockingAnimation : "Analyzing your profile..."}
           </h2>
           <p className="text-sm text-[var(--text-secondary)]">
-            This usually takes a few seconds.
+            This may take 30-60 seconds while our AI reviews your profile.
           </p>
         </div>
       </div>
@@ -115,13 +166,14 @@ export default function ResultsPage() {
 
   if (!results) return null;
 
-  const hasCvSections =
-    results.cvSections.length > 0 &&
-    results.cvSections.some((s) => !s.locked);
+  const hasLinkedinSections = results.linkedinSections.length > 0;
+  const hasCvSections = results.cvSections.length > 0;
 
   const totalLockedSections =
     results.linkedinSections.filter((s) => s.locked).length +
     results.cvSections.filter((s) => s.locked).length;
+  const totalSectionsCount =
+    results.linkedinSections.length + results.cvSections.length;
 
   return (
     <div className="animate-fade-in">
@@ -197,6 +249,13 @@ export default function ResultsPage() {
           )}
         </Card>
 
+        {/* Fallback warning */}
+        {generationMeta?.hasFallback && (
+          <div className="rounded-xl bg-amber-50 border border-amber-200/50 p-3 mb-6 text-center">
+            <p className="text-xs text-amber-700">{t.results.fallbackWarning}</p>
+          </div>
+        )}
+
         {/* ─────────────────────────────────────────────────
             FREE TIER: Locked audit preview cards
             ───────────────────────────────────────────────── */}
@@ -220,93 +279,101 @@ export default function ResultsPage() {
             </div>
 
             {/* LinkedIn locked previews */}
-            <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-              {t.results.linkedinAuditTitle}
-            </h3>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-              {results.linkedinSections.map((section, idx) => (
-                <Card
-                  key={section.id}
-                  variant="default"
-                  padding="md"
-                  locked
-                  className="animate-slide-up"
-                  style={{ animationDelay: `${idx * 50}ms` }}
-                >
-                  <div className="flex items-start gap-3 mb-3">
-                    <ScoreRing
-                      score={section.score}
-                      maxScore={section.maxScore}
-                      tier={section.tier}
-                      size="sm"
-                      animate={false}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1 truncate">
-                        {getSectionLabel(section.id, sectionLabels)}
-                      </h3>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={getTierBadgeVariant(section.tier)}>
-                          {getTierLabel(section.tier)}
-                        </Badge>
-                        <span className="text-xs font-medium text-[var(--text-muted)] tabular-nums">
-                          {section.score}/{section.maxScore}
-                        </span>
+            {hasLinkedinSections && (
+              <>
+                <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
+                  {t.results.linkedinAuditTitle}
+                </h3>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+                  {results.linkedinSections.map((section, idx) => (
+                    <Card
+                      key={section.id}
+                      variant="default"
+                      padding="md"
+                      locked
+                      className="animate-slide-up"
+                      style={{ animationDelay: `${idx * 50}ms` }}
+                    >
+                      <div className="flex items-start gap-3 mb-3">
+                        <ScoreRing
+                          score={section.score}
+                          maxScore={section.maxScore}
+                          tier={section.tier}
+                          size="sm"
+                          animate={false}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1 truncate">
+                            {getSectionLabel(section.id, sectionLabels)}
+                          </h3>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={getTierBadgeVariant(section.tier)}>
+                              {getTierLabel(section.tier)}
+                            </Badge>
+                            <span className="text-xs font-medium text-[var(--text-muted)] tabular-nums">
+                              {section.score}/{section.maxScore}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  {/* Blurred preview hint */}
-                  <div className="h-12 rounded-lg bg-gradient-to-r from-[var(--surface-secondary)] to-[var(--border-light)] opacity-40" />
-                </Card>
-              ))}
-            </div>
+                      {/* Blurred preview hint */}
+                      <div className="h-12 rounded-lg bg-gradient-to-r from-[var(--surface-secondary)] to-[var(--border-light)] opacity-40" />
+                    </Card>
+                  ))}
+                </div>
+              </>
+            )}
 
             {/* CV locked previews */}
-            <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-              {t.results.cvAuditTitle}
-            </h3>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
-              {results.cvSections.map((section, idx) => (
-                <Card
-                  key={section.id}
-                  variant="default"
-                  padding="md"
-                  locked
-                  className="animate-slide-up"
-                  style={{ animationDelay: `${(idx + results.linkedinSections.length) * 50}ms` }}
-                >
-                  <div className="flex items-start gap-3 mb-3">
-                    <ScoreRing
-                      score={section.score}
-                      maxScore={section.maxScore}
-                      tier={section.tier}
-                      size="sm"
-                      animate={false}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1 truncate">
-                        {getSectionLabel(section.id, sectionLabels)}
-                      </h3>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={getTierBadgeVariant(section.tier)}>
-                          {getTierLabel(section.tier)}
-                        </Badge>
-                        <span className="text-xs font-medium text-[var(--text-muted)] tabular-nums">
-                          {section.score}/{section.maxScore}
-                        </span>
+            {hasCvSections && (
+              <>
+                <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
+                  {t.results.cvAuditTitle}
+                </h3>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
+                  {results.cvSections.map((section, idx) => (
+                    <Card
+                      key={section.id}
+                      variant="default"
+                      padding="md"
+                      locked
+                      className="animate-slide-up"
+                      style={{ animationDelay: `${(idx + results.linkedinSections.length) * 50}ms` }}
+                    >
+                      <div className="flex items-start gap-3 mb-3">
+                        <ScoreRing
+                          score={section.score}
+                          maxScore={section.maxScore}
+                          tier={section.tier}
+                          size="sm"
+                          animate={false}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1 truncate">
+                            {getSectionLabel(section.id, sectionLabels)}
+                          </h3>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={getTierBadgeVariant(section.tier)}>
+                              {getTierLabel(section.tier)}
+                            </Badge>
+                            <span className="text-xs font-medium text-[var(--text-muted)] tabular-nums">
+                              {section.score}/{section.maxScore}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  <div className="h-12 rounded-lg bg-gradient-to-r from-[var(--surface-secondary)] to-[var(--border-light)] opacity-40" />
-                </Card>
-              ))}
-            </div>
+                      <div className="h-12 rounded-lg bg-gradient-to-r from-[var(--surface-secondary)] to-[var(--border-light)] opacity-40" />
+                    </Card>
+                  ))}
+                </div>
+              </>
+            )}
 
             {/* Unlock CTA */}
             <Card variant="elevated" padding="lg" className="text-center">
               <LockIcon size={24} className="text-[var(--accent)] mx-auto mb-3" />
               <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">
-                {t.results.lockedSectionsCount.replace("{count}", String(results.linkedinSections.length + results.cvSections.length))}
+                {t.results.lockedSectionsCount.replace("{count}", String(totalSectionsCount))}
               </p>
               <p className="text-xs text-[var(--text-secondary)] mb-4 max-w-md mx-auto">
                 {t.results.lockedPreviewDesc}
@@ -327,13 +394,15 @@ export default function ResultsPage() {
             ───────────────────────────────────────────────── */}
         {isPaid && (
           <>
-            {/* ─── Source Toggle ─── */}
-            <div className="flex justify-center mb-8">
-              <SourceToggle
-                active={activeSource}
-                onChange={handleSourceChange}
-              />
-            </div>
+            {/* ─── Source Toggle (only show when both sources exist) ─── */}
+            {hasLinkedinSections && hasCvSections && (
+              <div className="flex justify-center mb-8">
+                <SourceToggle
+                  active={activeSource}
+                  onChange={handleSourceChange}
+                />
+              </div>
+            )}
 
             {/* ─── Conditional Audit Grid ─── */}
             {activeSource === "linkedin" ? (

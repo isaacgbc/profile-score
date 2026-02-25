@@ -29,6 +29,31 @@ export async function getActivePrompt(
 }
 
 /**
+ * Resolve the active prompt with its version for traceability.
+ * Returns { content, version } or null if not found.
+ */
+export async function getActivePromptWithVersion(
+  key: string,
+  locale: Locale = "en"
+): Promise<{ content: string; version: number } | null> {
+  const prompt = await prisma.promptRegistry.findFirst({
+    where: { promptKey: key, locale, status: "active" },
+    orderBy: { version: "desc" },
+  });
+  if (prompt) return { content: prompt.content, version: prompt.version };
+
+  if (locale !== "en") {
+    const fallback = await prisma.promptRegistry.findFirst({
+      where: { promptKey: key, locale: "en", status: "active" },
+      orderBy: { version: "desc" },
+    });
+    if (fallback) return { content: fallback.content, version: fallback.version };
+  }
+
+  return null;
+}
+
+/**
  * Interpolate `{{variable}}` placeholders in a template string.
  * Unmatched placeholders are left as-is.
  */

@@ -1,0 +1,180 @@
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { z } from "zod";
+import { generateAuditResults } from "@/lib/services/audit-orchestrator";
+import { createRateLimiter } from "@/lib/services/rate-limiter";
+import { llmCircuitBreaker } from "@/lib/services/circuit-breaker";
+import { validateAdminCookie } from "@/lib/services/admin-session";
+import type { Locale, PlanId } from "@/lib/types";
+
+// ── Hard caps per source (bytes) ─────────────────────────
+const MAX_LINKEDIN_BYTES = 100_000; // ~100 KB
+const MAX_CV_BYTES = 200_000; // ~200 KB
+const MAX_JOB_DESC_BYTES = 20_000; // ~20 KB
+const MAX_BODY_BYTES = 500_000; // ~500 KB total
+
+/**
+ * Per-IP rate limiters (sliding window):
+ * - Burst:  5 req / 1 min  (prevents hammering)
+ * - Hourly: 20 req / 1 hr  (prevents sustained abuse)
+ * - Daily:  50 req / 24 hr (hard daily cap)
+ */
+const burstLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 5,
+});
+const hourlyLimiter = createRateLimiter({
+  windowMs: 60 * 60_000,
+  maxRequests: 20,
+});
+const dailyLimiter = createRateLimiter({
+  windowMs: 24 * 60 * 60_000,
+  maxRequests: 50,
+});
+
+// ── Input validation ──────────────────────────────────
+const GenerateAuditInput = z.object({
+  linkedinText: z.string().max(50_000).default(""),
+  cvText: z.string().max(50_000).optional(),
+  jobDescription: z.string().max(5_000).default(""),
+  targetAudience: z.string().max(1_000).default(""),
+  objectiveMode: z.enum(["job", "objective"]).default("job"),
+  objectiveText: z.string().max(2_000).default(""),
+  planId: z.string().max(50).nullable().default(null),
+  isAdmin: z.boolean().default(false),
+  locale: z.enum(["en", "es"]).default("en"),
+});
+
+function getClientIp(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  return forwarded?.split(",")[0]?.trim() ?? "unknown";
+}
+
+export async function POST(request: Request) {
+  try {
+    // ── Hard cap: total body size ──
+    const contentLength = request.headers.get("content-length");
+    if (contentLength && parseInt(contentLength) > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: "Request body too large", maxBytes: MAX_BODY_BYTES },
+        { status: 413 }
+      );
+    }
+
+    const body = await request.json();
+    const parsed = GenerateAuditInput.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid input", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    // ── Hard cap: per-source byte limits ──
+    const linkedinBytes = new TextEncoder().encode(parsed.data.linkedinText).length;
+    const cvBytes = new TextEncoder().encode(parsed.data.cvText ?? "").length;
+    const jobDescBytes = new TextEncoder().encode(parsed.data.jobDescription).length;
+
+    if (linkedinBytes > MAX_LINKEDIN_BYTES) {
+      return NextResponse.json(
+        { error: "LinkedIn text too large", maxBytes: MAX_LINKEDIN_BYTES, actualBytes: linkedinBytes },
+        { status: 413 }
+      );
+    }
+    if (cvBytes > MAX_CV_BYTES) {
+      return NextResponse.json(
+        { error: "CV text too large", maxBytes: MAX_CV_BYTES, actualBytes: cvBytes },
+        { status: 413 }
+      );
+    }
+    if (jobDescBytes > MAX_JOB_DESC_BYTES) {
+      return NextResponse.json(
+        { error: "Job description too large", maxBytes: MAX_JOB_DESC_BYTES, actualBytes: jobDescBytes },
+        { status: 413 }
+      );
+    }
+
+    // ── Tiered rate limiting (check daily → hourly → burst) ──
+    const ip = getClientIp(request);
+
+    const daily = dailyLimiter.check(ip);
+    if (!daily.allowed) {
+      return NextResponse.json(
+        { error: "Daily generation limit reached. Try again tomorrow.", quota: "50/day" },
+        { status: 429, headers: { "Retry-After": String(daily.retryAfter ?? 3600) } }
+      );
+    }
+
+    const hourly = hourlyLimiter.check(ip);
+    if (!hourly.allowed) {
+      return NextResponse.json(
+        { error: "Hourly generation limit reached. Try again later.", quota: "20/hour" },
+        { status: 429, headers: { "Retry-After": String(hourly.retryAfter ?? 600) } }
+      );
+    }
+
+    const burst = burstLimiter.check(ip);
+    if (!burst.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please wait a moment.", quota: "5/min" },
+        { status: 429, headers: { "Retry-After": String(burst.retryAfter ?? 60) } }
+      );
+    }
+
+    // ── Circuit breaker status (informational log) ──
+    const cbState = llmCircuitBreaker.getState();
+    if (cbState === "OPEN") {
+      console.warn(`[generate] Circuit breaker OPEN — generation will use fallbacks`);
+    }
+
+    // Validate that at least some input is provided
+    const hasLinkedin = parsed.data.linkedinText.trim().length > 20;
+    const hasCv =
+      parsed.data.cvText !== undefined &&
+      parsed.data.cvText.trim().length > 20;
+
+    if (!hasLinkedin && !hasCv) {
+      return NextResponse.json(
+        { error: "Please upload a LinkedIn PDF or CV, or paste your profile text to analyze." },
+        { status: 400 }
+      );
+    }
+
+    // ── Server-side admin validation via httpOnly cookie ──
+    let effectiveIsAdmin = false;
+    if (parsed.data.isAdmin) {
+      const cookieStore = await cookies();
+      const adminCookie = cookieStore.get("ps_admin_session")?.value;
+      effectiveIsAdmin = adminCookie ? validateAdminCookie(adminCookie) : false;
+      if (!effectiveIsAdmin) {
+        console.warn(`[generate] Client sent isAdmin=true but no valid admin cookie`);
+      }
+    }
+
+    const result = await generateAuditResults(
+      {
+        linkedinText: parsed.data.linkedinText,
+        cvText: parsed.data.cvText,
+        jobDescription: parsed.data.jobDescription,
+        targetAudience: parsed.data.targetAudience,
+        objectiveMode: parsed.data.objectiveMode,
+        objectiveText: parsed.data.objectiveText,
+        planId: parsed.data.planId as PlanId | null,
+        isAdmin: effectiveIsAdmin,
+      },
+      parsed.data.locale as Locale
+    );
+
+    return NextResponse.json({
+      results: result.results,
+      meta: result.meta,
+    });
+  } catch (err) {
+    console.error("POST /api/audit/generate error:", err);
+    return NextResponse.json(
+      { error: "Generation failed. Please try again." },
+      { status: 500 }
+    );
+  }
+}

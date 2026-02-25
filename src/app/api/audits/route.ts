@@ -19,6 +19,13 @@ export async function POST(request: Request) {
       data: {
         results: parsed.data.results as Prisma.InputJsonValue,
         planId: parsed.data.planId ?? null,
+        userInput: parsed.data.userInput
+          ? (parsed.data.userInput as Prisma.InputJsonValue)
+          : undefined,
+        modelUsed: parsed.data.generationMeta?.modelUsed ?? null,
+        promptVersions: parsed.data.generationMeta?.promptVersionsUsed
+          ? (parsed.data.generationMeta.promptVersionsUsed as Prisma.InputJsonValue)
+          : undefined,
       },
     });
 

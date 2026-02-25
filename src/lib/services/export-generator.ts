@@ -11,6 +11,14 @@ interface GenerateResult {
   ext: string;
 }
 
+/** Sanitized user input fields safe for export context */
+export interface ExportUserInput {
+  jobDescription?: string;
+  targetAudience?: string;
+  objectiveMode?: "job" | "objective";
+  objectiveText?: string;
+}
+
 /**
  * Dispatch to the correct generator based on export type and format.
  */
@@ -18,7 +26,8 @@ export async function generateExport(
   exportType: ExportModuleId,
   format: ExportFormat,
   language: string,
-  results: ProfileResult
+  results: ProfileResult,
+  userInput?: ExportUserInput
 ): Promise<GenerateResult> {
   switch (exportType) {
     case "results-summary": {
@@ -47,7 +56,7 @@ export async function generateExport(
 
     case "cover-letter": {
       if (format !== "json") throw new Error("Cover Letter only supports JSON format");
-      const bytes = await generateCoverLetterJson(results, language);
+      const bytes = await generateCoverLetterJson(results, language, userInput);
       return { bytes, contentType: "application/json", ext: "json" };
     }
 

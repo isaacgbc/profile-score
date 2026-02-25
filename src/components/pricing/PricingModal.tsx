@@ -7,7 +7,19 @@ import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { CheckIcon, XIcon } from "@/components/ui/Icons";
 import { mockPlans } from "@/lib/mock/plans";
+import { featureFlags } from "@/lib/feature-flags";
 import type { PlanId, FeatureId } from "@/lib/types";
+import { trackEvent } from "@/lib/analytics/tracker";
+
+/**
+ * Crea.la checkout URLs — real payment links per plan.
+ */
+const CREALA_CHECKOUT_URLS: Record<PlanId, string> = {
+  starter: "https://pay.crea.la/b/eVqdR8eurfBAeG4cDA1VN3D",
+  recommended: "https://pay.crea.la/b/5kQbJ0aeb3SS9lKbzw1VN3E",
+  pro: "https://pay.crea.la/b/4gM8wO2LJ61069ycDA1VN3H",
+  coach: "https://pay.crea.la/b/bJecN44TRexw69y0US1VN3I",
+};
 
 const planTranslationKeys: Record<PlanId, { name: string; desc: string }> = {
   starter: { name: "starterName", desc: "starterDesc" },
@@ -28,6 +40,27 @@ export default function PricingModal() {
   const { selectedPlan, selectPlan, showPricingModal, setShowPricingModal } = useApp();
 
   if (!showPricingModal) return null;
+
+  function handleSelectPlan(planId: PlanId) {
+    selectPlan(planId); // applies unlock via reapplyPlanLocking
+    setShowPricingModal(false);
+
+    // ── Analytics: checkout_started ──
+    const plan = mockPlans.find((p) => p.id === planId);
+    trackEvent("checkout_started", {
+      planId,
+      metadata: {
+        price: plan?.price,
+        interval: plan?.interval,
+      },
+    });
+
+    // ── Payment redirect when enabled ──
+    if (featureFlags.paymentsEnabled) {
+      window.location.href = CREALA_CHECKOUT_URLS[planId];
+    }
+    // When payments disabled: plan unlocks content locally, user stays on page
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -88,7 +121,7 @@ export default function PricingModal() {
                   variant={isSelected ? "primary" : plan.highlighted ? "primary" : "outline"}
                   size="sm"
                   fullWidth
-                  onClick={() => { selectPlan(plan.id); setShowPricingModal(false); }}
+                  onClick={() => handleSelectPlan(plan.id)}
                 >
                   {isSelected ? t.pricing.currentPlan : t.pricing.selectPlan}
                 </Button>
