@@ -11,6 +11,10 @@
  * Usage: npx tsx --tsconfig tsconfig.json src/lib/eval/hardening-eval.ts
  */
 
+// Load environment variables from .env.local (Next.js doesn't auto-load for tsx scripts)
+import { config } from "dotenv";
+config({ path: ".env.local", override: true });
+
 import { generateAuditResults, type GenerationResult } from "../services/audit-orchestrator";
 import {
   isMockSection,
