@@ -1,10 +1,15 @@
 /**
  * GET /api/user/me — returns the current user's profile + subscription status.
  * Used by AppContext for auto-plan-load on login.
+ *
+ * If the user's email is in ADMIN_ALLOWLIST_EMAILS:
+ *   - Returns isOwner: true (client uses this to auto-enable admin)
+ *   - Auto-promotes their DB record to coach/active if not already set
  */
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db/client";
+import { isOwnerEmail } from "@/lib/services/owner-allowlist";
 
 export async function GET() {
   try {
@@ -17,8 +22,10 @@ export async function GET() {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
+    const owner = isOwnerEmail(user.email);
+
     // Fetch our Prisma User record
-    const dbUser = await prisma.user.findUnique({
+    let dbUser = await prisma.user.findUnique({
       where: { id: user.id },
       select: {
         id: true,
@@ -33,13 +40,20 @@ export async function GET() {
 
     if (!dbUser) {
       // User authenticated with Supabase but no Prisma record yet
-      // Create one on the fly
-      const newUser = await prisma.user.create({
+      dbUser = await prisma.user.create({
         data: {
           id: user.id,
           email: user.email ?? "",
           name: user.user_metadata?.full_name ?? null,
           avatarUrl: user.user_metadata?.avatar_url ?? null,
+          // Auto-promote owner on first record creation
+          ...(owner
+            ? {
+                activePlanId: "coach",
+                subscriptionStatus: "active",
+                subscriptionExpiresAt: null,
+              }
+            : {}),
         },
         select: {
           id: true,
@@ -52,10 +66,32 @@ export async function GET() {
         },
       });
 
-      return NextResponse.json(newUser);
+      if (owner) {
+        console.log(`[Auth] owner_admin_auto_enabled (new user) for ${user.email}`);
+      }
+    } else if (owner && (dbUser.activePlanId !== "coach" || dbUser.subscriptionStatus !== "active")) {
+      // Auto-promote existing owner record if not already coach/active
+      dbUser = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          activePlanId: "coach",
+          subscriptionStatus: "active",
+          subscriptionExpiresAt: null,
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          avatarUrl: true,
+          activePlanId: true,
+          subscriptionStatus: true,
+          subscriptionExpiresAt: true,
+        },
+      });
+      console.log(`[Auth] owner_admin_auto_enabled (promoted) for ${user.email}`);
     }
 
-    return NextResponse.json(dbUser);
+    return NextResponse.json({ ...dbUser, isOwner: owner });
   } catch (err) {
     console.error("GET /api/user/me error:", err);
     return NextResponse.json(

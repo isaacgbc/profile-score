@@ -19,6 +19,11 @@ export default function Header() {
       toggleAdmin();
       return;
     }
+    // Owner allowlist: skip password modal, enable directly
+    if (authUser?.isOwner) {
+      toggleAdmin();
+      return;
+    }
     // Turn on admin — require password
     setShowAdminModal(true);
   }

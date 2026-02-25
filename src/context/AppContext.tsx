@@ -39,6 +39,8 @@ export interface AppUser {
   avatarUrl?: string | null;
   activePlanId?: string | null;
   subscriptionStatus?: string | null;
+  /** True if email is in ADMIN_ALLOWLIST_EMAILS (server-verified) */
+  isOwner?: boolean;
 }
 
 interface AppContextValue extends AppState {
@@ -129,7 +131,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Auth: auto-load plan from subscription ──
+  // ── Auth: auto-load plan from subscription + owner auto-admin ──
   useEffect(() => {
     if (!authUser || planAutoLoadedRef.current) return;
 
@@ -137,7 +139,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetch(`/api/user/me`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.activePlanId && data.subscriptionStatus === "active") {
+        if (!data) return;
+
+        // Owner allowlist: auto-enable admin + coach plan
+        if (data.isOwner) {
+          setAuthUser((prev) => prev ? { ...prev, isOwner: true } : prev);
+          setIsAdmin(true);
+          setSelectedPlan("coach" as PlanId);
+          planAutoLoadedRef.current = true;
+          console.log("[AppContext] owner_admin_auto_enabled");
+          return;
+        }
+
+        if (data.activePlanId && data.subscriptionStatus === "active") {
           setSelectedPlan(data.activePlanId as PlanId);
           planAutoLoadedRef.current = true;
         }
@@ -227,10 +241,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleAdmin = useCallback(() => {
-    if (featureFlags.adminBypass) {
+    // Owner users can always toggle admin; others need adminBypass flag
+    if (featureFlags.adminBypass || authUser?.isOwner) {
       setIsAdmin((prev) => !prev);
     }
-  }, []);
+  }, [authUser?.isOwner]);
 
   const triggerUnlockAnimation = useCallback(() => {
     setUnlockAnimationTriggered(true);

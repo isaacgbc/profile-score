@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db/client";
+import { isOwnerEmail } from "@/lib/services/owner-allowlist";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -32,6 +33,21 @@ export async function GET(request: Request) {
             avatarUrl: data.user.user_metadata?.avatar_url ?? null,
           },
         });
+
+        // Owner allowlist: auto-set coach plan + active subscription
+        if (isOwnerEmail(data.user.email)) {
+          await prisma.user.update({
+            where: { id: data.user.id },
+            data: {
+              activePlanId: "coach",
+              subscriptionStatus: "active",
+              subscriptionExpiresAt: null, // permanent — no expiry
+            },
+          });
+          console.log(
+            `[Auth] owner_admin_auto_enabled for ${data.user.email}`
+          );
+        }
 
         // Reconcile any pending orders for this user's email
         if (data.user.email) {
