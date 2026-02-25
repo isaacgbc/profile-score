@@ -87,7 +87,7 @@ export default function LoginPage() {
       <div className="max-w-md w-full mx-4 p-8 bg-white rounded-2xl shadow-sm border border-[var(--border-light)]">
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
-            <BrandLogo size={36} className="rounded-lg" />
+            <BrandLogo size={36} />
             <span className="text-lg font-semibold text-[var(--text-primary)]">
               Profile Score
             </span>

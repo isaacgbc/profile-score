@@ -45,7 +45,7 @@ export default function Header() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 group">
-            <BrandLogo size={32} className="shadow-sm group-hover:shadow-md transition-shadow rounded-lg" />
+            <BrandLogo size={32} className="shadow-sm group-hover:shadow-md transition-shadow" />
             <div className="flex flex-col">
               <span className="text-[15px] font-semibold text-[var(--text-primary)] leading-tight tracking-tight">
                 {t.common.brandName}

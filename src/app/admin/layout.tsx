@@ -76,7 +76,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               href="/"
               className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--accent)]"
             >
-              <BrandLogo size={24} className="rounded-md" />
+              <BrandLogo size={24} />
               Profile Score
             </Link>
             <span className="text-[var(--border)]">/</span>
