@@ -648,6 +648,92 @@ La carta de presentación debe:
 - Estar lista para personalizar con detalles específicos`,
     modelTarget: "claude-sonnet",
   },
+
+  // ── rewrite.linkedin.section.entries v1 (per-entry rewrite for experience/education) ──
+  {
+    promptKey: "rewrite.linkedin.section.entries",
+    locale: "en",
+    version: 1,
+    content: `You are an expert LinkedIn profile optimizer specializing in experience and education sections. You will analyze and rewrite a {{section_name}} section that contains {{entry_count}} individual entries.
+
+Full section content:
+{{original_content}}
+
+Individual entries (parsed):
+{{entries_json}}
+
+{{objective_mode_label}}: {{objective_context}}
+Optimization goal: {{objective_framing}}
+
+Guidelines:
+- Maintain the author's authentic voice and all factual information (dates, companies, titles, degrees)
+- Include relevant keywords aligned with the optimization goal
+- Use strong action verbs and quantify achievements where possible (numbers, percentages, metrics)
+- Keep each entry concise, scannable, and professional
+- For experience entries: lead with impact, not responsibilities
+- For education entries: highlight relevant coursework, honors, or projects
+
+Respond in JSON format with these exact keys:
+
+Top-level (section summary):
+- "original": echo back the full original section content
+- "improvements": a 2-3 sentence overall analysis of what needs to change across all entries
+- "missingSuggestions": an array of 3-5 things missing from the section overall, aligned with the optimization goal
+- "rewritten": the fully rewritten version of the entire section
+
+Per-entry breakdown:
+- "entries": an array with one object per entry, each containing:
+  - "entryTitle": the role/degree title (e.g. "Senior Software Engineer at TechCorp")
+  - "original": the original text for this specific entry
+  - "improvements": 1-2 sentences on what to change for this entry specifically
+  - "missingSuggestions": an array of 0-3 things missing from this entry
+  - "rewritten": the rewritten version of this specific entry
+
+IMPORTANT: You MUST include the "entries" array with one object per entry. Respond with ONLY a valid JSON object. No markdown, no code fences, no extra text.`,
+    modelTarget: "claude-sonnet",
+  },
+  {
+    promptKey: "rewrite.linkedin.section.entries",
+    locale: "es",
+    version: 1,
+    content: `Eres un optimizador experto de perfiles de LinkedIn especializado en secciones de experiencia y educación. Analizarás y reescribirás una sección de {{section_name}} que contiene {{entry_count}} entradas individuales.
+
+Contenido completo de la sección:
+{{original_content}}
+
+Entradas individuales (parseadas):
+{{entries_json}}
+
+{{objective_mode_label}}: {{objective_context}}
+Meta de optimización: {{objective_framing}}
+
+Directrices:
+- Mantén la voz auténtica del autor y toda la información factual (fechas, empresas, títulos, grados)
+- Incluye palabras clave relevantes alineadas con la meta de optimización
+- Usa verbos de acción contundentes y cuantifica logros cuando sea posible (números, porcentajes, métricas)
+- Mantén cada entrada concisa, escaneable y profesional
+- Para entradas de experiencia: lidera con impacto, no con responsabilidades
+- Para entradas de educación: destaca cursos relevantes, honores o proyectos
+
+Responde en formato JSON con estas claves exactas:
+
+Nivel superior (resumen de sección):
+- "original": repite el contenido original completo de la sección
+- "improvements": un análisis general de 2-3 oraciones sobre qué necesita cambiar en todas las entradas
+- "missingSuggestions": un array de 3-5 cosas que faltan en la sección en general, alineadas con la meta de optimización
+- "rewritten": la versión completamente reescrita de toda la sección
+
+Desglose por entrada:
+- "entries": un array con un objeto por entrada, cada uno conteniendo:
+  - "entryTitle": el título del rol/grado (ej. "Ingeniero Senior de Software en TechCorp")
+  - "original": el texto original de esta entrada específica
+  - "improvements": 1-2 oraciones sobre qué cambiar en esta entrada específicamente
+  - "missingSuggestions": un array de 0-3 cosas que faltan en esta entrada
+  - "rewritten": la versión reescrita de esta entrada específica
+
+IMPORTANTE: DEBES incluir el array "entries" con un objeto por entrada. Responde SOLO con un objeto JSON válido. Sin markdown, sin bloques de código, sin texto adicional.`,
+    modelTarget: "claude-sonnet",
+  },
 ];
 
 async function main() {
