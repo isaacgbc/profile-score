@@ -846,13 +846,21 @@ export async function generateAuditResults(
 
   const durationMs = Date.now() - startTime;
 
-  // ─── 9c. Compute degraded state (P0-2) ─────────────────
-  const totalExpectedSections =
+  // ─── 9c. Compute degraded state (P0-2, fixed denominator) ─────────
+  // totalExpectedOperations counts ALL fallback-able operations, not just section IDs.
+  // Each section has a score + rewrite, plus optional cover letter.
+  // Previously this used section IDs only, making the ratio too sensitive
+  // (e.g. 3 rewrite failures / 7 section IDs = 42.8% > 30% = false degraded).
+  const expectedScoreSections =
     (hasLinkedinInput ? LINKEDIN_SECTION_IDS.length : 0) +
     (hasCvInput ? CV_SECTION_IDS.length : 0);
+  const expectedRewriteSections = scoredLinkedinSections.length + scoredCvSections.length;
+  const expectedCoverLetter = shouldGenerateCoverLetter ? 1 : 0;
+  const totalExpectedOperations =
+    expectedScoreSections + expectedRewriteSections + expectedCoverLetter;
   const degraded =
-    totalExpectedSections > 0 &&
-    fallbackCount / totalExpectedSections >= DEGRADED_FALLBACK_THRESHOLD;
+    totalExpectedOperations > 0 &&
+    fallbackCount / totalExpectedOperations >= DEGRADED_FALLBACK_THRESHOLD;
 
   // Deduplicate failure reasons for client
   const uniqueFailureReasons = [...new Set(failureReasons)];
@@ -863,9 +871,11 @@ export async function generateAuditResults(
     `duration=${durationMs}ms | ` +
     `sections=${sectionCountGenerated} | ` +
     `rewrites=${linkedinRewrites.length + cvRewrites.length} | ` +
-    `fallbacks=${fallbackCount} | ` +
+    `fallbacks=${fallbackCount}/${totalExpectedOperations} | ` +
     `mockLeaks=${mockLeaksDetected} | ` +
     `degraded=${degraded} | ` +
+    `isAdmin=${input.isAdmin} | ` +
+    `plan=${input.planId} | ` +
     `model=${primaryModel} | ` +
     `failureReasons=[${uniqueFailureReasons.join(",")}] | ` +
     `promptVersions=${JSON.stringify(promptVersions)}`

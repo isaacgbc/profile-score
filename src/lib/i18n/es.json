@@ -304,7 +304,10 @@
     "fallbackWarning": "Algunas secciones usaron puntuaciones estimadas debido a un problema temporal. Vuelve a ejecutar tu auditoría para resultados completamente personalizados.",
     "degradedTitle": "Problema de generación detectado",
     "degradedDesc": "Algunos resultados no pudieron personalizarse debido a un problema temporal del servicio. Por favor, reintenta para obtener resultados precisos.",
-    "retryFresh": "Reintentar con generación nueva"
+    "retryFresh": "Reintentar con generación nueva",
+    "generationFailedTitle": "No pudimos generar resultados personalizados",
+    "generationFailedDesc": "Algunos resultados no pudieron personalizarse completamente debido a un problema temporal del servicio. Por favor, reintenta para obtener resultados precisos.",
+    "diagnosticHint": "Detalles"
   },
   "rewriteStudio": {
     "title": "Estudio de Reescritura",

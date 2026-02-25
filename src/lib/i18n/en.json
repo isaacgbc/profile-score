@@ -304,7 +304,10 @@
     "fallbackWarning": "Some sections used estimated scores due to a temporary issue. Re-run your audit for fully personalized results.",
     "degradedTitle": "Generation issue detected",
     "degradedDesc": "Some results could not be personalized due to a temporary service issue. Please retry for accurate, input-specific results.",
-    "retryFresh": "Retry with fresh generation"
+    "retryFresh": "Retry with fresh generation",
+    "generationFailedTitle": "We couldn't generate personalized results",
+    "generationFailedDesc": "Some results could not be fully personalized due to a temporary service issue. Please retry for accurate, input-specific results.",
+    "diagnosticHint": "Details"
   },
   "rewriteStudio": {
     "title": "Rewrite Studio",

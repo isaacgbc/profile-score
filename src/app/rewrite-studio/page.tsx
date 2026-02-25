@@ -23,6 +23,7 @@ export default function RewriteStudioPage() {
     results,
     generateResults,
     isGenerating,
+    generationMeta,
     isAdmin,
     setShowPricingModal,
     userImprovements,
@@ -111,6 +112,44 @@ export default function RewriteStudioPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-20 text-center">
           <div className="w-12 h-12 mx-auto mb-4 rounded-full border-4 border-[var(--accent-light)] border-t-[var(--accent)] animate-spin" />
           <p className="text-sm text-[var(--text-secondary)]">Loading rewrites...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── P0-6: STRICT degraded-mode gate for Rewrite Studio ──
+  // Never show fallback/placeholder rewrite content as if it were real.
+  const generationHasIssues =
+    generationMeta?.degraded || generationMeta?.hasFallback;
+
+  if (generationHasIssues) {
+    return (
+      <div className="animate-fade-in">
+        <StepIndicator currentStep="rewrite-studio" />
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-20 text-center">
+          <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-red-50 flex items-center justify-center">
+            <span className="text-2xl text-red-600">!</span>
+          </div>
+          <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
+            {t.results.generationFailedTitle}
+          </h2>
+          <p className="text-sm text-[var(--text-secondary)] mb-6 max-w-md mx-auto">
+            {t.results.generationFailedDesc}
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <Link href="/input">
+              <Button variant="ghost">{t.common.back}</Button>
+            </Link>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setLoading(true);
+                generateResults({ forceFresh: true }).finally(() => setLoading(false));
+              }}
+            >
+              {t.results.retryFresh}
+            </Button>
+          </div>
         </div>
       </div>
     );
