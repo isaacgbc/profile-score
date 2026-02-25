@@ -45,6 +45,33 @@ import {
   validateSectionCompleteness,
 } from "./generation-guards";
 
+// ── Failure reason categories (P0-1: structured diagnostics) ──
+export type FailureReason =
+  | "timeout"
+  | "rate_limit_429"
+  | "invalid_json"
+  | "missing_prompt"
+  | "empty_input"
+  | "parser_fail"
+  | "circuit_breaker_open"
+  | "mock_fingerprint_retry"
+  | "generic_output_retry"
+  | "unknown";
+
+function categorizeError(err: unknown): FailureReason {
+  if (!(err instanceof Error)) return "unknown";
+  const msg = err.message.toLowerCase();
+  if (msg.includes("circuit breaker")) return "circuit_breaker_open";
+  if (msg.includes("429") || msg.includes("rate limit") || msg.includes("rate_limit")) return "rate_limit_429";
+  if (msg.includes("abort") || msg.includes("timeout") || msg.includes("timed out")) return "timeout";
+  if (msg.includes("json") || msg.includes("parse")) return "invalid_json";
+  return "unknown";
+}
+
+// ── Degraded threshold ──
+// If ≥ this fraction of total expected sections are fallbacks, results are degraded
+const DEGRADED_FALLBACK_THRESHOLD = 0.3; // 30% or more fallbacks = degraded
+
 // ── Input type ──────────────────────────────────────────
 export interface AuditInput {
   linkedinText: string;
@@ -55,6 +82,8 @@ export interface AuditInput {
   objectiveText: string;
   planId: PlanId | null;
   isAdmin: boolean;
+  /** P0-4: bypass cache and force fresh generation */
+  forceFresh?: boolean;
 }
 
 // ── Generation metadata (enhanced for integrity tracking) ──
@@ -68,6 +97,10 @@ export interface GenerationMeta {
   sectionCountGenerated: number;
   /** Number of mock leaks detected and replaced */
   mockLeaksDetected: number;
+  /** P0-2: true when fallbackCount is high enough to be unreliable */
+  degraded: boolean;
+  /** P0-1: categorized failure reasons for every failed step */
+  failureReasons: FailureReason[];
 }
 
 export interface GenerationResult {
@@ -126,10 +159,15 @@ async function scoreSection(
   targetRole: string,
   framing: ObjectiveFraming,
   locale: Locale,
-  promptVersions: Record<string, number>
+  promptVersions: Record<string, number>,
+  failureReasons: FailureReason[]
 ): Promise<{ section: ScoreSection; modelUsed: string } | null> {
   const prompt = await getActivePromptWithVersion(promptKey, locale);
-  if (!prompt) return null;
+  if (!prompt) {
+    failureReasons.push("missing_prompt");
+    console.error(`[diag] Missing prompt: key=${promptKey}, locale=${locale}, section=${sectionId}`);
+    return null;
+  }
 
   promptVersions[promptKey] = prompt.version;
 
@@ -176,20 +214,22 @@ async function scoreSection(
           console.warn(
             `[guard] Mock fingerprint detected in scored section ${sectionId} (attempt ${attempt + 1}), retrying`
           );
+          failureReasons.push("mock_fingerprint_retry");
           continue; // Force retry with different attempt message
         }
 
         return { section, modelUsed: result.modelUsed };
       }
 
+      failureReasons.push("invalid_json");
       console.warn(
-        `Audit parse failed for ${sectionId} (attempt ${attempt + 1}):`,
-        parsed.error?.message
+        `[diag] Audit parse failed: section=${sectionId}, attempt=${attempt + 1}, error=${parsed.error?.message}`
       );
     } catch (err) {
+      const reason = categorizeError(err);
+      failureReasons.push(reason);
       console.warn(
-        `Audit LLM error for ${sectionId} (attempt ${attempt + 1}):`,
-        err instanceof Error ? err.message : "Unknown"
+        `[diag] Audit LLM error: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}, error=${err instanceof Error ? err.message : "Unknown"}`
       );
     }
   }
@@ -206,10 +246,15 @@ async function rewriteSection(
   jobObjective: string,
   framing: ObjectiveFraming,
   locale: Locale,
-  promptVersions: Record<string, number>
+  promptVersions: Record<string, number>,
+  failureReasons: FailureReason[]
 ): Promise<{ rewrite: RewritePreview; modelUsed: string } | null> {
   const prompt = await getActivePromptWithVersion(promptKey, locale);
-  if (!prompt) return null;
+  if (!prompt) {
+    failureReasons.push("missing_prompt");
+    console.error(`[diag] Missing prompt: key=${promptKey}, locale=${locale}, section=${sectionId}`);
+    return null;
+  }
 
   promptVersions[promptKey] = prompt.version;
 
@@ -256,20 +301,22 @@ async function rewriteSection(
           console.warn(
             `[guard] Mock fingerprint detected in rewrite ${sectionId} (attempt ${attempt + 1}), retrying`
           );
+          failureReasons.push("mock_fingerprint_retry");
           continue;
         }
 
         return { rewrite, modelUsed: result.modelUsed };
       }
 
+      failureReasons.push("invalid_json");
       console.warn(
-        `Rewrite parse failed for ${sectionId} (attempt ${attempt + 1}):`,
-        parsed.error?.message
+        `[diag] Rewrite parse failed: section=${sectionId}, attempt=${attempt + 1}, error=${parsed.error?.message}`
       );
     } catch (err) {
+      const reason = categorizeError(err);
+      failureReasons.push(reason);
       console.warn(
-        `Rewrite LLM error for ${sectionId} (attempt ${attempt + 1}):`,
-        err instanceof Error ? err.message : "Unknown"
+        `[diag] Rewrite LLM error: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}, error=${err instanceof Error ? err.message : "Unknown"}`
       );
     }
   }
@@ -285,13 +332,18 @@ async function generateCoverLetter(
   overallScore: number,
   framing: ObjectiveFraming,
   locale: Locale,
-  promptVersions: Record<string, number>
+  promptVersions: Record<string, number>,
+  failureReasons: FailureReason[]
 ): Promise<{ coverLetter: CoverLetterResult; modelUsed: string } | null> {
   const prompt = await getActivePromptWithVersion(
     "export.cover-letter.system",
     locale
   );
-  if (!prompt) return null;
+  if (!prompt) {
+    failureReasons.push("missing_prompt");
+    console.error(`[diag] Missing prompt: key=export.cover-letter.system, locale=${locale}`);
+    return null;
+  }
 
   promptVersions["export.cover-letter.system"] = prompt.version;
 
@@ -328,6 +380,7 @@ async function generateCoverLetter(
           console.warn(
             `[guard] Mock fingerprint detected in cover letter (attempt ${attempt + 1}), retrying`
           );
+          failureReasons.push("mock_fingerprint_retry");
           continue;
         }
 
@@ -340,9 +393,10 @@ async function generateCoverLetter(
         };
       }
     } catch (err) {
+      const reason = categorizeError(err);
+      failureReasons.push(reason);
       console.warn(
-        `Cover letter error (attempt ${attempt + 1}):`,
-        err instanceof Error ? err.message : "Unknown"
+        `[diag] Cover letter error: attempt=${attempt + 1}, reason=${reason}, error=${err instanceof Error ? err.message : "Unknown"}`
       );
     }
   }
@@ -418,8 +472,10 @@ export async function generateAuditResults(
   input: AuditInput,
   locale: Locale = "en"
 ): Promise<GenerationResult> {
+  const requestId = crypto.randomUUID().slice(0, 8);
   const startTime = Date.now();
   const promptVersions: Record<string, number> = {};
+  const failureReasons: FailureReason[] = [];
   let fallbackCount = 0;
   let mockLeaksDetected = 0;
   let primaryModel = LLM_MODEL_FAST;
@@ -431,8 +487,28 @@ export async function generateAuditResults(
       : input.objectiveText;
   const framing = getObjectiveFraming(input);
 
+  // P0-1: Request-level diagnostics header
+  console.log(
+    `[diag] request=${requestId} | ` +
+    `linkedinLen=${input.linkedinText.length} | ` +
+    `cvLen=${(input.cvText ?? "").length} | ` +
+    `jobLen=${input.jobDescription.length} | ` +
+    `objective=${input.objectiveMode} | ` +
+    `plan=${input.planId} | ` +
+    `forceFresh=${input.forceFresh ?? false}`
+  );
+
+  // P0-3: Verify LLM env vars are set (detect trailing newline issues)
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || apiKey.trim() !== apiKey) {
+    console.error(`[diag] ANTHROPIC_API_KEY issue: set=${!!apiKey}, hasWhitespace=${apiKey ? apiKey.trim() !== apiKey : false}`);
+  }
+
   // ─── 0. Check DB cache ────────────────────────────────
-  // Cache key includes objectiveMode + prompt versions for correctness
+  // P0-4: skip cache when forceFresh is set
+  if (input.forceFresh) {
+    console.log(`[diag] request=${requestId} | forceFresh=true, skipping cache`);
+  }
   try {
     const inputHash = await computeInputHash({
       linkedinText: input.linkedinText,
@@ -443,7 +519,7 @@ export async function generateAuditResults(
       objectiveText: input.objectiveText,
     });
 
-    const cached = await getCachedResult(inputHash);
+    const cached = input.forceFresh ? null : await getCachedResult(inputHash);
     if (cached) {
       // ── Guard: reject cached results that contain mock fingerprints ──
       const cachedHasMock = [
@@ -468,6 +544,8 @@ export async function generateAuditResults(
             hasFallback: false,
             sectionCountGenerated: results.linkedinSections.length + results.cvSections.length,
             mockLeaksDetected: 0,
+            degraded: false,
+            failureReasons: [],
           },
         };
       } else {
@@ -504,7 +582,8 @@ export async function generateAuditResults(
         targetRole,
         framing,
         locale,
-        promptVersions
+        promptVersions,
+        failureReasons
       ).then((result) => ({ id, result }));
     }
   );
@@ -524,7 +603,8 @@ export async function generateAuditResults(
         targetRole,
         framing,
         locale,
-        promptVersions
+        promptVersions,
+        failureReasons
       ).then((result) => ({ id, result }));
     }
   );
@@ -599,7 +679,8 @@ export async function generateAuditResults(
       jobObjective,
       framing,
       locale,
-      promptVersions
+      promptVersions,
+      failureReasons
     ).then((result) => ({ id: section.id, result }));
   });
 
@@ -614,7 +695,8 @@ export async function generateAuditResults(
       jobObjective,
       framing,
       locale,
-      promptVersions
+      promptVersions,
+      failureReasons
     ).then((result) => ({ id: section.id, result }));
   });
 
@@ -681,7 +763,8 @@ export async function generateAuditResults(
       overallScore,
       framing,
       locale,
-      promptVersions
+      promptVersions,
+      failureReasons
     );
 
     if (clResult) {
@@ -763,14 +846,28 @@ export async function generateAuditResults(
 
   const durationMs = Date.now() - startTime;
 
-  // ─── 10. Integrity log ────────────────────────────────
+  // ─── 9c. Compute degraded state (P0-2) ─────────────────
+  const totalExpectedSections =
+    (hasLinkedinInput ? LINKEDIN_SECTION_IDS.length : 0) +
+    (hasCvInput ? CV_SECTION_IDS.length : 0);
+  const degraded =
+    totalExpectedSections > 0 &&
+    fallbackCount / totalExpectedSections >= DEGRADED_FALLBACK_THRESHOLD;
+
+  // Deduplicate failure reasons for client
+  const uniqueFailureReasons = [...new Set(failureReasons)];
+
+  // ─── 10. Integrity log (P0-1: structured diagnostics) ──
   console.log(
-    `[generation] complete: ${durationMs}ms | ` +
+    `[diag] request=${requestId} | ` +
+    `duration=${durationMs}ms | ` +
     `sections=${sectionCountGenerated} | ` +
     `rewrites=${linkedinRewrites.length + cvRewrites.length} | ` +
     `fallbacks=${fallbackCount} | ` +
     `mockLeaks=${mockLeaksDetected} | ` +
+    `degraded=${degraded} | ` +
     `model=${primaryModel} | ` +
+    `failureReasons=[${uniqueFailureReasons.join(",")}] | ` +
     `promptVersions=${JSON.stringify(promptVersions)}`
   );
 
@@ -851,6 +948,8 @@ export async function generateAuditResults(
       hasFallback: fallbackCount > 0,
       sectionCountGenerated,
       mockLeaksDetected,
+      degraded,
+      failureReasons: uniqueFailureReasons,
     },
   };
 }

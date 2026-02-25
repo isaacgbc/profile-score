@@ -249,10 +249,44 @@ export default function ResultsPage() {
           )}
         </Card>
 
-        {/* Fallback warning */}
-        {generationMeta?.hasFallback && (
-          <div className="rounded-xl bg-amber-50 border border-amber-200/50 p-3 mb-6 text-center">
-            <p className="text-xs text-amber-700">{t.results.fallbackWarning}</p>
+        {/* P0-6: Degraded mode — prominent retry CTA instead of fake results */}
+        {generationMeta?.degraded && (
+          <div className="rounded-xl bg-red-50 border border-red-200 p-5 mb-6 text-center">
+            <div className="w-10 h-10 mx-auto mb-3 rounded-full bg-red-100 flex items-center justify-center">
+              <span className="text-lg text-red-600">!</span>
+            </div>
+            <p className="text-sm font-medium text-red-800 mb-1">
+              {t.results.degradedTitle}
+            </p>
+            <p className="text-xs text-red-700 mb-4 max-w-md mx-auto">
+              {t.results.degradedDesc}
+            </p>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => {
+                setLoading(true);
+                generateResults({ forceFresh: true }).finally(() => setLoading(false));
+              }}
+            >
+              {t.results.retryFresh}
+            </Button>
+          </div>
+        )}
+
+        {/* Fallback warning (non-degraded, some fallbacks) */}
+        {generationMeta?.hasFallback && !generationMeta.degraded && (
+          <div className="rounded-xl bg-amber-50 border border-amber-200/50 p-4 mb-6 text-center">
+            <p className="text-xs text-amber-700 mb-2">{t.results.fallbackWarning}</p>
+            <button
+              onClick={() => {
+                setLoading(true);
+                generateResults({ forceFresh: true }).finally(() => setLoading(false));
+              }}
+              className="text-xs font-medium text-amber-800 underline hover:text-amber-900"
+            >
+              {t.results.retryFresh}
+            </button>
           </div>
         )}
 

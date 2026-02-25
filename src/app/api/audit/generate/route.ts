@@ -45,6 +45,8 @@ const GenerateAuditInput = z.object({
   planId: z.string().max(50).nullable().default(null),
   isAdmin: z.boolean().default(false),
   locale: z.enum(["en", "es"]).default("en"),
+  /** P0-4: bypass cache and force fresh LLM generation */
+  forceFresh: z.boolean().default(false),
 });
 
 function getClientIp(request: Request): string {
@@ -179,8 +181,21 @@ export async function POST(request: Request) {
         objectiveText: parsed.data.objectiveText,
         planId: parsed.data.planId as PlanId | null,
         isAdmin: effectiveIsAdmin,
+        forceFresh: parsed.data.forceFresh,
       },
       parsed.data.locale as Locale
+    );
+
+    // P0-1: Route-level diagnostic log
+    console.log(
+      `[route] /api/audit/generate | ` +
+      `status=200 | ` +
+      `duration=${result.meta.durationMs}ms | ` +
+      `model=${result.meta.modelUsed} | ` +
+      `fallbacks=${result.meta.fallbackCount} | ` +
+      `degraded=${result.meta.degraded} | ` +
+      `sections=${result.meta.sectionCountGenerated} | ` +
+      `failures=[${result.meta.failureReasons.join(",")}]`
     );
 
     return NextResponse.json({

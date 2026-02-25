@@ -167,6 +167,12 @@ export interface GenerationMetaClient {
   promptVersionsUsed: Record<string, number>;
   hasFallback: boolean;
   durationMs: number;
+  /** Number of sections that fell back to mock data */
+  fallbackCount: number;
+  /** True when fallbackCount is high enough that results are unreliable */
+  degraded: boolean;
+  /** Categorized failure reasons for diagnostics */
+  failureReasons: string[];
 }
 
 export interface AppState {

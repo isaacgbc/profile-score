@@ -63,7 +63,7 @@ interface AppContextValue extends AppState {
   isSectionLocked: (sectionId: string) => boolean;
   isCoverLetterUnlocked: () => boolean;
   isExportModuleUnlocked: (moduleId: ExportModuleId) => boolean;
-  generateResults: () => Promise<void>;
+  generateResults: (options?: { forceFresh?: boolean }) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -291,7 +291,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [isAdmin, selectedPlan]
   );
 
-  const generateResults = useCallback(async () => {
+  const generateResults = useCallback(async (options?: { forceFresh?: boolean }) => {
     setIsGenerating(true);
     setGenerationError(null);
 
@@ -309,6 +309,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           planId: selectedPlan,
           isAdmin,
           locale: exportLocale,
+          forceFresh: options?.forceFresh ?? false,
         }),
       });
 
@@ -322,13 +323,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setResultsState(generatedResults);
 
-      // Store generation metadata (for fallback warning display)
+      // Store generation metadata (for fallback/degraded warning display)
       if (data.meta) {
         setGenerationMeta({
           modelUsed: data.meta.modelUsed,
           promptVersionsUsed: data.meta.promptVersionsUsed,
           hasFallback: data.meta.hasFallback ?? data.meta.fallbackCount > 0,
           durationMs: data.meta.durationMs,
+          fallbackCount: data.meta.fallbackCount ?? 0,
+          degraded: data.meta.degraded ?? false,
+          failureReasons: data.meta.failureReasons ?? [],
         });
       } else {
         setGenerationMeta(null);

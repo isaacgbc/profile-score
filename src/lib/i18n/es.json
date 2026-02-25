@@ -301,7 +301,10 @@
     "lockedSectionsCount": "{count} secciones listas para desbloquear",
     "atsInsight": "Los perfiles optimizados con Profile Score tienen 3x más probabilidades de pasar filtros ATS y llegar a un reclutador humano.",
     "continueToRewrite": "Continuar al Estudio de Reescritura",
-    "fallbackWarning": "Algunas secciones usaron puntuaciones estimadas debido a un problema temporal. Vuelve a ejecutar tu auditoría para resultados completamente personalizados."
+    "fallbackWarning": "Algunas secciones usaron puntuaciones estimadas debido a un problema temporal. Vuelve a ejecutar tu auditoría para resultados completamente personalizados.",
+    "degradedTitle": "Problema de generación detectado",
+    "degradedDesc": "Algunos resultados no pudieron personalizarse debido a un problema temporal del servicio. Por favor, reintenta para obtener resultados precisos.",
+    "retryFresh": "Reintentar con generación nueva"
   },
   "rewriteStudio": {
     "title": "Estudio de Reescritura",

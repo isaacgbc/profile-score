@@ -301,7 +301,10 @@
     "lockedSectionsCount": "{count} sections ready to unlock",
     "atsInsight": "Profiles optimized with Profile Score are 3x more likely to pass ATS filters and reach a human recruiter.",
     "continueToRewrite": "Continue to Rewrite Studio",
-    "fallbackWarning": "Some sections used estimated scores due to a temporary issue. Re-run your audit for fully personalized results."
+    "fallbackWarning": "Some sections used estimated scores due to a temporary issue. Re-run your audit for fully personalized results.",
+    "degradedTitle": "Generation issue detected",
+    "degradedDesc": "Some results could not be personalized due to a temporary service issue. Please retry for accurate, input-specific results.",
+    "retryFresh": "Retry with fresh generation"
   },
   "rewriteStudio": {
     "title": "Rewrite Studio",
