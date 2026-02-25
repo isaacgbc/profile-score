@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
+import BrandLogo from "@/components/ui/BrandLogo";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -85,10 +86,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-[var(--bg-primary)]">
       <div className="max-w-md w-full mx-4 p-8 bg-white rounded-2xl shadow-sm border border-[var(--border-light)]">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 mb-6">
-            <div className="w-8 h-8 rounded-lg bg-[var(--accent)] flex items-center justify-center">
-              <span className="text-white font-bold text-sm">PS</span>
-            </div>
+          <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
+            <BrandLogo size={36} className="rounded-lg" />
             <span className="text-lg font-semibold text-[var(--text-primary)]">
               Profile Score
             </span>

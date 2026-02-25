@@ -13,6 +13,27 @@ export const metadata: Metadata = {
   title: "Profile Score — LinkedIn + CV Optimization",
   description:
     "Get a professional score for your LinkedIn and CV. Discover what recruiters actually see and how to stand out.",
+  icons: {
+    icon: [
+      { url: "/brand/logo.svg", type: "image/svg+xml" },
+      { url: "/brand/logo.png", type: "image/png" },
+    ],
+    apple: { url: "/brand/logo.png", type: "image/png" },
+  },
+  openGraph: {
+    title: "Profile Score — LinkedIn + CV Optimization",
+    description:
+      "Get a professional score for your LinkedIn and CV. Discover what recruiters actually see and how to stand out.",
+    images: [{ url: "/brand/logo.png", width: 512, height: 512, alt: "Profile Score" }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Profile Score — LinkedIn + CV Optimization",
+    description:
+      "Get a professional score for your LinkedIn and CV. Discover what recruiters actually see and how to stand out.",
+    images: ["/brand/logo.png"],
+  },
 };
 
 export default function RootLayout({

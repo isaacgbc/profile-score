@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "@/context/I18nContext";
+import BrandLogo from "@/components/ui/BrandLogo";
 
 export default function Footer() {
   const { t } = useI18n();
@@ -10,9 +11,7 @@ export default function Footer() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-[var(--accent)] flex items-center justify-center">
-              <span className="text-white font-bold text-[10px]">PS</span>
-            </div>
+            <BrandLogo size={24} className="rounded-md" />
             <span className="text-sm font-medium text-[var(--text-secondary)]">
               {t.common.brandName}
             </span>

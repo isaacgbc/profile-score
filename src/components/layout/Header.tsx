@@ -6,6 +6,7 @@ import { useI18n } from "@/context/I18nContext";
 import { useApp } from "@/context/AppContext";
 import { GlobeIcon } from "@/components/ui/Icons";
 import AdminPasswordModal from "@/components/ui/AdminPasswordModal";
+import BrandLogo from "@/components/ui/BrandLogo";
 import type { Locale } from "@/lib/types";
 
 export default function Header() {
@@ -44,9 +45,7 @@ export default function Header() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-lg bg-[var(--accent)] flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
-              <span className="text-white font-bold text-sm">PS</span>
-            </div>
+            <BrandLogo size={32} className="shadow-sm group-hover:shadow-md transition-shadow rounded-lg" />
             <div className="flex flex-col">
               <span className="text-[15px] font-semibold text-[var(--text-primary)] leading-tight tracking-tight">
                 {t.common.brandName}

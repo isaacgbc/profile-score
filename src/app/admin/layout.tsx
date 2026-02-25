@@ -4,6 +4,7 @@ import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { useApp } from "@/context/AppContext";
 import Button from "@/components/ui/Button";
+import BrandLogo from "@/components/ui/BrandLogo";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { isAdmin } = useApp();
@@ -73,8 +74,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-4">
             <Link
               href="/"
-              className="text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--accent)]"
+              className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--accent)]"
             >
+              <BrandLogo size={24} className="rounded-md" />
               Profile Score
             </Link>
             <span className="text-[var(--border)]">/</span>
