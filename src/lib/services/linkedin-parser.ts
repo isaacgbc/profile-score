@@ -9,10 +9,14 @@
  *
  * V2: Broadened regex patterns for PDF-extracted text (prefix matching),
  * LLM fallback for unstructured text, and "featured" section support.
+ *
+ * V3: PDF pre-cleaning (linkedin-pdf-cleaner), per-entry parsing for
+ * experience/education sections (EN + ES date/title support).
  */
 
 import { callLLM, LLM_MODEL_FAST } from "./llm-client";
 import { extractJson } from "@/lib/schemas/llm-output";
+import { cleanLinkedinPdfText } from "./linkedin-pdf-cleaner";
 import type { Locale } from "@/lib/types";
 
 // ── Section header patterns → internal IDs ───────────────
@@ -173,18 +177,35 @@ export async function parseLinkedinSectionsWithFallback(
   rawText: string,
   _locale: Locale = "en"
 ): Promise<Record<string, string>> {
-  // Always try regex first
-  const regexResult = parseLinkedinSections(rawText);
+  // V3: Pre-clean PDF noise before parsing
+  const { cleaned, metadata: pdfMeta } = cleanLinkedinPdfText(rawText);
+
+  if (pdfMeta.removedPageMarkers > 0 || pdfMeta.contactLines.length > 0) {
+    console.log(
+      `[parser] PDF cleaner: removed ${pdfMeta.removedPageMarkers} page markers, ` +
+      `${pdfMeta.contactLines.length} contact lines, ` +
+      `${pdfMeta.sidebarSkills.length} sidebar skills, ` +
+      `${pdfMeta.certifications.length} sidebar certs`
+    );
+  }
+
+  // Always try regex first (on cleaned text)
+  const regexResult = parseLinkedinSections(cleaned);
+
+  // If sidebar skills were extracted but no skills section parsed, use them
+  if (pdfMeta.sidebarSkills.length > 0 && !regexResult.skills) {
+    regexResult.skills = pdfMeta.sidebarSkills.join("\n");
+  }
 
   // If regex found 2+ sections or text is short, regex is sufficient
   const sectionCount = Object.keys(regexResult).length;
-  if (sectionCount >= 2 || rawText.trim().length <= 300) {
+  if (sectionCount >= 2 || cleaned.trim().length <= 300) {
     return regexResult;
   }
 
   // LLM fallback: text is substantial but regex found ≤1 section
   try {
-    const truncated = rawText.slice(0, LLM_PARSER_MAX_CHARS);
+    const truncated = cleaned.slice(0, LLM_PARSER_MAX_CHARS);
 
     const controller = new AbortController();
     const timeout = setTimeout(
@@ -275,3 +296,176 @@ export const SECTION_DISPLAY_NAMES: Record<string, string> = {
   "education-section": "Education",
   certifications: "Certifications",
 };
+
+// ── Per-Entry Parsing ─────────────────────────────────────
+// V3: Parse experience/education sections into individual entries.
+// Supports both English and Spanish date formats.
+
+export interface ParsedEntry {
+  /** Role/degree title, e.g. "Senior Software Engineer" */
+  title: string;
+  /** Company/institution name, e.g. "Google" */
+  organization: string;
+  /** Date range string, e.g. "Jan 2020 - Present" */
+  dateRange: string;
+  /** Description/bullets for this entry */
+  description: string;
+}
+
+export interface ParsedSectionWithEntries {
+  rawText: string;
+  entries: ParsedEntry[];
+  confidence: "high" | "low";
+}
+
+// EN month names
+const EN_MONTHS =
+  "Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?";
+// ES month names
+const ES_MONTHS =
+  "ene(?:ro)?|feb(?:rero)?|mar(?:zo)?|abr(?:il)?|may(?:o)?|jun(?:io)?|jul(?:io)?|ago(?:sto)?|sep(?:t(?:iembre)?)?|oct(?:ubre)?|nov(?:iembre)?|dic(?:iembre)?";
+
+/** Matches a date range line (EN + ES):
+ * "Jan 2020 - Present", "2020 - 2023", "enero 2019 - Actual", etc.
+ */
+const DATE_RANGE_RE = new RegExp(
+  `(?:(?:${EN_MONTHS}|${ES_MONTHS})\\s+)?\\d{4}\\s*[-–—]\\s*(?:(?:${EN_MONTHS}|${ES_MONTHS})\\s+)?(?:\\d{4}|Present|Actual|Actualidad|Presente|Current)`,
+  "i"
+);
+
+/** Matches a standalone date range line (most of the line is the date) */
+const DATE_LINE_RE = new RegExp(
+  `^\\s*(?:(?:${EN_MONTHS}|${ES_MONTHS})\\s+)?\\d{4}\\s*[-–—]\\s*(?:(?:${EN_MONTHS}|${ES_MONTHS})\\s+)?(?:\\d{4}|Present|Actual|Actualidad|Presente|Current)(?:\\s*·\\s*.*)?\\s*$`,
+  "i"
+);
+
+/** Duration suffix patterns: "· 2 yrs 3 mos", "· 1 año 6 meses" */
+const DURATION_SUFFIX_RE =
+  /\s*·\s*(?:\d+\s*(?:yr|year|año|mes|mo|month)s?\s*)+/i;
+
+/**
+ * Parse a section (experience or education) into individual entries.
+ * Returns entries with title, organization, dateRange, and description.
+ *
+ * Only processes "experience", "education", "work-experience",
+ * "education-section" section IDs. All others return entries: [].
+ */
+export function parseEntriesFromSection(
+  sectionId: string,
+  sectionText: string
+): ParsedSectionWithEntries {
+  const result: ParsedSectionWithEntries = {
+    rawText: sectionText,
+    entries: [],
+    confidence: "low",
+  };
+
+  // Only parse entry-based sections
+  const entrySections = [
+    "experience",
+    "education",
+    "work-experience",
+    "education-section",
+  ];
+  if (!entrySections.includes(sectionId)) return result;
+
+  if (!sectionText || sectionText.trim().length < 30) return result;
+
+  const lines = sectionText.split("\n");
+
+  // Strategy: find date range lines, then work backwards for title/org
+  // and forwards for description.
+  const dateLineIndices: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (DATE_LINE_RE.test(lines[i])) {
+      dateLineIndices.push(i);
+    }
+  }
+
+  if (dateLineIndices.length === 0) {
+    // No date lines found — try splitting on date ranges within lines
+    // (some PDF extractions merge title + date on one line)
+    return result; // confidence stays "low"
+  }
+
+  const entries: ParsedEntry[] = [];
+
+  for (let d = 0; d < dateLineIndices.length; d++) {
+    const dateIdx = dateLineIndices[d];
+    const nextDateIdx =
+      d + 1 < dateLineIndices.length ? dateLineIndices[d + 1] : lines.length;
+
+    // Extract date range (strip duration suffix for cleanliness)
+    const dateRaw = lines[dateIdx].trim();
+    const dateRange = dateRaw.replace(DURATION_SUFFIX_RE, "").trim();
+
+    // Title and org: look at 1-2 lines before the date line
+    let title = "";
+    let organization = "";
+
+    // Determine how far back we can look (don't go past previous entry)
+    const prevEntryEnd =
+      d > 0 ? dateLineIndices[d - 1] + 1 : 0;
+    const headerStart = Math.max(prevEntryEnd, dateIdx - 3);
+
+    // Collect non-empty header lines before date
+    const headerLines: string[] = [];
+    for (let h = headerStart; h < dateIdx; h++) {
+      const hl = lines[h].trim();
+      if (hl.length > 0 && !DATE_LINE_RE.test(hl)) {
+        headerLines.push(hl);
+      }
+    }
+
+    if (headerLines.length >= 2) {
+      // Last header line = organization, second-to-last = title
+      title = headerLines[headerLines.length - 2];
+      organization = headerLines[headerLines.length - 1];
+    } else if (headerLines.length === 1) {
+      title = headerLines[0];
+    }
+
+    // Description: lines after date until next entry's header zone
+    const descStart = dateIdx + 1;
+    // Leave 2-3 lines before next date as header zone
+    const descEnd =
+      d + 1 < dateLineIndices.length
+        ? Math.max(descStart, dateLineIndices[d + 1] - 2)
+        : lines.length;
+
+    const descLines: string[] = [];
+    for (let dl = descStart; dl < descEnd; dl++) {
+      const dLine = lines[dl].trim();
+      // Stop if we hit what looks like the next entry's title
+      // (short non-empty line followed by a date line within 2 lines)
+      if (
+        dLine.length > 0 &&
+        dLine.length < 60 &&
+        dl + 2 < lines.length &&
+        d + 1 < dateLineIndices.length &&
+        dateLineIndices[d + 1] - dl <= 2
+      ) {
+        break;
+      }
+      descLines.push(lines[dl]);
+    }
+
+    const description = descLines.join("\n").trim();
+
+    if (title || dateRange) {
+      entries.push({ title, organization, dateRange, description });
+    }
+  }
+
+  result.entries = entries;
+  result.confidence =
+    entries.length > 0 && sectionText.length > 200 ? "high" : "low";
+
+  return result;
+}
+
+/** Max entries to send to LLM for per-entry rewriting (cost control) */
+export const MAX_ENTRIES_PER_SECTION = 6;
+
+/** Max characters per entry sent to LLM (cost control) */
+export const MAX_CHARS_PER_ENTRY = 1_500;

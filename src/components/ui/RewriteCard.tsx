@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useI18n } from "@/context/I18nContext";
 import Card from "./Card";
 import Button from "./Button";
@@ -36,6 +37,8 @@ export default function RewriteCard({
   labels,
 }: RewriteCardProps) {
   const { t } = useI18n();
+  const [expandedOriginal, setExpandedOriginal] = useState(false);
+  const [expandedOptimized, setExpandedOptimized] = useState(false);
 
   // Use custom labels or fall back to default i18n
   const l = labels ?? {
@@ -45,6 +48,11 @@ export default function RewriteCard({
     optimized: t.results.optimized,
     missingSuggestionsLabel: t.results.missingSuggestionsLabel,
   };
+
+  const showMore = (t.common as Record<string, string>).showMore ?? "Show more";
+  const showLess = (t.common as Record<string, string>).showLess ?? "Show less";
+  const perEntryLabel =
+    (t.results as Record<string, string>).perEntryBreakdown ?? "Per-entry breakdown";
 
   const isStudio = variant === "studio";
   const sectionLabels = t.sectionLabels as Record<string, string>;
@@ -81,6 +89,83 @@ export default function RewriteCard({
     );
   }
 
+  // ─── Missing Suggestions (blue palette — semantic: "add new content") ───
+  function renderMissingSuggestions(pills: string[], compact = false) {
+    if (!pills || pills.length === 0) return null;
+    return (
+      <div className={`${compact ? "mt-2 pt-2" : "mt-3 pt-3"} border-t border-blue-100`}>
+        <p className={`${compact ? "text-[9px]" : "text-[10px]"} font-bold text-blue-600 uppercase tracking-wider ${compact ? "mb-1" : "mb-2"}`}>
+          {l.missingSuggestionsLabel}
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {pills.map((suggestion, i) => (
+            <span
+              key={i}
+              className={`inline-flex items-center ${
+                compact ? "px-1.5 py-0.5 text-[9px]" : "px-2.5 py-1 text-[11px]"
+              } font-medium bg-blue-50 text-blue-700 rounded-lg border border-blue-200 whitespace-normal break-words max-w-full`}
+            >
+              <span className="mr-0.5 text-blue-400">+</span>
+              {suggestion}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Per-entry sub-cards ───
+  function renderEntries() {
+    if (!rewrite.entries || rewrite.entries.length === 0) return null;
+    return (
+      <div className="mt-4 space-y-3">
+        <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+          {perEntryLabel}
+        </p>
+        {rewrite.entries.map((entry, idx) => (
+          <div
+            key={idx}
+            className="border border-[var(--border-light)] rounded-xl p-3 bg-[var(--surface-secondary)]/30"
+          >
+            <p className="text-xs font-semibold text-[var(--text-primary)] mb-2">
+              {entry.entryTitle}
+            </p>
+            <div className="grid md:grid-cols-3 gap-2">
+              {/* Entry original */}
+              <div className="bg-red-50/40 rounded-lg p-2">
+                <p className="text-[9px] font-semibold text-red-400 uppercase mb-1">
+                  {l.original}
+                </p>
+                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                  {entry.original}
+                </p>
+              </div>
+              {/* Entry improvements */}
+              <div className="bg-amber-50/40 rounded-lg p-2">
+                <p className="text-[9px] font-semibold text-amber-500 uppercase mb-1">
+                  {l.improvements}
+                </p>
+                <p className="text-xs text-amber-900 leading-relaxed">
+                  {entry.improvements}
+                </p>
+                {renderMissingSuggestions(entry.missingSuggestions, true)}
+              </div>
+              {/* Entry optimized */}
+              <div className="bg-emerald-50/40 rounded-lg p-2">
+                <p className="text-[9px] font-semibold text-emerald-500 uppercase mb-1">
+                  {l.optimized}
+                </p>
+                <p className="text-xs text-[var(--text-primary)] leading-relaxed">
+                  {entry.rewritten}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   // ─── UNLOCKED: DEFAULT VARIANT ───
   if (!isStudio) {
     return (
@@ -99,7 +184,7 @@ export default function RewriteCard({
             </p>
           </div>
 
-          {/* Things to Improve (amber, editable + missing suggestion chips) */}
+          {/* Things to Change (amber, editable) */}
           <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4">
             <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider mb-2">
               {l.improvements}
@@ -111,23 +196,7 @@ export default function RewriteCard({
               rows={4}
               className="w-full text-sm text-amber-900 bg-transparent resize-none focus:outline-none leading-relaxed placeholder:text-amber-300"
             />
-            {rewrite.missingSuggestions && rewrite.missingSuggestions.length > 0 && (
-              <div className="mt-2 pt-2 border-t border-amber-100">
-                <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider mb-1.5">
-                  {l.missingSuggestionsLabel}
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {rewrite.missingSuggestions.map((suggestion, i) => (
-                    <span
-                      key={i}
-                      className="inline-block px-2 py-0.5 text-[10px] font-medium bg-amber-100/80 text-amber-700 rounded-full"
-                    >
-                      {suggestion}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+            {renderMissingSuggestions(rewrite.missingSuggestions)}
           </div>
 
           {/* Optimized (green) */}
@@ -140,6 +209,7 @@ export default function RewriteCard({
             </p>
           </div>
         </div>
+        {renderEntries()}
       </Card>
     );
   }
@@ -151,17 +221,29 @@ export default function RewriteCard({
         {getSectionLabel(rewrite.sectionId, sectionLabels)}
       </h3>
       <div className="grid md:grid-cols-5 gap-3">
-        {/* Original (col-span-1, compact read-only) */}
+        {/* Original (col-span-1, expandable) */}
         <div className="md:col-span-1 bg-red-50/60 border border-red-100 rounded-xl p-3">
           <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wider mb-2">
             {l.original}
           </p>
-          <p className="text-xs text-[var(--text-secondary)] leading-relaxed line-clamp-6">
+          <p
+            className={`text-xs text-[var(--text-secondary)] leading-relaxed ${
+              expandedOriginal ? "max-h-96 overflow-y-auto" : "line-clamp-6"
+            }`}
+          >
             {rewrite.original}
           </p>
+          {rewrite.original.length > 300 && (
+            <button
+              onClick={() => setExpandedOriginal(!expandedOriginal)}
+              className="text-[10px] font-medium text-red-500 hover:underline mt-1"
+            >
+              {expandedOriginal ? showLess : showMore}
+            </button>
+          )}
         </div>
 
-        {/* Things to Change (col-span-3, DOMINANT) */}
+        {/* Things to Change (col-span-3, DOMINANT, editable) */}
         <div className="md:col-span-3 bg-amber-50/70 border-2 border-amber-300 rounded-xl p-4 shadow-sm">
           <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2">
             {l.improvements}
@@ -173,36 +255,33 @@ export default function RewriteCard({
             rows={6}
             className="w-full min-h-[120px] text-sm text-amber-900 bg-white/50 border border-amber-200 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-amber-300/50 leading-relaxed placeholder:text-amber-300"
           />
-          {/* Missing Suggestions */}
-          {rewrite.missingSuggestions && rewrite.missingSuggestions.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-amber-200">
-              <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-2">
-                {l.missingSuggestionsLabel}
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {rewrite.missingSuggestions.map((suggestion, i) => (
-                  <span
-                    key={i}
-                    className="inline-block px-2.5 py-1 text-[11px] font-medium bg-amber-100 text-amber-800 rounded-full border border-amber-200"
-                  >
-                    {suggestion}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Missing Suggestions — blue palette (semantic: add new content) */}
+          {renderMissingSuggestions(rewrite.missingSuggestions)}
         </div>
 
-        {/* Optimized (col-span-1, compact read-only) */}
+        {/* Optimized (col-span-1, expandable) */}
         <div className="md:col-span-1 bg-emerald-50/60 border border-emerald-100 rounded-xl p-3">
           <p className="text-[10px] font-semibold text-emerald-500 uppercase tracking-wider mb-2">
             {l.optimized}
           </p>
-          <p className="text-xs text-[var(--text-primary)] leading-relaxed line-clamp-6">
+          <p
+            className={`text-xs text-[var(--text-primary)] leading-relaxed ${
+              expandedOptimized ? "max-h-96 overflow-y-auto" : "line-clamp-6"
+            }`}
+          >
             {rewrite.rewritten}
           </p>
+          {rewrite.rewritten.length > 300 && (
+            <button
+              onClick={() => setExpandedOptimized(!expandedOptimized)}
+              className="text-[10px] font-medium text-emerald-600 hover:underline mt-1"
+            >
+              {expandedOptimized ? showLess : showMore}
+            </button>
+          )}
         </div>
       </div>
+      {renderEntries()}
     </Card>
   );
 }

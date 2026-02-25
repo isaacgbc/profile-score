@@ -34,7 +34,11 @@
     "includedIn": "Incluido en",
     "upgradeNow": "Mejorar Ahora",
     "minutes": "min",
-    "learnMore": "Más Información"
+    "learnMore": "Más Información",
+    "readMore": "Leer más",
+    "readLess": "Leer menos",
+    "showMore": "Ver más",
+    "showLess": "Ver menos"
   },
   "sectionLabels": {
     "headline": "Titular",
@@ -307,7 +311,8 @@
     "retryFresh": "Reintentar con generación nueva",
     "generationFailedTitle": "No pudimos generar resultados personalizados",
     "generationFailedDesc": "Algunos resultados no pudieron personalizarse completamente debido a un problema temporal del servicio. Por favor, reintenta para obtener resultados precisos.",
-    "diagnosticHint": "Detalles"
+    "diagnosticHint": "Detalles",
+    "perEntryBreakdown": "Desglose por entrada"
   },
   "rewriteStudio": {
     "title": "Estudio de Reescritura",

@@ -34,7 +34,11 @@
     "includedIn": "Included in",
     "upgradeNow": "Upgrade Now",
     "minutes": "min",
-    "learnMore": "Learn More"
+    "learnMore": "Learn More",
+    "readMore": "Read more",
+    "readLess": "Read less",
+    "showMore": "Show more",
+    "showLess": "Show less"
   },
   "sectionLabels": {
     "headline": "Headline",
@@ -307,7 +311,8 @@
     "retryFresh": "Retry with fresh generation",
     "generationFailedTitle": "We couldn't generate personalized results",
     "generationFailedDesc": "Some results could not be fully personalized due to a temporary service issue. Please retry for accurate, input-specific results.",
-    "diagnosticHint": "Details"
+    "diagnosticHint": "Details",
+    "perEntryBreakdown": "Per-entry breakdown"
   },
   "rewriteStudio": {
     "title": "Rewrite Studio",

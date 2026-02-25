@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useI18n } from "@/context/I18nContext";
 import Card from "./Card";
 import Badge from "./Badge";
@@ -34,6 +35,16 @@ function getTierBadgeVariant(tier: ScoreTier): "warning" | "accent" | "success" 
 
 export default function ScoreCardGrid({ sections, onUpgradeClick, className = "" }: ScoreCardGridProps) {
   const { t } = useI18n();
+  const [expandedExplanations, setExpandedExplanations] = useState<Set<string>>(new Set());
+
+  function toggleExplanation(sectionId: string) {
+    setExpandedExplanations((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) next.delete(sectionId);
+      else next.add(sectionId);
+      return next;
+    });
+  }
 
   function getTierLabel(tier: ScoreTier): string {
     const map: Record<ScoreTier, string> = {
@@ -46,6 +57,8 @@ export default function ScoreCardGrid({ sections, onUpgradeClick, className = ""
   }
 
   const sectionLabels = t.sectionLabels as Record<string, string>;
+  const readMore = (t.common as Record<string, string>).readMore ?? "Read more";
+  const readLess = (t.common as Record<string, string>).readLess ?? "Read less";
 
   return (
     <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-3 ${className}`}>
@@ -90,29 +103,41 @@ export default function ScoreCardGrid({ sections, onUpgradeClick, className = ""
             color={tierColors[section.tier]}
           />
 
-          {/* Explanation */}
+          {/* Explanation — expand/collapse for readability */}
           {!section.locked && section.explanation && (
             <div className="mt-3">
               <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1">
                 {t.results.explanationLabel}
               </p>
-              <p className="text-xs text-[var(--text-secondary)] leading-relaxed line-clamp-3">
+              <p
+                className={`text-xs text-[var(--text-secondary)] leading-relaxed ${
+                  expandedExplanations.has(section.id) ? "" : "line-clamp-3"
+                }`}
+              >
                 {section.explanation}
               </p>
+              {section.explanation.length > 150 && (
+                <button
+                  onClick={() => toggleExplanation(section.id)}
+                  className="text-[10px] font-medium text-[var(--accent)] hover:underline mt-1"
+                >
+                  {expandedExplanations.has(section.id) ? readLess : readMore}
+                </button>
+              )}
             </div>
           )}
 
-          {/* Missing Suggestions */}
+          {/* Improvement Suggestions — full list, wrapping pills */}
           {!section.locked && section.improvementSuggestions.length > 0 && (
             <div className="mt-3">
               <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider mb-1.5">
                 {t.results.missingSuggestionsLabel}
               </p>
               <div className="flex flex-wrap gap-1">
-                {section.improvementSuggestions.slice(0, 3).map((suggestion, i) => (
+                {section.improvementSuggestions.map((suggestion, i) => (
                   <span
                     key={i}
-                    className="inline-block px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 rounded-full border border-amber-100"
+                    className="inline-flex px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 rounded-full border border-amber-100 whitespace-normal break-words max-w-full"
                   >
                     {suggestion}
                   </span>

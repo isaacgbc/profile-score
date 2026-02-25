@@ -94,6 +94,16 @@ export interface ScoreSection {
   improvementSuggestions: string[];
 }
 
+/** Per-entry rewrite for experience/education items */
+export interface RewriteEntry {
+  entryIndex: number;
+  entryTitle: string;
+  original: string;
+  improvements: string;
+  missingSuggestions: string[];
+  rewritten: string;
+}
+
 export interface RewritePreview {
   sectionId: string;
   source: SourceType;
@@ -102,6 +112,8 @@ export interface RewritePreview {
   missingSuggestions: string[];
   rewritten: string;
   locked: boolean;
+  /** Per-entry rewrites for experience/education sections (optional, backward compat) */
+  entries?: RewriteEntry[];
 }
 
 export interface CoverLetterResult {

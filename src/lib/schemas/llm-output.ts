@@ -23,6 +23,28 @@ export const RewriteSectionOutput = z.object({
 
 export type RewriteSectionOutputType = z.infer<typeof RewriteSectionOutput>;
 
+// ── Per-entry rewrite output (experience/education) ──
+export const RewriteEntryOutput = z.object({
+  entryTitle: z.string().min(3).max(200),
+  original: z.string(),
+  improvements: z.string().min(5).max(500),
+  missingSuggestions: z.array(z.string()).min(0).max(4),
+  rewritten: z.string().min(10),
+});
+
+export const RewriteSectionWithEntriesOutput = z.object({
+  original: z.string(),
+  improvements: z.string().min(10).max(1000),
+  missingSuggestions: z.array(z.string()).min(1).max(6),
+  rewritten: z.string().min(10),
+  entries: z.array(RewriteEntryOutput).optional(),
+});
+
+export type RewriteEntryOutputType = z.infer<typeof RewriteEntryOutput>;
+export type RewriteSectionWithEntriesOutputType = z.infer<
+  typeof RewriteSectionWithEntriesOutput
+>;
+
 // ── Cover letter output ──
 export const CoverLetterOutput = z.object({
   content: z.string().min(50).max(5000),

@@ -4,6 +4,7 @@ import type {
   ProfileResult,
   ScoreSection,
   RewritePreview,
+  RewriteEntry,
   CoverLetterResult,
   ScoreTier,
 } from "@/lib/types";
@@ -15,6 +16,7 @@ import {
 import {
   AuditSectionOutput,
   RewriteSectionOutput,
+  RewriteSectionWithEntriesOutput,
   CoverLetterOutput,
   normalizeTier,
   tierFromScore,
@@ -22,10 +24,14 @@ import {
 } from "@/lib/schemas/llm-output";
 import {
   parseLinkedinSectionsWithFallback,
+  parseEntriesFromSection,
   LINKEDIN_SECTION_IDS,
   CV_SECTION_IDS,
   SECTION_DISPLAY_NAMES,
+  MAX_ENTRIES_PER_SECTION,
+  MAX_CHARS_PER_ENTRY,
 } from "./linkedin-parser";
+import type { ParsedEntry } from "./linkedin-parser";
 import { mockResults } from "@/lib/mock/results";
 import { trackServerEvent } from "@/lib/analytics/server-tracker";
 import {
@@ -322,6 +328,153 @@ async function rewriteSection(
   }
 
   return null;
+}
+
+// ── Rewrite a section with per-entry breakdown (experience/education) ──
+// Cost controls: max MAX_ENTRIES_PER_SECTION entries, each truncated to MAX_CHARS_PER_ENTRY
+async function rewriteSectionWithEntries(
+  sectionId: string,
+  entries: ParsedEntry[],
+  fullSectionContent: string,
+  promptKey: string,
+  targetRole: string,
+  jobObjective: string,
+  framing: ObjectiveFraming,
+  locale: Locale,
+  promptVersions: Record<string, number>,
+  failureReasons: FailureReason[]
+): Promise<{ rewrite: RewritePreview; modelUsed: string } | null> {
+  // Cost cap: limit entries and per-entry length
+  const cappedEntries = entries.slice(0, MAX_ENTRIES_PER_SECTION).map((e, i) => ({
+    index: i,
+    title: e.title.slice(0, 200),
+    organization: e.organization.slice(0, 200),
+    dateRange: e.dateRange.slice(0, 100),
+    description: e.description.slice(0, MAX_CHARS_PER_ENTRY),
+  }));
+
+  const entriesJson = JSON.stringify(cappedEntries, null, 2);
+
+  // Try per-entry prompt first, fall back to standard rewrite prompt
+  const prompt = await getActivePromptWithVersion(promptKey, locale);
+  if (!prompt) {
+    // Fall back to standard section rewrite if entry-specific prompt not found
+    console.warn(`[diag] No entry-level prompt found (${promptKey}), falling back to standard rewrite`);
+    return rewriteSection(
+      sectionId,
+      fullSectionContent,
+      promptKey.replace(".entries", ""),
+      targetRole,
+      jobObjective,
+      framing,
+      locale,
+      promptVersions,
+      failureReasons
+    );
+  }
+
+  promptVersions[promptKey] = prompt.version;
+
+  const systemPrompt = interpolatePrompt(prompt.content, {
+    section_name: SECTION_DISPLAY_NAMES[sectionId] ?? sectionId,
+    original_content: truncate(fullSectionContent),
+    entries_json: entriesJson,
+    entry_count: String(cappedEntries.length),
+    target_role: targetRole,
+    job_objective: jobObjective,
+    objective_mode_label: framing.objective_mode_label,
+    objective_framing: framing.objective_framing,
+    objective_context: framing.objective_context,
+  });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const userMessage =
+        attempt === 0
+          ? `Rewrite this ${SECTION_DISPLAY_NAMES[sectionId] ?? sectionId} section. Provide BOTH a section-level summary AND per-entry rewrites. Respond in JSON with keys: original, improvements, missingSuggestions, rewritten, entries (array of {entryTitle, original, improvements, missingSuggestions, rewritten}).`
+          : "Your previous response was not valid JSON. Please respond with ONLY valid JSON.";
+
+      const result = await callLLM({
+        model: LLM_MODEL_QUALITY,
+        systemPrompt:
+          attempt === 0
+            ? systemPrompt
+            : systemPrompt + "\n\nIMPORTANT: Respond with ONLY valid JSON.",
+        userMessage,
+        maxTokens: 4096,
+      });
+
+      const jsonStr = extractJson(result.text);
+      const parsed = RewriteSectionWithEntriesOutput.safeParse(
+        JSON.parse(jsonStr)
+      );
+
+      if (parsed.success) {
+        const rewriteEntries: RewriteEntry[] = (parsed.data.entries ?? []).map(
+          (e, i) => ({
+            entryIndex: i,
+            entryTitle: e.entryTitle,
+            original: e.original,
+            improvements: e.improvements,
+            missingSuggestions: e.missingSuggestions,
+            rewritten: e.rewritten,
+          })
+        );
+
+        const rewrite: RewritePreview = {
+          sectionId,
+          source: promptKey.includes("linkedin") ? "linkedin" : "cv",
+          original: parsed.data.original,
+          improvements: parsed.data.improvements,
+          missingSuggestions: parsed.data.missingSuggestions,
+          rewritten: parsed.data.rewritten,
+          locked: false,
+          entries: rewriteEntries.length > 0 ? rewriteEntries : undefined,
+        };
+
+        if (isMockRewrite(rewrite)) {
+          console.warn(
+            `[guard] Mock fingerprint in entry rewrite ${sectionId} (attempt ${attempt + 1}), retrying`
+          );
+          failureReasons.push("mock_fingerprint_retry");
+          continue;
+        }
+
+        console.log(
+          `[rewrite] Per-entry rewrite: section=${sectionId}, entries=${rewriteEntries.length}/${cappedEntries.length}`
+        );
+
+        return { rewrite, modelUsed: result.modelUsed };
+      }
+
+      failureReasons.push("invalid_json");
+      console.warn(
+        `[diag] Entry rewrite parse failed: section=${sectionId}, attempt=${attempt + 1}, error=${parsed.error?.message}`
+      );
+    } catch (err) {
+      const reason = categorizeError(err);
+      failureReasons.push(reason);
+      console.warn(
+        `[diag] Entry rewrite LLM error: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}`
+      );
+    }
+  }
+
+  // Fall back to standard whole-section rewrite
+  console.warn(
+    `[fallback] Entry-level rewrite failed for ${sectionId}, falling back to section-level`
+  );
+  return rewriteSection(
+    sectionId,
+    fullSectionContent,
+    promptKey.replace(".entries", ""),
+    targetRole,
+    jobObjective,
+    framing,
+    locale,
+    promptVersions,
+    failureReasons
+  );
 }
 
 // ── Generate cover letter via LLM ───────────────────────
@@ -667,10 +820,57 @@ export async function generateAuditResults(
     // The fallback mock data fills gaps. This log helps diagnose issues.
   }
 
-  // ─── 5. Rewrite sections (parallel) — one per scored section ──
+  // ─── 4c. Parse per-entry structure for experience/education ──
+  const linkedinEntries: Record<string, ParsedEntry[]> = {};
+  for (const sectionId of ["experience", "education"]) {
+    if (linkedinSections[sectionId]) {
+      const parsed = parseEntriesFromSection(
+        sectionId,
+        linkedinSections[sectionId]
+      );
+      if (parsed.entries.length > 0 && parsed.confidence === "high") {
+        linkedinEntries[sectionId] = parsed.entries;
+        console.log(
+          `[parser] Parsed ${parsed.entries.length} entries from LinkedIn ${sectionId} (confidence=${parsed.confidence})`
+        );
+      }
+    }
+  }
+
+  const cvEntries: Record<string, ParsedEntry[]> = {};
+  for (const sectionId of ["work-experience", "education-section"]) {
+    if (cvSections[sectionId]) {
+      const parsed = parseEntriesFromSection(sectionId, cvSections[sectionId]);
+      if (parsed.entries.length > 0 && parsed.confidence === "high") {
+        cvEntries[sectionId] = parsed.entries;
+        console.log(
+          `[parser] Parsed ${parsed.entries.length} entries from CV ${sectionId} (confidence=${parsed.confidence})`
+        );
+      }
+    }
+  }
+
+  // ─── 5. Rewrite sections (parallel) — per-entry for experience/education ──
   const linkedinRewritePromises = scoredLinkedinSections.map((section) => {
     const content = linkedinSections[section.id] ??
       `[This section was not found in the profile. The user has not included a ${SECTION_DISPLAY_NAMES[section.id] ?? section.id} section.]`;
+
+    // Use per-entry rewrite for sections with parsed entries
+    if (linkedinEntries[section.id] && linkedinEntries[section.id].length > 0) {
+      return rewriteSectionWithEntries(
+        section.id,
+        linkedinEntries[section.id],
+        content,
+        "rewrite.linkedin.section.entries",
+        targetRole,
+        jobObjective,
+        framing,
+        locale,
+        promptVersions,
+        failureReasons
+      ).then((result) => ({ id: section.id, result }));
+    }
+
     return rewriteSection(
       section.id,
       content,
@@ -687,6 +887,23 @@ export async function generateAuditResults(
   const cvRewritePromises = scoredCvSections.map((section) => {
     const content = cvSections[section.id] ??
       `[This section was not found in the CV. The user has not included a ${SECTION_DISPLAY_NAMES[section.id] ?? section.id} section.]`;
+
+    // Use per-entry rewrite for sections with parsed entries
+    if (cvEntries[section.id] && cvEntries[section.id].length > 0) {
+      return rewriteSectionWithEntries(
+        section.id,
+        cvEntries[section.id],
+        content,
+        "rewrite.cv.section.entries",
+        targetRole,
+        jobObjective,
+        framing,
+        locale,
+        promptVersions,
+        failureReasons
+      ).then((result) => ({ id: section.id, result }));
+    }
+
     return rewriteSection(
       section.id,
       content,
