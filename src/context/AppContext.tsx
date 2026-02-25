@@ -58,6 +58,12 @@ interface AppContextValue extends AppState {
   setShowEmailCaptureModal: (show: boolean) => void;
   setUserEmail: (email: string) => void;
   setUserImprovement: (sectionId: string, text: string) => void;
+  /** Per-section regenerated rewritten text (overrides original rewrite) */
+  userRewritten: Record<string, string>;
+  /** Regenerate a section's optimized text using edited improvements */
+  regenerateSection: (sectionId: string, source: "linkedin" | "cv") => Promise<void>;
+  /** Per-section regeneration loading state */
+  regeneratingSection: string | null;
   triggerUnlockAnimation: () => void;
   isFeatureUnlocked: (featureId: FeatureId) => boolean;
   isSectionLocked: (sectionId: string) => boolean;
@@ -88,6 +94,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [showEmailCaptureModal, setShowEmailCaptureModal] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userImprovements, setUserImprovements] = useState<Record<string, string>>({});
+  const [userRewritten, setUserRewritten] = useState<Record<string, string>>({});
+  const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
   const [unlockAnimationTriggered, setUnlockAnimationTriggered] = useState(false);
   const [auditId, setAuditId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -255,6 +263,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUserImprovements((prev) => ({ ...prev, [sectionId]: text }));
   }, []);
 
+  const regenerateSection = useCallback(
+    async (sectionId: string, source: "linkedin" | "cv") => {
+      if (!results) return;
+      setRegeneratingSection(sectionId);
+
+      try {
+        // Find the original rewrite for this section
+        const rewrites =
+          source === "linkedin" ? results.linkedinRewrites : results.cvRewrites;
+        const rewrite = rewrites.find((r) => r.sectionId === sectionId);
+        if (!rewrite) {
+          console.warn(`[regenerate] No rewrite found for ${sectionId}`);
+          return;
+        }
+
+        // Check if section is locked
+        if (rewrite.locked && !isAdmin) {
+          console.warn(`[regenerate] Section ${sectionId} is locked`);
+          return;
+        }
+
+        // Build objective context from user input
+        const objectiveContext = [
+          userInput.jobDescription ? `Target role: ${userInput.jobDescription.slice(0, 500)}` : "",
+          userInput.targetAudience ? `Audience: ${userInput.targetAudience}` : "",
+          userInput.objectiveText ? `Goal: ${userInput.objectiveText}` : "",
+        ]
+          .filter(Boolean)
+          .join(". ");
+
+        const res = await fetch("/api/audit/regenerate-rewrite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sectionId,
+            source,
+            originalContent: rewrite.original,
+            editedImprovements:
+              userImprovements[sectionId] ?? rewrite.improvements,
+            objectiveContext: objectiveContext || undefined,
+            locale: exportLocale,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.rewritten) {
+            setUserRewritten((prev) => ({
+              ...prev,
+              [sectionId]: data.rewritten,
+            }));
+          }
+        } else {
+          const err = await res.json().catch(() => ({ error: "Unknown error" }));
+          console.error(`[regenerate] Failed: ${err.error}`);
+        }
+      } catch (err) {
+        console.error("[regenerate] Network error:", err);
+      } finally {
+        setRegeneratingSection(null);
+      }
+    },
+    [results, isAdmin, userInput, userImprovements, exportLocale]
+  );
+
   const isFeatureUnlocked = useCallback(
     (featureId: FeatureId) => {
       if (isAdmin) return true;
@@ -406,6 +479,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showEmailCaptureModal,
         userEmail,
         userImprovements,
+        userRewritten,
+        regeneratingSection,
         unlockAnimationTriggered,
         auditId,
         isGenerating,
@@ -422,6 +497,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setShowEmailCaptureModal,
         setUserEmail,
         setUserImprovement,
+        regenerateSection,
         triggerUnlockAnimation,
         isFeatureUnlocked,
         isSectionLocked,

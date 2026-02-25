@@ -258,7 +258,63 @@ export function validateSectionCompleteness(
   };
 }
 
-// ── 4. Full Result Validation ──────────────────────────
+// ── 4. Emoji Sanitizer ─────────────────────────────────
+
+/**
+ * Strip all emojis from text EXCEPT country flag sequences (Regional Indicator pairs).
+ * Country flags are U+1F1E6–U+1F1FF paired together.
+ *
+ * Approach: save flag sequences → strip all emoji → restore flags.
+ */
+export function stripNonFlagEmojis(text: string): string {
+  if (!text) return text;
+
+  // Match country flag sequences (two Regional Indicator Symbol Letters)
+  const FLAG_RE = /[\u{1F1E6}-\u{1F1FF}]{2}/gu;
+
+  // Save flag sequences with their positions
+  const flags: { flag: string; placeholder: string }[] = [];
+  let flagIndex = 0;
+  const textWithPlaceholders = text.replace(FLAG_RE, (match) => {
+    const placeholder = `__FLAG_${flagIndex}__`;
+    flags.push({ flag: match, placeholder });
+    flagIndex++;
+    return placeholder;
+  });
+
+  // Strip all remaining emoji using a broad Unicode emoji pattern
+  // Covers: emoticons, dingbats, symbols, pictographs, transport, supplemental, etc.
+  const EMOJI_RE =
+    /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}\u{FE0F}\u{E0020}-\u{E007F}\u{2300}-\u{23FF}\u{2B05}-\u{2B07}\u{2B1B}\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}\u{231A}\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{25AA}\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2614}\u{2615}\u{2648}-\u{2653}\u{267F}\u{2693}\u{26A1}\u{26AA}\u{26AB}\u{26BD}\u{26BE}\u{26C4}\u{26C5}\u{26CE}\u{26D4}\u{26EA}\u{26F2}\u{26F3}\u{26F5}\u{26FA}\u{26FD}\u{2702}\u{2705}\u{2708}-\u{270D}\u{270F}]/gu;
+  const stripped = textWithPlaceholders.replace(EMOJI_RE, "");
+
+  // Clean up any double spaces left by emoji removal
+  let result = stripped.replace(/  +/g, " ").trim();
+
+  // Restore flag sequences
+  for (const { flag, placeholder } of flags) {
+    result = result.replace(placeholder, flag);
+  }
+
+  return result;
+}
+
+// ── 5. Anti-Duplication Guard ──────────────────────────
+
+/**
+ * Check if the overall descriptor is too similar to the headline explanation.
+ * Returns true if >60% significant word overlap detected.
+ */
+export function isOverallDescriptorDuplicate(
+  descriptor: string,
+  headlineExplanation: string
+): boolean {
+  if (!descriptor || !headlineExplanation) return false;
+  const overlap = computeInputOverlap(headlineExplanation, descriptor);
+  return overlap > 0.6;
+}
+
+// ── 6. Full Result Validation ──────────────────────────
 
 export interface ValidationReport {
   valid: boolean;

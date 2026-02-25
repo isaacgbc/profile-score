@@ -17,6 +17,15 @@ export const CreateExportInput = z.object({
     .enum(["starter", "recommended", "pro", "coach"])
     .nullable()
     .optional(),
+  /** User edits from Rewrite Studio to merge into export */
+  userEdits: z
+    .object({
+      /** Edited "Things to Change" text per sectionId */
+      userImprovements: z.record(z.string(), z.string().max(5_000)).optional(),
+      /** Regenerated optimized text per sectionId */
+      userRewritten: z.record(z.string(), z.string().max(15_000)).optional(),
+    })
+    .optional(),
 });
 
 export type CreateExportInput = z.infer<typeof CreateExportInput>;

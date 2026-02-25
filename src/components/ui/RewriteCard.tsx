@@ -18,9 +18,13 @@ interface RewriteLabels {
 interface RewriteCardProps {
   rewrite: RewritePreview;
   userImprovement?: string;
+  /** Override for the optimized text (e.g., from regeneration) */
+  optimizedOverride?: string;
   onChange?: (text: string) => void;
   locked: boolean;
   onUpgradeClick?: () => void;
+  onRegenerate?: () => void;
+  isRegenerating?: boolean;
   className?: string;
   variant?: "default" | "studio";
   labels?: RewriteLabels;
@@ -29,9 +33,12 @@ interface RewriteCardProps {
 export default function RewriteCard({
   rewrite,
   userImprovement,
+  optimizedOverride,
   onChange,
   locked,
   onUpgradeClick,
+  onRegenerate,
+  isRegenerating,
   className = "",
   variant = "default",
   labels,
@@ -53,6 +60,13 @@ export default function RewriteCard({
   const showLess = (t.common as Record<string, string>).showLess ?? "Show less";
   const perEntryLabel =
     (t.results as Record<string, string>).perEntryBreakdown ?? "Per-entry breakdown";
+  const regenerateLabel =
+    (t.rewriteStudio as Record<string, string>).regenerate ?? "Regenerate";
+  const regeneratingLabel =
+    (t.rewriteStudio as Record<string, string>).regenerating ?? "Regenerating...";
+
+  // Resolved optimized text: user regeneration override > original rewrite
+  const displayRewritten = optimizedOverride ?? rewrite.rewritten;
 
   const isStudio = variant === "studio";
   const sectionLabels = t.sectionLabels as Record<string, string>;
@@ -102,8 +116,8 @@ export default function RewriteCard({
             <span
               key={i}
               className={`inline-flex items-center ${
-                compact ? "px-1.5 py-0.5 text-[9px]" : "px-2.5 py-1 text-[11px]"
-              } font-medium bg-blue-50 text-blue-700 rounded-lg border border-blue-200 whitespace-normal break-words max-w-full`}
+                compact ? "px-2 py-1 text-[10px]" : "px-3 py-1.5 text-[11px]"
+              } font-medium bg-blue-50 text-blue-700 rounded-lg border border-blue-200 whitespace-normal break-words max-w-full leading-snug`}
             >
               <span className="mr-0.5 text-blue-400">+</span>
               {suggestion}
@@ -205,7 +219,7 @@ export default function RewriteCard({
               {l.optimized}
             </p>
             <p className="text-sm text-[var(--text-primary)] leading-relaxed">
-              {rewrite.rewritten}
+              {displayRewritten}
             </p>
           </div>
         </div>
@@ -269,14 +283,24 @@ export default function RewriteCard({
               expandedOptimized ? "max-h-96 overflow-y-auto" : "line-clamp-6"
             }`}
           >
-            {rewrite.rewritten}
+            {displayRewritten}
           </p>
-          {rewrite.rewritten.length > 300 && (
+          {displayRewritten.length > 300 && (
             <button
               onClick={() => setExpandedOptimized(!expandedOptimized)}
               className="text-[10px] font-medium text-emerald-600 hover:underline mt-1"
             >
               {expandedOptimized ? showLess : showMore}
+            </button>
+          )}
+          {/* Regenerate button */}
+          {onRegenerate && (
+            <button
+              onClick={onRegenerate}
+              disabled={isRegenerating}
+              className="mt-2 w-full text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg px-3 py-2 transition-colors"
+            >
+              {isRegenerating ? regeneratingLabel : regenerateLabel}
             </button>
           )}
         </div>

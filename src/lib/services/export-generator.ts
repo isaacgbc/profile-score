@@ -4,6 +4,11 @@ import { generateUpdatedCvPdf } from "./pdf/updated-cv";
 import { generateFullAuditJson } from "./json/full-audit";
 import { generateLinkedinUpdatesJson } from "./json/linkedin-updates";
 import { generateCoverLetterJson } from "./json/cover-letter";
+import { callLLM, LLM_MODEL_FAST } from "./llm-client";
+import { getActivePromptWithVersion, interpolatePrompt } from "./prompt-resolver";
+import { extractJson } from "@/lib/schemas/llm-output";
+import { stripNonFlagEmojis } from "./generation-guards";
+import type { Locale } from "@/lib/types";
 
 interface GenerateResult {
   bytes: Uint8Array;
@@ -20,6 +25,96 @@ export interface ExportUserInput {
 }
 
 /**
+ * Polish pass: refine rewritten content for export quality.
+ * Falls back to emoji-stripped input if LLM polish fails.
+ */
+async function polishRewrittenContent(
+  rewritten: string,
+  objectiveContext: string,
+  locale: Locale
+): Promise<string> {
+  // Don't polish very short content
+  if (rewritten.length < 20) return stripNonFlagEmojis(rewritten);
+
+  try {
+    const prompt = await getActivePromptWithVersion(
+      "export.polish-pass.system",
+      locale
+    );
+
+    if (!prompt) {
+      // No polish prompt available — just sanitize
+      return stripNonFlagEmojis(rewritten);
+    }
+
+    const systemPrompt = interpolatePrompt(prompt.content, {
+      rewritten_content: rewritten.slice(0, 10_000),
+      objective_context: objectiveContext.slice(0, 1_000),
+    });
+
+    const result = await callLLM({
+      model: LLM_MODEL_FAST,
+      systemPrompt,
+      userMessage:
+        "Polish this content for professional export. Respond in JSON with key: polished.",
+      maxTokens: 4096,
+    });
+
+    const jsonStr = extractJson(result.text);
+    const parsed = JSON.parse(jsonStr);
+    if (parsed.polished && typeof parsed.polished === "string" && parsed.polished.length > 10) {
+      return stripNonFlagEmojis(parsed.polished);
+    }
+  } catch (err) {
+    console.warn("[export-polish] Failed, using sanitized fallback:", err instanceof Error ? err.message : "Unknown");
+  }
+
+  return stripNonFlagEmojis(rewritten);
+}
+
+/**
+ * Apply polish pass to all unlocked rewrites in results.
+ */
+async function applyPolishPass(
+  results: ProfileResult,
+  language: string,
+  userInput?: ExportUserInput
+): Promise<ProfileResult> {
+  const locale = (language === "es" ? "es" : "en") as Locale;
+  const objectiveContext = [
+    userInput?.jobDescription ? `Target: ${userInput.jobDescription.slice(0, 300)}` : "",
+    userInput?.targetAudience ? `Audience: ${userInput.targetAudience}` : "",
+    userInput?.objectiveText ? `Goal: ${userInput.objectiveText}` : "",
+  ]
+    .filter(Boolean)
+    .join(". ") || "Professional growth";
+
+  // Polish unlocked LinkedIn rewrites (parallel)
+  const polishedLinkedin = await Promise.all(
+    results.linkedinRewrites.map(async (r) => {
+      if (r.locked) return r;
+      const polished = await polishRewrittenContent(r.rewritten, objectiveContext, locale);
+      return { ...r, rewritten: polished };
+    })
+  );
+
+  // Polish unlocked CV rewrites (parallel)
+  const polishedCv = await Promise.all(
+    results.cvRewrites.map(async (r) => {
+      if (r.locked) return r;
+      const polished = await polishRewrittenContent(r.rewritten, objectiveContext, locale);
+      return { ...r, rewritten: polished };
+    })
+  );
+
+  return {
+    ...results,
+    linkedinRewrites: polishedLinkedin,
+    cvRewrites: polishedCv,
+  };
+}
+
+/**
  * Dispatch to the correct generator based on export type and format.
  */
 export async function generateExport(
@@ -29,34 +124,37 @@ export async function generateExport(
   results: ProfileResult,
   userInput?: ExportUserInput
 ): Promise<GenerateResult> {
+  // Apply polish pass to all rewrites before export generation
+  const polishedResults = await applyPolishPass(results, language, userInput);
+
   switch (exportType) {
     case "results-summary": {
       if (format !== "pdf") throw new Error("Results Summary only supports PDF format");
-      const bytes = await generateResultsSummaryPdf(results, language);
+      const bytes = await generateResultsSummaryPdf(polishedResults, language);
       return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     case "updated-cv": {
       if (format !== "pdf") throw new Error("Updated CV only supports PDF format");
-      const bytes = await generateUpdatedCvPdf(results, language);
+      const bytes = await generateUpdatedCvPdf(polishedResults, language);
       return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     case "full-audit": {
       if (format !== "json") throw new Error("Full Audit only supports JSON format");
-      const bytes = generateFullAuditJson(results, language);
+      const bytes = generateFullAuditJson(polishedResults, language);
       return { bytes, contentType: "application/json", ext: "json" };
     }
 
     case "linkedin-updates": {
       if (format !== "json") throw new Error("LinkedIn Updates only supports JSON format");
-      const bytes = await generateLinkedinUpdatesJson(results, language);
+      const bytes = await generateLinkedinUpdatesJson(polishedResults, language);
       return { bytes, contentType: "application/json", ext: "json" };
     }
 
     case "cover-letter": {
       if (format !== "json") throw new Error("Cover Letter only supports JSON format");
-      const bytes = await generateCoverLetterJson(results, language, userInput);
+      const bytes = await generateCoverLetterJson(polishedResults, language, userInput);
       return { bytes, contentType: "application/json", ext: "json" };
     }
 

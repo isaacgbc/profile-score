@@ -9,25 +9,26 @@ interface ModuleState {
   error: string | null;
 }
 
+interface UserEdits {
+  userImprovements?: Record<string, string>;
+  userRewritten?: Record<string, string>;
+}
+
+interface CreateExportOpts {
+  auditId: string;
+  exportType: ExportModuleId;
+  format: ExportFormat;
+  language: string;
+  planId: string | null;
+  adminToken?: string;
+  userEdits?: UserEdits;
+}
+
 interface UseExportReturn {
   getModuleState: (moduleId: ExportModuleId) => ModuleState;
-  createExport: (opts: {
-    auditId: string;
-    exportType: ExportModuleId;
-    format: ExportFormat;
-    language: string;
-    planId: string | null;
-    adminToken?: string;
-  }) => Promise<void>;
+  createExport: (opts: CreateExportOpts) => Promise<void>;
   downloadExport: (exportId: string) => void;
-  retryExport: (opts: {
-    auditId: string;
-    exportType: ExportModuleId;
-    format: ExportFormat;
-    language: string;
-    planId: string | null;
-    adminToken?: string;
-  }) => Promise<void>;
+  retryExport: (opts: CreateExportOpts) => Promise<void>;
 }
 
 const DEFAULT_STATE: ModuleState = {
@@ -49,15 +50,8 @@ export function useExport(): UseExportReturn {
   );
 
   const createExport = useCallback(
-    async (opts: {
-      auditId: string;
-      exportType: ExportModuleId;
-      format: ExportFormat;
-      language: string;
-      planId: string | null;
-      adminToken?: string;
-    }) => {
-      const { exportType, adminToken, ...payload } = opts;
+    async (opts: CreateExportOpts) => {
+      const { exportType, adminToken, userEdits, ...payload } = opts;
 
       setModuleStates((prev) => ({
         ...prev,
@@ -75,7 +69,7 @@ export function useExport(): UseExportReturn {
         const res = await fetch("/api/exports/create", {
           method: "POST",
           headers,
-          body: JSON.stringify({ ...payload, exportType }),
+          body: JSON.stringify({ ...payload, exportType, userEdits }),
         });
 
         const data = await res.json();

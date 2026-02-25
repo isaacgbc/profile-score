@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { auditId, exportType, format, language, planId } = parsed.data;
+    const { auditId, exportType, format, language, planId, userEdits } = parsed.data;
 
     // Determine admin status server-side
     const adminStatus = isServerAdmin(request);
@@ -65,7 +65,34 @@ export async function POST(request: Request) {
       );
     }
 
-    const results = audit.results as unknown as ProfileResult;
+    let results = audit.results as unknown as ProfileResult;
+
+    // ── Merge user edits from Rewrite Studio into results ──
+    if (userEdits) {
+      const improvementsMap = userEdits.userImprovements ?? {};
+      const rewrittenMap = userEdits.userRewritten ?? {};
+
+      const mergeRewrites = (
+        rewrites: ProfileResult["linkedinRewrites"]
+      ): ProfileResult["linkedinRewrites"] =>
+        rewrites.map((r) => ({
+          ...r,
+          improvements:
+            improvementsMap[r.sectionId] !== undefined
+              ? improvementsMap[r.sectionId]
+              : r.improvements,
+          rewritten:
+            rewrittenMap[r.sectionId] !== undefined
+              ? rewrittenMap[r.sectionId]
+              : r.rewritten,
+        }));
+
+      results = {
+        ...results,
+        linkedinRewrites: mergeRewrites(results.linkedinRewrites),
+        cvRewrites: mergeRewrites(results.cvRewrites),
+      };
+    }
 
     // Extract sanitized userInput from audit for export context
     const storedUserInput = audit.userInput as Record<string, unknown> | null;

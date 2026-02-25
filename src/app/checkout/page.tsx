@@ -84,6 +84,8 @@ export default function CheckoutPage() {
     isExportModuleUnlocked,
     userEmail,
     setShowEmailCaptureModal,
+    userImprovements,
+    userRewritten,
   } = useApp();
 
   const { getModuleState, createExport, downloadExport, retryExport } = useExport();
@@ -130,6 +132,10 @@ export default function CheckoutPage() {
       language: exportLocale,
       planId: selectedPlan,
       adminToken,
+      userEdits: {
+        userImprovements: Object.keys(userImprovements).length > 0 ? userImprovements : undefined,
+        userRewritten: Object.keys(userRewritten).length > 0 ? userRewritten : undefined,
+      },
     });
   }
 
@@ -142,6 +148,10 @@ export default function CheckoutPage() {
       language: exportLocale,
       planId: selectedPlan,
       adminToken,
+      userEdits: {
+        userImprovements: Object.keys(userImprovements).length > 0 ? userImprovements : undefined,
+        userRewritten: Object.keys(userRewritten).length > 0 ? userRewritten : undefined,
+      },
     });
   }
 

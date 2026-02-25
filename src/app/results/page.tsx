@@ -267,7 +267,7 @@ export default function ResultsPage() {
           </Badge>
 
           <p className="mt-4 text-sm text-[var(--text-secondary)] max-w-lg mx-auto leading-relaxed">
-            {results.linkedinSections[0]?.explanation}
+            {results.overallDescriptor ?? results.linkedinSections[0]?.explanation ?? ""}
           </p>
 
           {/* Free tier CTA */}

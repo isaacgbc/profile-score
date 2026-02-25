@@ -337,7 +337,9 @@
     "sectionSkills": "Habilidades",
     "sectionProfessionalSummary": "Resumen Profesional",
     "sectionWorkExperience": "Experiencia Laboral",
-    "sectionSkillsSection": "Sección de Habilidades"
+    "sectionSkillsSection": "Sección de Habilidades",
+    "regenerate": "Regenerar",
+    "regenerating": "Regenerando..."
   },
   "checkout": {
     "title": "Exporta Tu Perfil Optimizado",

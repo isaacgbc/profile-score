@@ -133,11 +133,11 @@ export default function ScoreCardGrid({ sections, onUpgradeClick, className = ""
               <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider mb-1.5">
                 {t.results.missingSuggestionsLabel}
               </p>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1.5">
                 {section.improvementSuggestions.map((suggestion, i) => (
                   <span
                     key={i}
-                    className="inline-flex px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 rounded-full border border-amber-100 whitespace-normal break-words max-w-full"
+                    className="inline-flex px-3 py-1.5 text-[11px] font-medium bg-amber-50 text-amber-700 rounded-lg border border-amber-100 whitespace-normal break-words max-w-full leading-snug"
                   >
                     {suggestion}
                   </span>

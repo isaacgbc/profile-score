@@ -45,6 +45,20 @@ export type RewriteSectionWithEntriesOutputType = z.infer<
   typeof RewriteSectionWithEntriesOutput
 >;
 
+// ── Overall descriptor output ──
+export const OverallDescriptorOutput = z.object({
+  descriptor: z.string().min(20).max(2000),
+});
+
+export type OverallDescriptorOutputType = z.infer<typeof OverallDescriptorOutput>;
+
+// ── Regenerate rewrite output ──
+export const RegenerateRewriteOutput = z.object({
+  rewritten: z.string().min(10),
+});
+
+export type RegenerateRewriteOutputType = z.infer<typeof RegenerateRewriteOutput>;
+
 // ── Cover letter output ──
 export const CoverLetterOutput = z.object({
   content: z.string().min(50).max(5000),

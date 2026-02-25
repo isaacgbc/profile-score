@@ -125,6 +125,8 @@ export interface ProfileResult {
   overallScore: number;
   maxScore: number;
   tier: ScoreTier;
+  /** AI-generated holistic descriptor summarizing the profile across all sections */
+  overallDescriptor?: string;
   linkedinSections: ScoreSection[];
   cvSections: ScoreSection[];
   linkedinRewrites: RewritePreview[];

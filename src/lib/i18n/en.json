@@ -337,7 +337,9 @@
     "sectionSkills": "Skills",
     "sectionProfessionalSummary": "Professional Summary",
     "sectionWorkExperience": "Work Experience",
-    "sectionSkillsSection": "Skills Section"
+    "sectionSkillsSection": "Skills Section",
+    "regenerate": "Regenerate",
+    "regenerating": "Regenerating..."
   },
   "checkout": {
     "title": "Export Your Optimized Profile",

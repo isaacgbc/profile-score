@@ -17,6 +17,7 @@ import {
   AuditSectionOutput,
   RewriteSectionOutput,
   RewriteSectionWithEntriesOutput,
+  OverallDescriptorOutput,
   CoverLetterOutput,
   normalizeTier,
   tierFromScore,
@@ -49,6 +50,8 @@ import {
   isMockRewrite,
   isPlaceholderContent,
   validateSectionCompleteness,
+  stripNonFlagEmojis,
+  isOverallDescriptorDuplicate,
 } from "./generation-guards";
 
 // ── Failure reason categories (P0-1: structured diagnostics) ──
@@ -298,7 +301,7 @@ async function rewriteSection(
           original: parsed.data.original,
           improvements: parsed.data.improvements,
           missingSuggestions: parsed.data.missingSuggestions,
-          rewritten: parsed.data.rewritten,
+          rewritten: stripNonFlagEmojis(parsed.data.rewritten),
           locked: false, // locking applied later
         };
 
@@ -417,7 +420,7 @@ async function rewriteSectionWithEntries(
             original: e.original,
             improvements: e.improvements,
             missingSuggestions: e.missingSuggestions,
-            rewritten: e.rewritten,
+            rewritten: stripNonFlagEmojis(e.rewritten),
           })
         );
 
@@ -427,7 +430,7 @@ async function rewriteSectionWithEntries(
           original: parsed.data.original,
           improvements: parsed.data.improvements,
           missingSuggestions: parsed.data.missingSuggestions,
-          rewritten: parsed.data.rewritten,
+          rewritten: stripNonFlagEmojis(parsed.data.rewritten),
           locked: false,
           entries: rewriteEntries.length > 0 ? rewriteEntries : undefined,
         };
@@ -555,6 +558,108 @@ async function generateCoverLetter(
   }
 
   return null;
+}
+
+// ── Generate overall descriptor via LLM ─────────────────
+async function generateOverallDescriptor(
+  sections: ScoreSection[],
+  overallScore: number,
+  overallTier: ScoreTier,
+  headlineExplanation: string,
+  framing: ObjectiveFraming,
+  locale: Locale,
+  promptVersions: Record<string, number>,
+  failureReasons: FailureReason[]
+): Promise<string | undefined> {
+  const prompt = await getActivePromptWithVersion(
+    "audit.overall-descriptor.system",
+    locale
+  );
+  if (!prompt) {
+    console.warn("[diag] Missing prompt: audit.overall-descriptor.system — skipping descriptor generation");
+    return undefined;
+  }
+
+  promptVersions["audit.overall-descriptor.system"] = prompt.version;
+
+  // Build section summary for interpolation
+  const sectionSummaries = sections
+    .slice(0, 8)
+    .map(
+      (s) =>
+        `${SECTION_DISPLAY_NAMES[s.id] ?? s.id}: ${s.score}/100 (${s.tier}) — ${s.explanation.slice(0, 120)}`
+    )
+    .join("\n");
+
+  const systemPrompt = interpolatePrompt(prompt.content, {
+    overall_score: String(overallScore),
+    overall_tier: overallTier,
+    section_summaries: sectionSummaries,
+    objective_mode_label: framing.objective_mode_label,
+    objective_context: framing.objective_context,
+    objective_framing: framing.objective_framing,
+  });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const antiRepeat =
+        attempt === 1
+          ? `\n\nCRITICAL: Do NOT repeat or paraphrase this text: "${headlineExplanation.slice(0, 200)}"`
+          : "";
+
+      const result = await callLLM({
+        model: LLM_MODEL_FAST,
+        systemPrompt: systemPrompt + antiRepeat,
+        userMessage:
+          attempt === 0
+            ? "Generate the overall profile descriptor. Respond in JSON with key: descriptor."
+            : "Your previous response was a duplicate. Generate a UNIQUE descriptor. Respond with ONLY valid JSON with key: descriptor.",
+      });
+
+      const jsonStr = extractJson(result.text);
+      let jsonObj: unknown;
+      try {
+        jsonObj = JSON.parse(jsonStr);
+      } catch {
+        console.warn(
+          `[diag] Overall descriptor JSON parse failed: attempt=${attempt + 1}, raw=${result.text.slice(0, 200)}`
+        );
+        continue;
+      }
+      const parsed = OverallDescriptorOutput.safeParse(jsonObj);
+
+      if (!parsed.success) {
+        console.warn(
+          `[diag] Overall descriptor Zod validation failed: attempt=${attempt + 1}, errors=${JSON.stringify(parsed.error.issues)}, raw=${JSON.stringify(jsonObj).slice(0, 200)}`
+        );
+      }
+
+      if (parsed.success) {
+        const descriptor = stripNonFlagEmojis(parsed.data.descriptor);
+
+        // Anti-duplication guard: check against headline explanation
+        if (
+          headlineExplanation &&
+          isOverallDescriptorDuplicate(descriptor, headlineExplanation)
+        ) {
+          console.warn(
+            `[guard] Overall descriptor duplicates headline explanation (attempt ${attempt + 1}), retrying`
+          );
+          continue; // Force retry with anti-repeat instruction
+        }
+
+        return descriptor;
+      }
+    } catch (err) {
+      const reason = categorizeError(err);
+      failureReasons.push(reason);
+      console.warn(
+        `[diag] Overall descriptor error: attempt=${attempt + 1}, reason=${reason}`
+      );
+    }
+  }
+
+  return undefined; // Graceful degradation: page falls back to headline explanation
 }
 
 // ── Plan-based locking logic ────────────────────────────
@@ -999,6 +1104,23 @@ export async function generateAuditResults(
   const overallScore = computeOverallScore(allSections);
   const overallTier = tierFromScore(overallScore);
 
+  // ─── 7b. Generate overall descriptor (non-blocking) ──
+  const headlineExplanation =
+    scoredLinkedinSections.find((s) => s.id === "headline")?.explanation ??
+    scoredLinkedinSections[0]?.explanation ??
+    "";
+
+  const overallDescriptor = await generateOverallDescriptor(
+    allSections,
+    overallScore,
+    overallTier,
+    headlineExplanation,
+    framing,
+    locale,
+    promptVersions,
+    failureReasons
+  );
+
   // ─── 8. Apply plan-based locking ─────────────────────
   const linkedinIds = scoredLinkedinSections.map((s) => s.id);
   const cvIds = scoredCvSections.map((s) => s.id);
@@ -1042,6 +1164,7 @@ export async function generateAuditResults(
     overallScore,
     maxScore: 100,
     tier: overallTier,
+    overallDescriptor,
     linkedinSections: lockedLinkedinSections,
     cvSections: lockedCvSections,
     linkedinRewrites: lockedLinkedinRewrites,

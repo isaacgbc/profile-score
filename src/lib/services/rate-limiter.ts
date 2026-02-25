@@ -60,3 +60,9 @@ export const exportRateLimiter = createRateLimiter({
   windowMs: 60_000,
   maxRequests: 10,
 });
+
+/** Rate limiter for regenerate-rewrite: 3 requests per minute per IP */
+export const regenerateRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 3,
+});

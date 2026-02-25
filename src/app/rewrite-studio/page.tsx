@@ -28,6 +28,9 @@ export default function RewriteStudioPage() {
     setShowPricingModal,
     userImprovements,
     setUserImprovement,
+    userRewritten,
+    regenerateSection,
+    regeneratingSection,
     unlockAnimationTriggered,
     showEmailCaptureModal,
     setShowEmailCaptureModal,
@@ -222,11 +225,16 @@ export default function RewriteStudioPage() {
                 <RewriteCard
                   rewrite={rewrite}
                   userImprovement={userImprovements[rewrite.sectionId]}
+                  optimizedOverride={userRewritten[rewrite.sectionId]}
                   onChange={(text) =>
                     setUserImprovement(rewrite.sectionId, text)
                   }
                   locked={rewrite.locked && !isAdmin}
                   onUpgradeClick={() => setShowPricingModal(true)}
+                  onRegenerate={() =>
+                    regenerateSection(rewrite.sectionId, activeSource)
+                  }
+                  isRegenerating={regeneratingSection === rewrite.sectionId}
                   variant="studio"
                   labels={studioLabels}
                 />
