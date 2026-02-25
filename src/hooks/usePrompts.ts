@@ -39,7 +39,15 @@ export function usePrompts({ adminToken }: UsePromptsOptions = {}) {
         const res = await fetch(`/api/prompts${qs ? `?${qs}` : ""}`, {
           headers: headers(),
         });
-        if (!res.ok) throw new Error(`Failed to fetch prompts: ${res.status}`);
+        if (!res.ok) {
+          if (res.status === 401) {
+            const body = await res.json().catch(() => ({}));
+            if (body.reason === "admin_session_expired") {
+              throw new Error("Admin session expired. Please refresh the page or re-login.");
+            }
+          }
+          throw new Error(`Failed to fetch prompts: ${res.status}`);
+        }
         const data = await res.json();
         setState({ prompts: data.prompts, loading: false, error: null });
       } catch (err) {

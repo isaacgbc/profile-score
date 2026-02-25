@@ -96,7 +96,11 @@ export default function AdminAnalyticsPage() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error ?? `Error ${res.status}`);
+        if (res.status === 401 && body.reason === "admin_session_expired") {
+          setError("Admin session expired. Please refresh the page or re-login.");
+        } else {
+          setError(body.error ?? `Error ${res.status}`);
+        }
         setData(null);
         return;
       }
@@ -125,7 +129,11 @@ export default function AdminAnalyticsPage() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setEvalError(body.error ?? `Error ${res.status}`);
+        if (res.status === 401 && body.reason === "admin_session_expired") {
+          setEvalError("Admin session expired. Please refresh the page or re-login.");
+        } else {
+          setEvalError(body.error ?? `Error ${res.status}`);
+        }
         setEvalData(null);
         return;
       }

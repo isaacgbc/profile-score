@@ -11,6 +11,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [token, setToken] = useState("");
   const [authed, setAuthed] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   // Check session storage on mount
   useEffect(() => {
@@ -21,11 +22,33 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   // Also allow if app-level admin mode is active (for dev convenience)
   const hasAccess = authed || isAdmin;
 
-  function handleLogin() {
+  async function handleLogin() {
     if (!token.trim()) return;
-    sessionStorage.setItem("adminToken", token.trim());
-    setAuthed(true);
+    setLoading(true);
     setError("");
+
+    try {
+      // Verify secret server-side first (sets ps_admin_session cookie)
+      const res = await fetch("/api/admin/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: token.trim() }),
+      });
+
+      if (res.ok) {
+        // Cookie is now set; also store in sessionStorage for x-admin-token header fallback
+        sessionStorage.setItem("adminToken", token.trim());
+        setAuthed(true);
+      } else if (res.status === 429) {
+        setError("Too many attempts. Please wait a moment.");
+      } else {
+        setError("Invalid admin password.");
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (!hasAccess) {
@@ -50,8 +73,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           {error && (
             <p className="text-xs text-red-600 mb-3">{error}</p>
           )}
-          <Button variant="primary" size="sm" fullWidth onClick={handleLogin}>
-            Sign In
+          <Button variant="primary" size="sm" fullWidth onClick={handleLogin} disabled={loading || !token.trim()}>
+            {loading ? "Verifying..." : "Sign In"}
           </Button>
           <div className="mt-4 text-center">
             <Link

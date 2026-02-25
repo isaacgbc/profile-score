@@ -156,6 +156,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setSelectedPlan("coach" as PlanId);
           planAutoLoadedRef.current = true;
           console.log("[AppContext] owner_admin_auto_enabled");
+
+          // Issue admin session cookie so admin API routes pass assertAdmin()
+          fetch("/api/admin/verify-owner", { method: "POST" })
+            .then((r) => {
+              if (r.ok) console.log("[AppContext] admin session cookie set for owner");
+              else console.warn("[AppContext] verify-owner failed:", r.status);
+            })
+            .catch(() => {});
+
           return;
         }
 
