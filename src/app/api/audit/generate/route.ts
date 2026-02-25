@@ -126,10 +126,16 @@ export async function POST(request: Request) {
       );
     }
 
-    // ── Circuit breaker status (informational log) ──
-    const cbState = llmCircuitBreaker.getState();
-    if (cbState === "OPEN") {
-      console.warn(`[generate] Circuit breaker OPEN — generation will use fallbacks`);
+    // ── Circuit breaker status (diagnostic log) ──
+    const cbStats = llmCircuitBreaker.getStats();
+    if (cbStats.state !== "CLOSED") {
+      console.warn(
+        `[generate] Circuit breaker ${cbStats.state} | ` +
+        `hardFailures=${cbStats.hardFailures} transient=${cbStats.transientFailures} ` +
+        `total=${cbStats.totalCalls} rate=${(cbStats.hardFailureRate * 100).toFixed(1)}% | ` +
+        `cooldown=${cbStats.cooldownRemainingMs}ms | ` +
+        `lastOpenReason=${cbStats.lastOpenReason}`
+      );
     }
 
     // Validate that at least some input is provided

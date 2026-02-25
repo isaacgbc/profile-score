@@ -57,13 +57,18 @@ export async function callLLM(params: LLMCallParams): Promise<LLMCallResult> {
   if (!llmCircuitBreaker.allowRequest()) {
     const stats = llmCircuitBreaker.getStats();
     console.warn(
-      `[LLM] Circuit breaker OPEN — skipping call. Cooldown: ${stats.cooldownRemainingMs}ms`
+      `[LLM] Circuit breaker OPEN — skipping call | ` +
+      `hardRate=${(stats.hardFailureRate * 100).toFixed(1)}% ` +
+      `hard=${stats.hardFailures} transient=${stats.transientFailures} ` +
+      `total=${stats.totalCalls} cooldown=${stats.cooldownRemainingMs}ms | ` +
+      `reason=${stats.lastOpenReason}`
     );
-    // Fire-and-forget alert event
     trackServerEvent("llm_circuit_breaker_open", {
       metadata: {
         model,
-        failureRate: stats.failureRate,
+        hardFailureRate: stats.hardFailureRate,
+        hardFailures: stats.hardFailures,
+        transientFailures: stats.transientFailures,
         cooldownRemainingMs: stats.cooldownRemainingMs,
       },
     });
@@ -117,8 +122,21 @@ export async function callLLM(params: LLMCallParams): Promise<LLMCallResult> {
       err instanceof Error ? err.message.replace(/sk-ant-[^\s"']*/g, "[REDACTED]") : "Unknown LLM error";
     console.error(`LLM call failed: ${model} ${durationMs}ms — ${message}`);
 
-    // ── Record failure with circuit breaker ──
-    llmCircuitBreaker.recordFailure();
+    // ── Classify failure: transient (429/timeout) vs hard (system/parse/auth) ──
+    const msgLower = message.toLowerCase();
+    const isTransient =
+      msgLower.includes("429") ||
+      msgLower.includes("rate limit") ||
+      msgLower.includes("rate_limit") ||
+      msgLower.includes("overloaded") ||
+      msgLower.includes("abort") ||
+      msgLower.includes("timeout") ||
+      msgLower.includes("timed out") ||
+      msgLower.includes("econnreset") ||
+      msgLower.includes("socket hang up");
+
+    // ── Record failure with circuit breaker (transient = lower weight) ──
+    llmCircuitBreaker.recordFailure(isTransient);
 
     throw new Error(`LLM call failed: ${message}`);
   } finally {
