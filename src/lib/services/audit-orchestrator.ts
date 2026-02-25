@@ -38,6 +38,12 @@ import {
   getUnlockedCvIds,
   isCoverLetterUnlockedForPlan,
 } from "./unlock-matrix";
+import {
+  isMockSection,
+  isMockRewrite,
+  isPlaceholderContent,
+  validateSectionCompleteness,
+} from "./generation-guards";
 
 // ── Input type ──────────────────────────────────────────
 export interface AuditInput {
@@ -51,13 +57,17 @@ export interface AuditInput {
   isAdmin: boolean;
 }
 
-// ── Generation metadata ─────────────────────────────────
+// ── Generation metadata (enhanced for integrity tracking) ──
 export interface GenerationMeta {
   modelUsed: string;
   promptVersionsUsed: Record<string, number>;
   durationMs: number;
   fallbackCount: number;
   hasFallback: boolean;
+  /** Number of sections actually generated (audit + rewrite) */
+  sectionCountGenerated: number;
+  /** Number of mock leaks detected and replaced */
+  mockLeaksDetected: number;
 }
 
 export interface GenerationResult {
@@ -82,7 +92,7 @@ function getTargetRole(input: AuditInput): string {
   return input.objectiveText || input.targetAudience || "Professional";
 }
 
-// ── Objective framing for prompts (Fix #1) ──────────────
+// ── Objective framing for prompts ───────────────────────
 interface ObjectiveFraming {
   objective_mode_label: string;
   objective_framing: string;
@@ -150,19 +160,26 @@ async function scoreSection(
       const parsed = AuditSectionOutput.safeParse(JSON.parse(jsonStr));
 
       if (parsed.success) {
-        return {
-          section: {
-            id: sectionId,
-            score: parsed.data.score,
-            maxScore: 100,
-            tier: normalizeTier(parsed.data.tier),
-            locked: false, // locking applied later
-            source: promptKey.includes("linkedin") ? "linkedin" : "cv",
-            explanation: parsed.data.explanation,
-            improvementSuggestions: parsed.data.suggestions,
-          },
-          modelUsed: result.modelUsed,
+        const section: ScoreSection = {
+          id: sectionId,
+          score: parsed.data.score,
+          maxScore: 100,
+          tier: normalizeTier(parsed.data.tier),
+          locked: false, // locking applied later
+          source: promptKey.includes("linkedin") ? "linkedin" : "cv",
+          explanation: parsed.data.explanation,
+          improvementSuggestions: parsed.data.suggestions,
         };
+
+        // ── Anti-placeholder guard: reject if output matches mock fingerprint ──
+        if (isMockSection(section)) {
+          console.warn(
+            `[guard] Mock fingerprint detected in scored section ${sectionId} (attempt ${attempt + 1}), retrying`
+          );
+          continue; // Force retry with different attempt message
+        }
+
+        return { section, modelUsed: result.modelUsed };
       }
 
       console.warn(
@@ -224,18 +241,25 @@ async function rewriteSection(
       const parsed = RewriteSectionOutput.safeParse(JSON.parse(jsonStr));
 
       if (parsed.success) {
-        return {
-          rewrite: {
-            sectionId,
-            source: promptKey.includes("linkedin") ? "linkedin" : "cv",
-            original: parsed.data.original,
-            improvements: parsed.data.improvements,
-            missingSuggestions: parsed.data.missingSuggestions,
-            rewritten: parsed.data.rewritten,
-            locked: false, // locking applied later
-          },
-          modelUsed: result.modelUsed,
+        const rewrite: RewritePreview = {
+          sectionId,
+          source: promptKey.includes("linkedin") ? "linkedin" : "cv",
+          original: parsed.data.original,
+          improvements: parsed.data.improvements,
+          missingSuggestions: parsed.data.missingSuggestions,
+          rewritten: parsed.data.rewritten,
+          locked: false, // locking applied later
         };
+
+        // ── Anti-placeholder guard: reject if rewrite matches mock fingerprint ──
+        if (isMockRewrite(rewrite)) {
+          console.warn(
+            `[guard] Mock fingerprint detected in rewrite ${sectionId} (attempt ${attempt + 1}), retrying`
+          );
+          continue;
+        }
+
+        return { rewrite, modelUsed: result.modelUsed };
       }
 
       console.warn(
@@ -299,6 +323,14 @@ async function generateCoverLetter(
       const parsed = CoverLetterOutput.safeParse(JSON.parse(jsonStr));
 
       if (parsed.success) {
+        // ── Anti-placeholder guard for cover letter ──
+        if (isPlaceholderContent(parsed.data.content)) {
+          console.warn(
+            `[guard] Mock fingerprint detected in cover letter (attempt ${attempt + 1}), retrying`
+          );
+          continue;
+        }
+
         return {
           coverLetter: {
             content: parsed.data.content,
@@ -389,6 +421,7 @@ export async function generateAuditResults(
   const startTime = Date.now();
   const promptVersions: Record<string, number> = {};
   let fallbackCount = 0;
+  let mockLeaksDetected = 0;
   let primaryModel = LLM_MODEL_FAST;
 
   const targetRole = getTargetRole(input);
@@ -399,32 +432,48 @@ export async function generateAuditResults(
   const framing = getObjectiveFraming(input);
 
   // ─── 0. Check DB cache ────────────────────────────────
+  // Cache key includes objectiveMode + prompt versions for correctness
   try {
     const inputHash = await computeInputHash({
       linkedinText: input.linkedinText,
       cvText: input.cvText,
       jobDescription: input.jobDescription,
       locale,
+      objectiveMode: input.objectiveMode,
+      objectiveText: input.objectiveText,
     });
 
     const cached = await getCachedResult(inputHash);
     if (cached) {
-      const durationMs = Date.now() - startTime;
-      console.log(`Audit served from cache: ${durationMs}ms`);
+      // ── Guard: reject cached results that contain mock fingerprints ──
+      const cachedHasMock = [
+        ...cached.results.linkedinSections,
+        ...cached.results.cvSections,
+      ].some(isMockSection);
 
-      // Re-apply plan locking to cached results (plan may differ)
-      const results = applyPlanLocking(cached.results, input);
+      if (!cachedHasMock) {
+        const durationMs = Date.now() - startTime;
+        console.log(`Audit served from cache: ${durationMs}ms`);
 
-      return {
-        results,
-        meta: {
-          modelUsed: cached.modelUsed,
-          promptVersionsUsed: cached.promptVersions,
-          durationMs,
-          fallbackCount: 0,
-          hasFallback: false,
-        },
-      };
+        // Re-apply plan locking to cached results (plan may differ)
+        const results = applyPlanLocking(cached.results, input);
+
+        return {
+          results,
+          meta: {
+            modelUsed: cached.modelUsed,
+            promptVersionsUsed: cached.promptVersions,
+            durationMs,
+            fallbackCount: 0,
+            hasFallback: false,
+            sectionCountGenerated: results.linkedinSections.length + results.cvSections.length,
+            mockLeaksDetected: 0,
+          },
+        };
+      } else {
+        console.warn("[guard] Cached result contains mock fingerprints, invalidating and regenerating");
+        // Don't serve stale mock-contaminated cache — fall through to fresh generation
+      }
     }
   } catch {
     // Cache errors should never block generation
@@ -503,7 +552,7 @@ export async function generateAuditResults(
       fallbackCount++;
       const id =
         settled.status === "fulfilled" ? settled.value.id : "unknown";
-      console.warn(`Falling back to mock for section: ${id}`);
+      console.warn(`[fallback] Using mock data for section: ${id}`);
 
       const mockLinkedin = mockResults.linkedinSections.find(
         (s) => s.id === id
@@ -518,9 +567,30 @@ export async function generateAuditResults(
     }
   }
 
-  // ─── 5. Rewrite sections (parallel) ──────────────────
+  // ─── 4b. Section completeness check + auto-retrigger ──
+  const completeness = validateSectionCompleteness(
+    hasLinkedinInput,
+    hasCvInput,
+    scoredLinkedinSections,
+    scoredCvSections,
+    LINKEDIN_SECTION_IDS,
+    CV_SECTION_IDS
+  );
+
+  if (completeness.autoRetrigger) {
+    console.warn(
+      `[guard] Section count critically low (${scoredLinkedinSections.length + scoredCvSections.length}` +
+      ` of expected ${(hasLinkedinInput ? LINKEDIN_SECTION_IDS.length : 0) + (hasCvInput ? CV_SECTION_IDS.length : 0)}). ` +
+      `Missing LinkedIn: [${completeness.linkedinMissing.join(", ")}], CV: [${completeness.cvMissing.join(", ")}]`
+    );
+    // Note: We don't auto-retry the full pipeline to avoid double-cost.
+    // The fallback mock data fills gaps. This log helps diagnose issues.
+  }
+
+  // ─── 5. Rewrite sections (parallel) — one per scored section ──
   const linkedinRewritePromises = scoredLinkedinSections.map((section) => {
-    const content = linkedinSections[section.id] ?? section.explanation;
+    const content = linkedinSections[section.id] ??
+      `[This section was not found in the profile. The user has not included a ${SECTION_DISPLAY_NAMES[section.id] ?? section.id} section.]`;
     return rewriteSection(
       section.id,
       content,
@@ -534,7 +604,8 @@ export async function generateAuditResults(
   });
 
   const cvRewritePromises = scoredCvSections.map((section) => {
-    const content = cvSections[section.id] ?? section.explanation;
+    const content = cvSections[section.id] ??
+      `[This section was not found in the CV. The user has not included a ${SECTION_DISPLAY_NAMES[section.id] ?? section.id} section.]`;
     return rewriteSection(
       section.id,
       content,
@@ -568,7 +639,7 @@ export async function generateAuditResults(
       fallbackCount++;
       const id =
         settled.status === "fulfilled" ? settled.value.id : "unknown";
-      console.warn(`Falling back to mock rewrite for section: ${id}`);
+      console.warn(`[fallback] Using mock rewrite for section: ${id}`);
 
       const mockLinkedin = mockResults.linkedinRewrites.find(
         (r) => r.sectionId === id
@@ -666,6 +737,7 @@ export async function generateAuditResults(
     : null;
 
   // ─── 9. Assemble result ──────────────────────────────
+  const sectionCountGenerated = allSections.length;
   const results: ProfileResult = {
     overallScore,
     maxScore: 100,
@@ -677,19 +749,41 @@ export async function generateAuditResults(
     coverLetter: lockedCoverLetter,
   };
 
+  // ─── 9b. Post-assembly mock leak scan ─────────────────
+  // Count mock leaks in final output for integrity reporting
+  for (const section of allSections) {
+    if (isMockSection(section)) mockLeaksDetected++;
+  }
+  for (const rewrite of [...linkedinRewrites, ...cvRewrites]) {
+    if (isMockRewrite(rewrite)) mockLeaksDetected++;
+  }
+  if (coverLetter && isPlaceholderContent(coverLetter.content)) {
+    mockLeaksDetected++;
+  }
+
   const durationMs = Date.now() - startTime;
+
+  // ─── 10. Integrity log ────────────────────────────────
   console.log(
-    `Audit generation complete: ${durationMs}ms, ${allSections.length} sections, ${fallbackCount} fallbacks`
+    `[generation] complete: ${durationMs}ms | ` +
+    `sections=${sectionCountGenerated} | ` +
+    `rewrites=${linkedinRewrites.length + cvRewrites.length} | ` +
+    `fallbacks=${fallbackCount} | ` +
+    `mockLeaks=${mockLeaksDetected} | ` +
+    `model=${primaryModel} | ` +
+    `promptVersions=${JSON.stringify(promptVersions)}`
   );
 
-  // ─── 10. Track analytics events (fire-and-forget) ─────
+  // ─── 11. Track analytics events (fire-and-forget) ─────
   trackServerEvent("llm_audit_generated", {
     metadata: {
       durationMs,
-      sectionCount: allSections.length,
+      sectionCount: sectionCountGenerated,
       model: primaryModel,
       fallbackCount,
       locale,
+      mockLeaksDetected,
+      promptVersions: JSON.stringify(promptVersions),
     },
   });
 
@@ -726,19 +820,25 @@ export async function generateAuditResults(
     });
   }
 
-  // ─── 11. Store in DB cache (fire-and-forget) ──────────
-  // Only cache when ALL sections were real LLM results (no fallbacks)
-  if (fallbackCount === 0) {
+  // ─── 12. Store in DB cache (fire-and-forget) ──────────
+  // Only cache when ALL sections were real LLM results AND no mock leaks
+  if (fallbackCount === 0 && mockLeaksDetected === 0) {
     computeInputHash({
       linkedinText: input.linkedinText,
       cvText: input.cvText,
       jobDescription: input.jobDescription,
       locale,
+      objectiveMode: input.objectiveMode,
+      objectiveText: input.objectiveText,
     })
       .then((hash) =>
         setCachedResult(hash, results, primaryModel, promptVersions)
       )
       .catch(() => {}); // Cache writes must never break flow
+  } else {
+    console.log(
+      `[cache] Skipping cache: fallbacks=${fallbackCount}, mockLeaks=${mockLeaksDetected}`
+    );
   }
 
   return {
@@ -749,6 +849,8 @@ export async function generateAuditResults(
       durationMs,
       fallbackCount,
       hasFallback: fallbackCount > 0,
+      sectionCountGenerated,
+      mockLeaksDetected,
     },
   };
 }

@@ -14,17 +14,23 @@ import type { ProfileResult } from "@/lib/types";
 const CACHE_TTL_MS = 60 * 60 * 1000;
 
 // ── Compute SHA-256 hash of input ────────────────────────
+// V2: includes objectiveMode + objectiveText for cache key correctness.
+// A job-mode audit and growth-mode audit of the same profile must not share cache.
 export async function computeInputHash(input: {
   linkedinText: string;
   cvText?: string;
   jobDescription: string;
   locale: string;
+  objectiveMode?: string;
+  objectiveText?: string;
 }): Promise<string> {
   const raw = JSON.stringify({
     linkedinText: input.linkedinText.trim(),
     cvText: (input.cvText ?? "").trim(),
     jobDescription: input.jobDescription.trim(),
     locale: input.locale,
+    objectiveMode: input.objectiveMode ?? "job",
+    objectiveText: (input.objectiveText ?? "").trim(),
   });
 
   // Use Web Crypto API (available in Node 18+ and Edge Runtime)
