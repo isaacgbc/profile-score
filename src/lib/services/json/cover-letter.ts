@@ -23,15 +23,34 @@ export async function generateCoverLetterJson(
       ? userInput.objectiveText ?? ""
       : userInput?.jobDescription ?? "";
 
+  // Include strengths from all available sources (source-aware scope)
+  const allSections = [...results.linkedinSections, ...results.cvSections];
+  const keyStrengths = allSections
+    .filter((s) => s.tier === "excellent" || s.tier === "good")
+    .map((s) => s.id)
+    .join(", ");
+
+  // Build objective framing for v2 prompts
+  const objectiveFraming =
+    userInput?.objectiveMode === "objective"
+      ? `Optimize for the stated objective: ${(userInput.objectiveText ?? "").slice(0, 200)}`
+      : "Optimize for recruiter visibility, ATS compatibility, and job-market competitiveness";
+  const objectiveModeLabel =
+    userInput?.objectiveMode === "objective" ? "Objective" : "Target role";
+  const objectiveContext =
+    userInput?.objectiveMode === "objective"
+      ? userInput.objectiveText ?? ""
+      : userInput?.jobDescription ?? targetRole;
+
   const interpolated = systemPrompt
     ? interpolatePrompt(systemPrompt, {
         target_role: targetRole,
         job_objective: jobObjective,
-        key_strengths: results.linkedinSections
-          .filter((s) => s.tier === "excellent" || s.tier === "good")
-          .map((s) => s.id)
-          .join(", "),
+        key_strengths: keyStrengths || "General professional strengths",
         overall_score: String(results.overallScore),
+        objective_mode_label: objectiveModeLabel,
+        objective_framing: objectiveFraming,
+        objective_context: objectiveContext,
       })
     : null;
 

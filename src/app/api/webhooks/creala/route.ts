@@ -140,12 +140,48 @@ export async function POST(request: Request) {
   // ── Resolve plan ──
   const planId = resolvePlanId(product.name, product.price);
 
-  // ── Persist order ──
+  // ── User resolution (provider IDs primary, email fallback) ──
+  // Constraint #3: Do NOT auto-create stub users. Unmatched → pending
+  let matchedUserId: string | null = null;
+  let reconciliationStatus = "none";
+
+  try {
+    // 1) Primary: match by customerId in User table
+    const userByCustomerId = await prisma.user.findFirst({
+      where: { id: customer.id },
+    });
+
+    if (userByCustomerId) {
+      matchedUserId = userByCustomerId.id;
+      reconciliationStatus = "matched";
+    } else {
+      // 2) Fallback: match by email
+      const userByEmail = customer.email
+        ? await prisma.user.findUnique({ where: { email: customer.email } })
+        : null;
+
+      if (userByEmail) {
+        matchedUserId = userByEmail.id;
+        reconciliationStatus = "matched";
+      } else {
+        reconciliationStatus = "pending";
+        console.warn(
+          `[Creala] No user match for saleId=${saleId} email=${customer.email} — storing as pending`
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[Creala] User resolution failed:", err);
+    reconciliationStatus = "pending";
+  }
+
+  // ── Persist order with identity + reconciliation status ──
   try {
     await prisma.order.create({
       data: {
         saleId,
         event,
+        userId: matchedUserId,
         customerId: customer.id,
         customerEmail: customer.email,
         customerName: customer.name,
@@ -163,6 +199,7 @@ export async function POST(request: Request) {
         cancellationDate: subscription?.cancellationDate
           ? new Date(subscription.cancellationDate)
           : null,
+        reconciliationStatus,
         isTest,
         rawPayload: payload as unknown as Prisma.InputJsonValue,
       },
@@ -173,6 +210,46 @@ export async function POST(request: Request) {
       { error: "Failed to persist order" },
       { status: 500 }
     );
+  }
+
+  // ── Update matched user subscription state ──
+  if (matchedUserId && planId) {
+    try {
+      switch (event) {
+        case "new_sale":
+        case "new_subscription":
+          await prisma.user.update({
+            where: { id: matchedUserId },
+            data: {
+              activePlanId: planId,
+              subscriptionStatus: "active",
+              subscriptionExpiresAt: subscription?.nextBillingDate
+                ? new Date(subscription.nextBillingDate)
+                : null,
+            },
+          });
+          break;
+        case "subscription_renewal":
+          await prisma.user.update({
+            where: { id: matchedUserId },
+            data: {
+              subscriptionStatus: "active",
+              subscriptionExpiresAt: subscription?.nextBillingDate
+                ? new Date(subscription.nextBillingDate)
+                : null,
+            },
+          });
+          break;
+        case "subscription_cancellation":
+          await prisma.user.update({
+            where: { id: matchedUserId },
+            data: { subscriptionStatus: "cancelled" },
+          });
+          break;
+      }
+    } catch (err) {
+      console.error("[Creala] Failed to update user subscription:", err);
+    }
   }
 
   // ── Track monetization analytics event ──

@@ -8,8 +8,23 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+model User {
+  id                    String    @id @default(uuid()) // matches Supabase auth.users.id
+  email                 String    @unique
+  name                  String?
+  avatarUrl             String?   @map("avatar_url")
+  activePlanId          String?   @map("active_plan_id")
+  subscriptionStatus    String    @default("none") @map("subscription_status") // none|active|cancelled|expired
+  subscriptionExpiresAt DateTime? @map("subscription_expires_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
 model Audit {
   id              String   @id @default(uuid())
+  userId          String?  @map("user_id")
   results         Json
   planId          String?  @map("plan_id")
   userInput       Json?    @map("user_input")
@@ -71,30 +86,34 @@ model GenerationCache {
 }
 
 model Order {
-  id                String    @id @default(uuid())
-  saleId            String    @unique @map("sale_id") // Crea.la saleId (idempotency key)
-  event             String    // new_sale, new_subscription, subscription_renewal, etc.
-  customerId        String?   @map("customer_id")
-  customerEmail     String?   @map("customer_email")
-  customerName      String?   @map("customer_name")
-  customerCountry   String?   @map("customer_country")
-  productId         String?   @map("product_id")
-  productName       String?   @map("product_name")
-  price             Float?
-  currency          String?
-  planId            String?   @map("plan_id")
-  subscriptionId    String?   @map("subscription_id")
-  subscriptionInterval String? @map("subscription_interval")
-  nextBillingDate   DateTime? @map("next_billing_date")
-  cancellationDate  DateTime? @map("cancellation_date")
-  isTest            Boolean   @default(false) @map("is_test")
-  rawPayload        Json?     @map("raw_payload")
-  createdAt         DateTime  @default(now()) @map("created_at")
+  id                     String    @id @default(uuid())
+  saleId                 String    @unique @map("sale_id") // Crea.la saleId (idempotency key)
+  event                  String    // new_sale, new_subscription, subscription_renewal, etc.
+  userId                 String?   @map("user_id")
+  customerId             String?   @map("customer_id")
+  customerEmail          String?   @map("customer_email")
+  customerName           String?   @map("customer_name")
+  customerCountry        String?   @map("customer_country")
+  productId              String?   @map("product_id")
+  productName            String?   @map("product_name")
+  price                  Float?
+  currency               String?
+  planId                 String?   @map("plan_id")
+  subscriptionId         String?   @map("subscription_id")
+  subscriptionInterval   String?   @map("subscription_interval")
+  nextBillingDate        DateTime? @map("next_billing_date")
+  cancellationDate       DateTime? @map("cancellation_date")
+  reconciliationStatus   String    @default("none") @map("reconciliation_status") // none|pending|matched
+  isTest                 Boolean   @default(false) @map("is_test")
+  rawPayload             Json?     @map("raw_payload")
+  createdAt              DateTime  @default(now()) @map("created_at")
 
+  @@index([userId])
   @@index([customerId])
   @@index([customerEmail])
   @@index([event])
   @@index([createdAt])
+  @@index([reconciliationStatus])
   @@map("orders")
 }
 

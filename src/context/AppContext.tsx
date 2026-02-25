@@ -5,8 +5,11 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
+  useRef,
   type ReactNode,
 } from "react";
+import { createClient } from "@/lib/supabase/client";
 import type {
   AppState,
   JourneyStep,
@@ -28,7 +31,20 @@ import {
   isCoverLetterUnlockedForPlan,
 } from "@/lib/services/unlock-matrix";
 
+/** Lightweight user info from our Prisma User model */
+export interface AppUser {
+  id: string;
+  email: string;
+  name?: string | null;
+  avatarUrl?: string | null;
+  activePlanId?: string | null;
+  subscriptionStatus?: string | null;
+}
+
 interface AppContextValue extends AppState {
+  authUser: AppUser | null;
+  authLoading: boolean;
+  signOut: () => Promise<void>;
   setStep: (step: JourneyStep) => void;
   setUserInput: (input: Partial<UserInput>) => void;
   toggleFeature: (id: FeatureId) => void;
@@ -51,6 +67,12 @@ interface AppContextValue extends AppState {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  // ── Auth state ──
+  const [authUser, setAuthUser] = useState<AppUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const supabaseRef = useRef(createClient());
+  const planAutoLoadedRef = useRef(false);
+
   const [currentStep, setCurrentStep] = useState<JourneyStep>("landing");
   const [userInput, setUserInputState] = useState<UserInput>(emptyUserInput);
   const [selectedFeatures, setSelectedFeatures] = useState<FeatureId[]>([
@@ -69,6 +91,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationMeta, setGenerationMeta] = useState<GenerationMetaClient | null>(null);
+
+  // ── Auth: listen for session changes + fetch user ──
+  useEffect(() => {
+    const supabase = supabaseRef.current;
+
+    // Get initial session
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setAuthUser({
+          id: user.id,
+          email: user.email ?? "",
+          name: user.user_metadata?.full_name ?? null,
+          avatarUrl: user.user_metadata?.avatar_url ?? null,
+        });
+      }
+      setAuthLoading(false);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (session?.user) {
+          setAuthUser({
+            id: session.user.id,
+            email: session.user.email ?? "",
+            name: session.user.user_metadata?.full_name ?? null,
+            avatarUrl: session.user.user_metadata?.avatar_url ?? null,
+          });
+        } else {
+          setAuthUser(null);
+          planAutoLoadedRef.current = false;
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Auth: auto-load plan from subscription ──
+  useEffect(() => {
+    if (!authUser || planAutoLoadedRef.current) return;
+
+    // Fetch user's subscription data from server
+    fetch(`/api/user/me`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.activePlanId && data.subscriptionStatus === "active") {
+          setSelectedPlan(data.activePlanId as PlanId);
+          planAutoLoadedRef.current = true;
+        }
+      })
+      .catch(() => {});
+  }, [authUser]);
+
+  const signOut = useCallback(async () => {
+    await supabaseRef.current.auth.signOut();
+    setAuthUser(null);
+    setSelectedPlan(null);
+    planAutoLoadedRef.current = false;
+  }, []);
 
   const setStep = useCallback((step: JourneyStep) => {
     setCurrentStep(step);
@@ -290,6 +372,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider
       value={{
+        authUser,
+        authLoading,
+        signOut,
         currentStep,
         userInput,
         selectedFeatures,

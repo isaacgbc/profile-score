@@ -21,7 +21,7 @@ import {
   extractJson,
 } from "@/lib/schemas/llm-output";
 import {
-  parseLinkedinSections,
+  parseLinkedinSectionsWithFallback,
   LINKEDIN_SECTION_IDS,
   CV_SECTION_IDS,
   SECTION_DISPLAY_NAMES,
@@ -82,12 +82,39 @@ function getTargetRole(input: AuditInput): string {
   return input.objectiveText || input.targetAudience || "Professional";
 }
 
+// ── Objective framing for prompts (Fix #1) ──────────────
+interface ObjectiveFraming {
+  objective_mode_label: string;
+  objective_framing: string;
+  objective_context: string;
+}
+
+function getObjectiveFraming(input: AuditInput): ObjectiveFraming {
+  if (input.objectiveMode === "job") {
+    return {
+      objective_mode_label: "Target role",
+      objective_framing:
+        "Optimize for recruiter visibility, ATS compatibility, and job-market competitiveness",
+      objective_context:
+        input.jobDescription || input.targetAudience || "Professional role",
+    };
+  }
+  // Objective / growth mode
+  return {
+    objective_mode_label: "Objective",
+    objective_framing: `Optimize for the stated objective: ${(input.objectiveText || "General professional growth").slice(0, 200)}`,
+    objective_context:
+      input.objectiveText || "General professional growth",
+  };
+}
+
 // ── Score a single section via LLM ──────────────────────
 async function scoreSection(
   sectionId: string,
   sectionContent: string,
   promptKey: string,
   targetRole: string,
+  framing: ObjectiveFraming,
   locale: Locale,
   promptVersions: Record<string, number>
 ): Promise<{ section: ScoreSection; modelUsed: string } | null> {
@@ -100,6 +127,9 @@ async function scoreSection(
     section_name: SECTION_DISPLAY_NAMES[sectionId] ?? sectionId,
     section_content: truncate(sectionContent),
     target_role: targetRole,
+    objective_mode_label: framing.objective_mode_label,
+    objective_framing: framing.objective_framing,
+    objective_context: framing.objective_context,
   });
 
   // Try LLM call with one retry on parse failure
@@ -157,6 +187,7 @@ async function rewriteSection(
   promptKey: string,
   targetRole: string,
   jobObjective: string,
+  framing: ObjectiveFraming,
   locale: Locale,
   promptVersions: Record<string, number>
 ): Promise<{ rewrite: RewritePreview; modelUsed: string } | null> {
@@ -170,6 +201,9 @@ async function rewriteSection(
     original_content: truncate(originalContent),
     target_role: targetRole,
     job_objective: jobObjective,
+    objective_mode_label: framing.objective_mode_label,
+    objective_framing: framing.objective_framing,
+    objective_context: framing.objective_context,
   });
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -225,6 +259,7 @@ async function generateCoverLetter(
   jobObjective: string,
   keyStrengths: string,
   overallScore: number,
+  framing: ObjectiveFraming,
   locale: Locale,
   promptVersions: Record<string, number>
 ): Promise<{ coverLetter: CoverLetterResult; modelUsed: string } | null> {
@@ -241,6 +276,9 @@ async function generateCoverLetter(
     job_objective: jobObjective,
     key_strengths: keyStrengths,
     overall_score: String(overallScore),
+    objective_mode_label: framing.objective_mode_label,
+    objective_framing: framing.objective_framing,
+    objective_context: framing.objective_context,
   });
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -358,6 +396,7 @@ export async function generateAuditResults(
     input.objectiveMode === "job"
       ? input.jobDescription
       : input.objectiveText;
+  const framing = getObjectiveFraming(input);
 
   // ─── 0. Check DB cache ────────────────────────────────
   try {
@@ -393,7 +432,7 @@ export async function generateAuditResults(
 
   // ─── 1. Parse input sections ──────────────────────────
   const linkedinSections = input.linkedinText.trim()
-    ? parseLinkedinSections(input.linkedinText)
+    ? await parseLinkedinSectionsWithFallback(input.linkedinText, locale)
     : {};
 
   const cvSections =
@@ -402,31 +441,43 @@ export async function generateAuditResults(
       : {};
 
   // ─── 2. Score LinkedIn sections (parallel) ────────────
-  const linkedinScorePromises = LINKEDIN_SECTION_IDS.filter(
-    (id) => linkedinSections[id]
-  ).map((id) =>
-    scoreSection(
-      id,
-      linkedinSections[id],
-      "audit.linkedin.system",
-      targetRole,
-      locale,
-      promptVersions
-    ).then((result) => ({ id, result }))
+  // Score ALL standard sections — missing ones get guidance content
+  const hasLinkedinInput = input.linkedinText.trim().length > 0;
+  const linkedinScorePromises = (hasLinkedinInput ? LINKEDIN_SECTION_IDS : []).map(
+    (id) => {
+      const content =
+        linkedinSections[id] ||
+        `[This section was not found in the profile. The user has not included a ${SECTION_DISPLAY_NAMES[id] ?? id} section.]`;
+      return scoreSection(
+        id,
+        content,
+        "audit.linkedin.system",
+        targetRole,
+        framing,
+        locale,
+        promptVersions
+      ).then((result) => ({ id, result }));
+    }
   );
 
   // ─── 3. Score CV sections (parallel) ──────────────────
-  const cvScorePromises = CV_SECTION_IDS.filter(
-    (id) => cvSections[id]
-  ).map((id) =>
-    scoreSection(
-      id,
-      cvSections[id],
-      "audit.cv.system",
-      targetRole,
-      locale,
-      promptVersions
-    ).then((result) => ({ id, result }))
+  // Score ALL standard CV sections when CV input exists — missing ones get guidance
+  const hasCvInput = (input.cvText ?? "").trim().length > 20;
+  const cvScorePromises = (hasCvInput ? CV_SECTION_IDS : []).map(
+    (id) => {
+      const content =
+        cvSections[id] ||
+        `[This section was not found in the CV. The user has not included a ${SECTION_DISPLAY_NAMES[id] ?? id} section.]`;
+      return scoreSection(
+        id,
+        content,
+        "audit.cv.system",
+        targetRole,
+        framing,
+        locale,
+        promptVersions
+      ).then((result) => ({ id, result }));
+    }
   );
 
   const allScoreResults = await Promise.allSettled([
@@ -476,6 +527,7 @@ export async function generateAuditResults(
       "rewrite.linkedin.section",
       targetRole,
       jobObjective,
+      framing,
       locale,
       promptVersions
     ).then((result) => ({ id: section.id, result }));
@@ -489,6 +541,7 @@ export async function generateAuditResults(
       "rewrite.cv.section",
       targetRole,
       jobObjective,
+      framing,
       locale,
       promptVersions
     ).then((result) => ({ id: section.id, result }));
@@ -555,6 +608,7 @@ export async function generateAuditResults(
       jobObjective,
       keyStrengths || "General professional strengths",
       overallScore,
+      framing,
       locale,
       promptVersions
     );

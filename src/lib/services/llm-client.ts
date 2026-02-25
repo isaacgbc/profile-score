@@ -32,6 +32,8 @@ export interface LLMCallParams {
   systemPrompt: string;
   userMessage: string;
   maxTokens?: number;
+  /** External abort signal — e.g. for parser timeout (10 s) */
+  signal?: AbortSignal;
 }
 
 export interface LLMCallResult {
@@ -49,7 +51,7 @@ export interface LLMCallResult {
  * - Records success/failure for breaker state transitions
  */
 export async function callLLM(params: LLMCallParams): Promise<LLMCallResult> {
-  const { model, systemPrompt, userMessage, maxTokens = 2048 } = params;
+  const { model, systemPrompt, userMessage, maxTokens = 2048, signal: externalSignal } = params;
 
   // ── Circuit breaker check ──
   if (!llmCircuitBreaker.allowRequest()) {
@@ -74,6 +76,15 @@ export async function callLLM(params: LLMCallParams): Promise<LLMCallResult> {
     model === LLM_MODEL_FAST ? TIMEOUT_FAST_MS : TIMEOUT_QUALITY_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // If an external signal is provided (e.g. parser 10 s timeout), propagate abort
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
 
   const start = Date.now();
 

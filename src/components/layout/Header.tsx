@@ -10,7 +10,7 @@ import type { Locale } from "@/lib/types";
 
 export default function Header() {
   const { t, locale, setLocale } = useI18n();
-  const { isAdmin, toggleAdmin } = useApp();
+  const { isAdmin, toggleAdmin, authUser, authLoading, signOut } = useApp();
   const [showAdminModal, setShowAdminModal] = useState(false);
 
   function handleAdminClick() {
@@ -54,6 +54,38 @@ export default function Header() {
 
           {/* Right controls */}
           <div className="flex items-center gap-3">
+            {/* User auth */}
+            {authUser ? (
+              <div className="hidden sm:flex items-center gap-2">
+                {authUser.avatarUrl ? (
+                  <img src={authUser.avatarUrl} alt="" className="w-6 h-6 rounded-full" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-[var(--accent)]/10 flex items-center justify-center">
+                    <span className="text-[10px] font-medium text-[var(--accent)]">
+                      {(authUser.name?.[0] ?? authUser.email[0] ?? "U").toUpperCase()}
+                    </span>
+                  </div>
+                )}
+                <span className="text-xs text-[var(--text-muted)] max-w-[120px] truncate">
+                  {authUser.name ?? authUser.email}
+                </span>
+                <button
+                  onClick={() => signOut()}
+                  className="text-xs text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
+                >
+                  Sign out
+                </button>
+              </div>
+            ) : !authLoading ? (
+              <Link
+                href="/auth/login"
+                className="hidden sm:flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium
+                  text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
+              >
+                Sign in
+              </Link>
+            ) : null}
+
             {/* Admin prompts link */}
             {isAdmin && (
               <Link
