@@ -12,6 +12,83 @@ export const AuditSectionOutput = z.object({
 
 export type AuditSectionOutputType = z.infer<typeof AuditSectionOutput>;
 
+// ── PR2C: Normalize raw LLM audit output before Zod validation ──
+// Prevents invalid_json from oversized suggestions that exceed schema limits.
+// Returns { normalized: true, data } when truncation was applied, { normalized: false, data } otherwise.
+const SUGGESTION_HARD_CAP_CHARS = 400;
+const SUGGESTION_MAX_COUNT = 5;
+
+export function normalizeAuditOutput(raw: unknown): {
+  normalized: boolean;
+  data: unknown;
+} {
+  if (!raw || typeof raw !== "object") return { normalized: false, data: raw };
+
+  const obj = raw as Record<string, unknown>;
+  let didNormalize = false;
+
+  // Normalize suggestions array
+  if (Array.isArray(obj.suggestions)) {
+    let suggestions = obj.suggestions as unknown[];
+
+    // Remove empty/whitespace-only items
+    const before = suggestions.length;
+    suggestions = suggestions.filter(
+      (s) => typeof s === "string" && s.trim().length > 0
+    );
+    if (suggestions.length !== before) didNormalize = true;
+
+    // Deduplicate (case-insensitive)
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const s of suggestions as string[]) {
+      const key = s.toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(s);
+      } else {
+        didNormalize = true;
+      }
+    }
+    suggestions = deduped;
+
+    // Trim each suggestion to hard cap
+    suggestions = (suggestions as string[]).map((s) => {
+      if (s.length > SUGGESTION_HARD_CAP_CHARS) {
+        didNormalize = true;
+        // Trim at last sentence boundary within cap, or hard-cut
+        const trimmed = s.slice(0, SUGGESTION_HARD_CAP_CHARS);
+        const lastPeriod = trimmed.lastIndexOf(".");
+        return lastPeriod > SUGGESTION_HARD_CAP_CHARS * 0.5
+          ? trimmed.slice(0, lastPeriod + 1)
+          : trimmed.trimEnd() + "…";
+      }
+      return s;
+    });
+
+    // Cap count
+    if (suggestions.length > SUGGESTION_MAX_COUNT) {
+      suggestions = suggestions.slice(0, SUGGESTION_MAX_COUNT);
+      didNormalize = true;
+    }
+
+    obj.suggestions = suggestions;
+  }
+
+  // Trim explanation if over 2000 chars
+  if (typeof obj.explanation === "string" && obj.explanation.length > 2000) {
+    const trimmed = obj.explanation.slice(0, 2000);
+    const lastPeriod = trimmed.lastIndexOf(".");
+    obj.explanation =
+      lastPeriod > 1500
+        ? trimmed.slice(0, lastPeriod + 1)
+        : trimmed.trimEnd();
+    didNormalize = true;
+  }
+
+  return { normalized: didNormalize, data: obj };
+}
+
 // ── Rewrite section output ──
 // Matches RewritePreview interface
 export const RewriteSectionOutput = z.object({

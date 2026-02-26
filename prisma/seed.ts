@@ -947,14 +947,16 @@ EXPLANATION RULES:
 - Never say generic phrases like "Your section could be stronger" or "Consider improving this area" — always name the specific issue.
 - Connect every observation to the optimization goal.
 
-SUGGESTION RULES (2-3 suggestions):
-Each suggestion must follow this formula: [WHAT to change] + [WHY it matters] + [HOW to fix it with a specific formula or example].
+SUGGESTION RULES:
+- Return 2 to 4 suggestions. Each suggestion MUST be ONE actionable sentence, max 220 characters.
+- Formula: [WHAT to change] + [WHY] + [HOW in brief].
+- No paragraphs, no multi-sentence suggestions, no long examples.
 BAD: "Add more keywords"
-GOOD: "Your experience bullets lack quantified metrics — recruiters spend 6 seconds scanning and skip bullets without numbers. Rewrite 'Managed email campaigns' as 'Managed email campaigns reaching 50K subscribers, achieving 28% open rate and $200K attributed revenue.'"
+GOOD: "Replace duty-based bullets like 'Managed campaigns' with metric-driven ones like 'Managed campaigns reaching 50K subs, 28% open rate' — recruiters skip numberless bullets."
 
-Respond in JSON: { "score": number, "tier": string, "explanation": string, "suggestions": [string, string] }
+Respond in JSON: { "score": number, "tier": string, "explanation": string, "suggestions": ["...", "..."] }
 
-IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no code fences, no extra text.`,
+HARD LIMITS: Each suggestion <= 220 chars. Max 4 suggestions. Respond with ONLY valid JSON, no markdown, no code fences.`,
     modelTarget: "claude-haiku",
   },
   {
@@ -989,12 +991,14 @@ REGLAS DE EXPLICACION:
 - Nunca uses frases genericas como "Tu seccion podria ser mejor" — siempre nombra el problema especifico.
 - Conecta cada observacion con la meta de optimizacion.
 
-REGLAS DE SUGERENCIAS (2-3 sugerencias):
-Cada sugerencia debe seguir: [QUE cambiar] + [POR QUE importa] + [COMO arreglarlo con formula o ejemplo especifico].
+REGLAS DE SUGERENCIAS:
+- Devuelve 2 a 4 sugerencias. Cada sugerencia DEBE ser UNA oracion accionable, maximo 220 caracteres.
+- Formula: [QUE cambiar] + [POR QUE] + [COMO en breve].
+- Sin parrafos, sin sugerencias de multiples oraciones.
 
-Responde en JSON: { "score": number, "tier": string, "explanation": string, "suggestions": [string, string] }
+Responde en JSON: { "score": number, "tier": string, "explanation": string, "suggestions": ["...", "..."] }
 
-IMPORTANTE: Responde SOLO con un objeto JSON valido. Sin markdown, sin bloques de codigo, sin texto adicional.`,
+LIMITES ESTRICTOS: Cada sugerencia <= 220 caracteres. Maximo 4 sugerencias. Responde SOLO con JSON valido, sin markdown.`,
     modelTarget: "claude-haiku",
   },
 
@@ -1030,14 +1034,16 @@ EXPLANATION RULES:
 - Identify specific anti-patterns: duty-language ("Responsible for"), unquantified claims ("improved efficiency"), buzzword-only skills.
 - Connect every observation to ATS compatibility and recruiter impact.
 
-SUGGESTION RULES (2-3 suggestions):
-Each suggestion: [WHAT] + [WHY it hurts your application] + [HOW to fix with specific rewrite formula].
+SUGGESTION RULES:
+- Return 2 to 4 suggestions. Each suggestion MUST be ONE actionable sentence, max 220 characters.
+- Formula: [WHAT] + [WHY it hurts] + [HOW to fix briefly].
+- No paragraphs, no multi-sentence suggestions.
 BAD: "Add more detail"
-GOOD: "Your role at TechCorp has 2 bullets with no metrics. Recruiters and ATS rank candidates with quantified impact higher. Rewrite 'Improved team processes' as 'Redesigned sprint planning process for 8-person team, reducing cycle time by 25% and increasing on-time delivery from 60% to 92%.'"
+GOOD: "Rewrite 'Improved team processes' with metrics: 'Redesigned sprint process for 8-person team, reducing cycle time 25%' — ATS ranks quantified bullets higher."
 
-Respond in JSON: { "score": number, "tier": string, "explanation": string, "suggestions": [string, string] }
+Respond in JSON: { "score": number, "tier": string, "explanation": string, "suggestions": ["...", "..."] }
 
-IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no code fences, no extra text.`,
+HARD LIMITS: Each suggestion <= 220 chars. Max 4 suggestions. Respond with ONLY valid JSON, no markdown.`,
     modelTarget: "claude-haiku",
   },
   {
@@ -1070,12 +1076,14 @@ REGLAS DE EXPLICACION:
 - DEBES referenciar texto especifico del contenido del usuario.
 - Identifica anti-patrones: lenguaje de deberes, afirmaciones sin cuantificar, habilidades solo de buzzwords.
 
-REGLAS DE SUGERENCIAS (2-3 sugerencias):
-Cada sugerencia: [QUE] + [POR QUE perjudica tu aplicacion] + [COMO arreglar con formula especifica].
+REGLAS DE SUGERENCIAS:
+- Devuelve 2 a 4 sugerencias. Cada sugerencia DEBE ser UNA oracion accionable, maximo 220 caracteres.
+- Formula: [QUE] + [POR QUE perjudica] + [COMO arreglar en breve].
+- Sin parrafos, sin sugerencias de multiples oraciones.
 
-Responde en JSON: { "score": number, "tier": string, "explanation": string, "suggestions": [string, string] }
+Responde en JSON: { "score": number, "tier": string, "explanation": string, "suggestions": ["...", "..."] }
 
-IMPORTANTE: Responde SOLO con un objeto JSON valido. Sin markdown, sin bloques de codigo, sin texto adicional.`,
+LIMITES ESTRICTOS: Cada sugerencia <= 220 caracteres. Maximo 4 sugerencias. Responde SOLO con JSON valido, sin markdown.`,
     modelTarget: "claude-haiku",
   },
 

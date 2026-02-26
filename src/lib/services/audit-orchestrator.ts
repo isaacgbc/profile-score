@@ -22,6 +22,7 @@ import {
   normalizeTier,
   tierFromScore,
   extractJson,
+  normalizeAuditOutput,
 } from "@/lib/schemas/llm-output";
 import {
   parseLinkedinSectionsWithFallback,
@@ -59,12 +60,15 @@ export type FailureReason =
   | "timeout"
   | "rate_limit_429"
   | "invalid_json"
+  | "invalid_json_too_big"
   | "missing_prompt"
   | "empty_input"
   | "parser_fail"
   | "circuit_breaker_open"
   | "mock_fingerprint_retry"
   | "generic_output_retry"
+  | "normalized_suggestions"
+  | "retry_too_big_success"
   | "unknown";
 
 function categorizeError(err: unknown): FailureReason {
@@ -110,6 +114,12 @@ export interface GenerationMeta {
   degraded: boolean;
   /** P0-1: categorized failure reasons for every failed step */
   failureReasons: FailureReason[];
+  /** PR2C: count of suggestions normalized before Zod parse (trimmed/deduped/capped) */
+  normalizedSuggestionsCount: number;
+  /** PR2C: count of invalid_json failures caused by oversized output */
+  invalidJsonTooBigCount: number;
+  /** PR2C: count of targeted too_big retries that succeeded */
+  retryTooBigSuccessCount: number;
 }
 
 export interface GenerationResult {
@@ -189,24 +199,50 @@ async function scoreSection(
     objective_context: framing.objective_context,
   });
 
-  // Try LLM call with one retry on parse failure
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Try LLM call with retry on parse failure + targeted too_big retry
+  let lastTooBig = false; // track whether failure was from oversized output
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      // Attempt 0: standard prompt
+      // Attempt 1: generic JSON retry (standard parse failure)
+      // Attempt 2: targeted too_big retry (only if attempt 1 failed on oversized output)
+      if (attempt === 2 && !lastTooBig) break; // skip attempt 2 unless needed
+
       const userMessage =
         attempt === 0
           ? "Score this section and provide actionable feedback."
-          : "Your previous response was not valid JSON. Please respond with ONLY a valid JSON object with keys: score, tier, explanation, suggestions.";
+          : attempt === 1
+            ? "Your previous response was not valid JSON. Please respond with ONLY a valid JSON object with keys: score, tier, explanation, suggestions."
+            : "Return valid JSON. CRITICAL: each suggestion must be ONE sentence, max 180 characters. Max 3 suggestions total.";
+
+      const systemSuffix =
+        attempt === 0
+          ? ""
+          : attempt === 1
+            ? "\n\nIMPORTANT: Respond with ONLY valid JSON, no other text."
+            : "\n\nCRITICAL: Respond with ONLY valid JSON. Each suggestion MUST be under 180 characters. Max 3 suggestions. One actionable point per suggestion.";
 
       const result = await callLLM({
         model: LLM_MODEL_FAST,
-        systemPrompt: attempt === 0 ? systemPrompt : systemPrompt + "\n\nIMPORTANT: Respond with ONLY valid JSON, no other text.",
+        systemPrompt: systemPrompt + systemSuffix,
         userMessage,
       });
 
       const jsonStr = extractJson(result.text);
-      const parsed = AuditSectionOutput.safeParse(JSON.parse(jsonStr));
+      const rawParsed = JSON.parse(jsonStr);
+
+      // PR2C: Normalize before Zod validation — trim oversized suggestions, dedup, cap count
+      const { normalized, data: normalizedData } = normalizeAuditOutput(rawParsed);
+      if (normalized) {
+        failureReasons.push("normalized_suggestions");
+        console.log(`[diag] Normalized audit output for section=${sectionId} (attempt ${attempt + 1})`);
+      }
+
+      const parsed = AuditSectionOutput.safeParse(normalizedData);
 
       if (parsed.success) {
+        if (attempt === 2) failureReasons.push("retry_too_big_success");
+
         const section: ScoreSection = {
           id: sectionId,
           score: parsed.data.score,
@@ -230,13 +266,23 @@ async function scoreSection(
         return { section, modelUsed: result.modelUsed };
       }
 
-      failureReasons.push("invalid_json");
+      // Check if failure is from oversized suggestions (too_big pattern)
+      const errorMsg = parsed.error?.message ?? "";
+      const isTooBig =
+        errorMsg.includes("too_big") ||
+        errorMsg.includes("String must contain at most") ||
+        (Array.isArray(rawParsed?.suggestions) &&
+          rawParsed.suggestions.some((s: unknown) => typeof s === "string" && s.length > 500));
+      lastTooBig = isTooBig;
+
+      failureReasons.push(isTooBig ? "invalid_json_too_big" : "invalid_json");
       console.warn(
-        `[diag] Audit parse failed: section=${sectionId}, attempt=${attempt + 1}, error=${parsed.error?.message}`
+        `[diag] Audit parse failed: section=${sectionId}, attempt=${attempt + 1}, tooBig=${isTooBig}, error=${errorMsg.slice(0, 200)}`
       );
     } catch (err) {
       const reason = categorizeError(err);
       failureReasons.push(reason);
+      lastTooBig = false;
       console.warn(
         `[diag] Audit LLM error: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}, error=${err instanceof Error ? err.message : "Unknown"}`
       );
@@ -804,6 +850,9 @@ export async function generateAuditResults(
             mockLeaksDetected: 0,
             degraded: false,
             failureReasons: [],
+            normalizedSuggestionsCount: 0,
+            invalidJsonTooBigCount: 0,
+            retryTooBigSuccessCount: 0,
           },
         };
       } else {
@@ -872,7 +921,10 @@ export async function generateAuditResults(
     ...cvScorePromises,
   ]);
 
-  // ─── 4. Build scored sections with fallbacks ──────────
+  // ─── 4. Build scored sections — PR2C: NO mock fallback ──
+  // Failed sections are omitted entirely instead of injecting mock data.
+  // The UI handles missing sections gracefully, and the degraded gate
+  // (hasFallback + degraded flag) protects the Rewrite Studio UX.
   const scoredLinkedinSections: ScoreSection[] = [];
   const scoredCvSections: ScoreSection[] = [];
 
@@ -886,22 +938,11 @@ export async function generateAuditResults(
         scoredCvSections.push(section);
       }
     } else {
-      // Fallback to mock data
+      // PR2C: No mock injection — just count the failure and skip
       fallbackCount++;
       const id =
         settled.status === "fulfilled" ? settled.value.id : "unknown";
-      console.warn(`[fallback] Using mock data for section: ${id}`);
-
-      const mockLinkedin = mockResults.linkedinSections.find(
-        (s) => s.id === id
-      );
-      const mockCv = mockResults.cvSections.find((s) => s.id === id);
-
-      if (mockLinkedin) {
-        scoredLinkedinSections.push({ ...mockLinkedin, locked: false });
-      } else if (mockCv) {
-        scoredCvSections.push({ ...mockCv, locked: false });
-      }
+      console.warn(`[fallback] Skipping section (no mock): ${id}`);
     }
   }
 
@@ -1040,23 +1081,11 @@ export async function generateAuditResults(
         cvRewrites.push(rewrite);
       }
     } else {
+      // PR2C: No mock injection for rewrites — just count and skip
       fallbackCount++;
       const id =
         settled.status === "fulfilled" ? settled.value.id : "unknown";
-      console.warn(`[fallback] Using mock rewrite for section: ${id}`);
-
-      const mockLinkedin = mockResults.linkedinRewrites.find(
-        (r) => r.sectionId === id
-      );
-      const mockCv = mockResults.cvRewrites.find(
-        (r) => r.sectionId === id
-      );
-
-      if (mockLinkedin) {
-        linkedinRewrites.push({ ...mockLinkedin, locked: false });
-      } else if (mockCv) {
-        cvRewrites.push({ ...mockCv, locked: false });
-      }
+      console.warn(`[fallback] Skipping rewrite (no mock): ${id}`);
     }
   }
 
@@ -1092,10 +1121,9 @@ export async function generateAuditResults(
     if (clResult) {
       coverLetter = clResult.coverLetter;
     } else {
+      // PR2C: No mock cover letter — just count and leave null
       fallbackCount++;
-      coverLetter = mockResults.coverLetter
-        ? { ...mockResults.coverLetter, locked: false }
-        : null;
+      console.warn(`[fallback] Skipping cover letter (no mock)`);
     }
   }
 
@@ -1205,6 +1233,17 @@ export async function generateAuditResults(
   // Deduplicate failure reasons for client
   const uniqueFailureReasons = [...new Set(failureReasons)];
 
+  // PR2C: Compute observability counters from failureReasons
+  const normalizedSuggestionsCount = failureReasons.filter(
+    (r) => r === "normalized_suggestions"
+  ).length;
+  const invalidJsonTooBigCount = failureReasons.filter(
+    (r) => r === "invalid_json_too_big"
+  ).length;
+  const retryTooBigSuccessCount = failureReasons.filter(
+    (r) => r === "retry_too_big_success"
+  ).length;
+
   // ─── 10. Integrity log (P0-1: structured diagnostics) ──
   console.log(
     `[diag] request=${requestId} | ` +
@@ -1214,6 +1253,9 @@ export async function generateAuditResults(
     `fallbacks=${fallbackCount}/${totalExpectedOperations} | ` +
     `mockLeaks=${mockLeaksDetected} | ` +
     `degraded=${degraded} | ` +
+    `normalized=${normalizedSuggestionsCount} | ` +
+    `tooBig=${invalidJsonTooBigCount} | ` +
+    `tooBigRetryOK=${retryTooBigSuccessCount} | ` +
     `isAdmin=${input.isAdmin} | ` +
     `plan=${input.planId} | ` +
     `model=${primaryModel} | ` +
@@ -1300,6 +1342,9 @@ export async function generateAuditResults(
       mockLeaksDetected,
       degraded,
       failureReasons: uniqueFailureReasons,
+      normalizedSuggestionsCount,
+      invalidJsonTooBigCount,
+      retryTooBigSuccessCount,
     },
   };
 }
