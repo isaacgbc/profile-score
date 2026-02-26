@@ -71,15 +71,67 @@ export type FailureReason =
   | "retry_too_big_success"
   | "unknown";
 
-function categorizeError(err: unknown): FailureReason {
-  if (!(err instanceof Error)) return "unknown";
-  const msg = err.message.toLowerCase();
-  if (msg.includes("circuit breaker")) return "circuit_breaker_open";
-  if (msg.includes("429") || msg.includes("rate limit") || msg.includes("rate_limit")) return "rate_limit_429";
-  if (msg.includes("abort") || msg.includes("timeout") || msg.includes("timed out")) return "timeout";
-  if (msg.includes("json") || msg.includes("parse")) return "invalid_json";
-  return "unknown";
+// ── PR2C: Per-section failure reason taxonomy ──
+export type SectionFailureReason =
+  | "prompt_missing"
+  | "prompt_inactive"
+  | "locale_missing"
+  | "llm_timeout"
+  | "llm_rate_limited"
+  | "llm_schema_invalid"
+  | "llm_empty_output"
+  | "guard_rejected"
+  | "retry_exhausted";
+
+export interface SectionDiagnostic {
+  sectionId: string;
+  module: "score" | "rewrite" | "cover-letter" | "descriptor";
+  source: "linkedin" | "cv" | "system";
+  isCore: boolean;
+  reason: SectionFailureReason;
+  attempts: number;
+  durationMs: number;
 }
+
+// ── PR2C: Core section definitions ──
+// Core sections are the ones that carry the most signal. If these fail,
+// the entire generation is unreliable and should surface an explicit error.
+const CORE_LINKEDIN_SECTIONS = new Set(["headline", "about", "experience", "education"]);
+const CORE_CV_SECTIONS = new Set(["professional-summary", "work-experience", "education-section"]);
+
+function isCoreSection(sectionId: string, source: "linkedin" | "cv"): boolean {
+  return source === "linkedin"
+    ? CORE_LINKEDIN_SECTIONS.has(sectionId)
+    : CORE_CV_SECTIONS.has(sectionId);
+}
+
+// ── PR2C: Error classification for retry decisions ──
+type ErrorClass = "transient" | "hard" | "guard";
+
+function classifyError(err: unknown): { reason: FailureReason; errorClass: ErrorClass } {
+  if (!(err instanceof Error)) return { reason: "unknown", errorClass: "hard" };
+  const msg = err.message.toLowerCase();
+  if (msg.includes("circuit breaker")) return { reason: "circuit_breaker_open", errorClass: "hard" };
+  if (msg.includes("429") || msg.includes("rate limit") || msg.includes("rate_limit"))
+    return { reason: "rate_limit_429", errorClass: "transient" };
+  if (msg.includes("abort") || msg.includes("timeout") || msg.includes("timed out"))
+    return { reason: "timeout", errorClass: "transient" };
+  if (msg.includes("overloaded") || msg.includes("econnreset") || msg.includes("socket hang up"))
+    return { reason: "timeout", errorClass: "transient" };
+  if (msg.includes("json") || msg.includes("parse"))
+    return { reason: "invalid_json", errorClass: "hard" };
+  return { reason: "unknown", errorClass: "hard" };
+}
+
+/** Backward-compat wrapper — kept for non-score code paths */
+function categorizeError(err: unknown): FailureReason {
+  return classifyError(err).reason;
+}
+
+// ── PR2C: Per-section time budget ──
+// Prevents long-tail latency from unbounded retries on a single section.
+const SECTION_BUDGET_FAST_MS = 25_000;   // scoring (Haiku)
+const SECTION_BUDGET_QUALITY_MS = 50_000; // rewriting (Sonnet)
 
 // ── Degraded threshold ──
 // If ≥ this fraction of total expected sections are fallbacks, results are degraded
@@ -120,6 +172,20 @@ export interface GenerationMeta {
   invalidJsonTooBigCount: number;
   /** PR2C: count of targeted too_big retries that succeeded */
   retryTooBigSuccessCount: number;
+  /** PR2C-post: per-section failure diagnostics */
+  sectionDiagnostics: SectionDiagnostic[];
+  /** PR2C-post: failures in core sections (headline, about, experience, education) */
+  coreFailureCount: number;
+  /** PR2C-post: failures in non-core sections (skills, certifications, recommendations) */
+  nonCoreFailureCount: number;
+  /** PR2C-post: distribution of failure reasons across all failed sections */
+  fallbackReasonDistribution: Record<string, number>;
+  /** PR2C-post: retry attempts grouped by error class */
+  retryAttemptsByReason: Record<string, number>;
+  /** PR2C-post: total wall-clock time spent in LLM calls */
+  totalLLMTimeMs: number;
+  /** PR2C-post: prompt keys that passed readiness preflight */
+  preflightResult: { passed: boolean; missing: string[] };
 }
 
 export interface GenerationResult {
@@ -179,11 +245,22 @@ async function scoreSection(
   framing: ObjectiveFraming,
   locale: Locale,
   promptVersions: Record<string, number>,
-  failureReasons: FailureReason[]
+  failureReasons: FailureReason[],
+  sectionDiagnostics: SectionDiagnostic[],
+  retryAttemptsByReason: Record<string, number>
 ): Promise<{ section: ScoreSection; modelUsed: string } | null> {
+  const sectionStart = Date.now();
+  const source: "linkedin" | "cv" = promptKey.includes("linkedin") ? "linkedin" : "cv";
+  const isCore = isCoreSection(sectionId, source);
+
   const prompt = await getActivePromptWithVersion(promptKey, locale);
   if (!prompt) {
     failureReasons.push("missing_prompt");
+    const reason: SectionFailureReason = "prompt_missing";
+    sectionDiagnostics.push({
+      sectionId, module: "score", source, isCore, reason,
+      attempts: 0, durationMs: Date.now() - sectionStart,
+    });
     console.error(`[diag] Missing prompt: key=${promptKey}, locale=${locale}, section=${sectionId}`);
     return null;
   }
@@ -199,15 +276,29 @@ async function scoreSection(
     objective_context: framing.objective_context,
   });
 
-  // Try LLM call with retry on parse failure + targeted too_big retry
-  let lastTooBig = false; // track whether failure was from oversized output
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      // Attempt 0: standard prompt
-      // Attempt 1: generic JSON retry (standard parse failure)
-      // Attempt 2: targeted too_big retry (only if attempt 1 failed on oversized output)
-      if (attempt === 2 && !lastTooBig) break; // skip attempt 2 unless needed
+  // PR2C: retry with error-class matrix + per-section time budget
+  let lastTooBig = false;
+  let lastErrorClass: ErrorClass = "hard";
+  let lastSectionReason: SectionFailureReason = "retry_exhausted";
+  let totalAttempts = 0;
 
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // Per-section time budget — abort if we've already spent too long
+    if (Date.now() - sectionStart > SECTION_BUDGET_FAST_MS) {
+      console.warn(`[diag] Section budget exceeded for score/${sectionId} after ${attempt} attempts`);
+      lastSectionReason = "llm_timeout";
+      break;
+    }
+
+    // Attempt 2 only fires for too_big or transient errors
+    if (attempt === 2 && !lastTooBig && lastErrorClass !== "transient") break;
+
+    // No retry on hard errors (prompt missing, guard rejected, schema hard-fail after normalization)
+    if (attempt > 0 && lastErrorClass === "guard") break;
+
+    totalAttempts = attempt + 1;
+
+    try {
       const userMessage =
         attempt === 0
           ? "Score this section and provide actionable feedback."
@@ -228,13 +319,35 @@ async function scoreSection(
         userMessage,
       });
 
-      const jsonStr = extractJson(result.text);
-      const rawParsed = JSON.parse(jsonStr);
+      // Check for empty output
+      if (!result.text || result.text.trim().length < 5) {
+        failureReasons.push("invalid_json");
+        lastErrorClass = "hard";
+        lastSectionReason = "llm_empty_output";
+        retryAttemptsByReason["llm_empty_output"] = (retryAttemptsByReason["llm_empty_output"] || 0) + 1;
+        console.warn(`[diag] Empty LLM output: section=${sectionId}, attempt=${attempt + 1}`);
+        continue;
+      }
 
-      // PR2C: Normalize before Zod validation — trim oversized suggestions, dedup, cap count
+      const jsonStr = extractJson(result.text);
+      let rawParsed: unknown;
+      try {
+        rawParsed = JSON.parse(jsonStr);
+      } catch {
+        // JSON.parse failure is retryable — attempt 2 adds explicit JSON instruction
+        failureReasons.push("invalid_json");
+        lastErrorClass = "transient"; // Allow retry
+        lastSectionReason = "llm_schema_invalid";
+        retryAttemptsByReason["invalid_json"] = (retryAttemptsByReason["invalid_json"] || 0) + 1;
+        console.warn(`[diag] JSON parse failed: section=${sectionId}, attempt=${attempt + 1}, raw=${jsonStr.slice(0, 100)}`);
+        continue;
+      }
+
+      // Normalize before Zod validation
       const { normalized, data: normalizedData } = normalizeAuditOutput(rawParsed);
       if (normalized) {
         failureReasons.push("normalized_suggestions");
+        retryAttemptsByReason["normalized_suggestions"] = (retryAttemptsByReason["normalized_suggestions"] || 0) + 1;
         console.log(`[diag] Normalized audit output for section=${sectionId} (attempt ${attempt + 1})`);
       }
 
@@ -248,48 +361,70 @@ async function scoreSection(
           score: parsed.data.score,
           maxScore: 100,
           tier: normalizeTier(parsed.data.tier),
-          locked: false, // locking applied later
-          source: promptKey.includes("linkedin") ? "linkedin" : "cv",
+          locked: false,
+          source,
           explanation: parsed.data.explanation,
           improvementSuggestions: parsed.data.suggestions,
         };
 
-        // ── Anti-placeholder guard: reject if output matches mock fingerprint ──
+        // Anti-placeholder guard
         if (isMockSection(section)) {
           console.warn(
             `[guard] Mock fingerprint detected in scored section ${sectionId} (attempt ${attempt + 1}), retrying`
           );
           failureReasons.push("mock_fingerprint_retry");
-          continue; // Force retry with different attempt message
+          lastErrorClass = "guard";
+          lastSectionReason = "guard_rejected";
+          retryAttemptsByReason["guard_rejected"] = (retryAttemptsByReason["guard_rejected"] || 0) + 1;
+          continue;
         }
 
         return { section, modelUsed: result.modelUsed };
       }
 
-      // Check if failure is from oversized suggestions (too_big pattern)
+      // Schema validation failed after normalization
       const errorMsg = parsed.error?.message ?? "";
+      const rawObj = rawParsed as Record<string, unknown>;
       const isTooBig =
         errorMsg.includes("too_big") ||
         errorMsg.includes("String must contain at most") ||
-        (Array.isArray(rawParsed?.suggestions) &&
-          rawParsed.suggestions.some((s: unknown) => typeof s === "string" && s.length > 500));
+        (Array.isArray(rawObj?.suggestions) &&
+          (rawObj.suggestions as unknown[]).some((s: unknown) => typeof s === "string" && (s as string).length > 500));
       lastTooBig = isTooBig;
+      lastErrorClass = "hard";
+      lastSectionReason = "llm_schema_invalid";
 
       failureReasons.push(isTooBig ? "invalid_json_too_big" : "invalid_json");
+      retryAttemptsByReason[isTooBig ? "invalid_json_too_big" : "llm_schema_invalid"] =
+        (retryAttemptsByReason[isTooBig ? "invalid_json_too_big" : "llm_schema_invalid"] || 0) + 1;
       console.warn(
         `[diag] Audit parse failed: section=${sectionId}, attempt=${attempt + 1}, tooBig=${isTooBig}, error=${errorMsg.slice(0, 200)}`
       );
     } catch (err) {
-      const reason = categorizeError(err);
+      const { reason, errorClass } = classifyError(err);
       failureReasons.push(reason);
       lastTooBig = false;
+      lastErrorClass = errorClass;
+      lastSectionReason = reason === "timeout" ? "llm_timeout"
+        : reason === "rate_limit_429" ? "llm_rate_limited"
+        : "retry_exhausted";
+      retryAttemptsByReason[reason] = (retryAttemptsByReason[reason] || 0) + 1;
       console.warn(
-        `[diag] Audit LLM error: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}, error=${err instanceof Error ? err.message : "Unknown"}`
+        `[diag] Audit LLM error: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}, class=${errorClass}, error=${err instanceof Error ? err.message : "Unknown"}`
       );
+
+      // Don't retry hard errors (circuit breaker open, auth failures)
+      if (errorClass === "hard") break;
     }
   }
 
-  return null; // will fall back to mock
+  // Record section diagnostic
+  sectionDiagnostics.push({
+    sectionId, module: "score", source, isCore, reason: lastSectionReason,
+    attempts: totalAttempts, durationMs: Date.now() - sectionStart,
+  });
+
+  return null;
 }
 
 // ── Rewrite a single section via LLM ────────────────────
@@ -302,11 +437,22 @@ async function rewriteSection(
   framing: ObjectiveFraming,
   locale: Locale,
   promptVersions: Record<string, number>,
-  failureReasons: FailureReason[]
+  failureReasons: FailureReason[],
+  sectionDiagnostics: SectionDiagnostic[],
+  retryAttemptsByReason: Record<string, number>
 ): Promise<{ rewrite: RewritePreview; modelUsed: string } | null> {
+  const sectionStart = Date.now();
+  const source: "linkedin" | "cv" = promptKey.includes("linkedin") ? "linkedin" : "cv";
+  const isCore = isCoreSection(sectionId, source);
+
   const prompt = await getActivePromptWithVersion(promptKey, locale);
   if (!prompt) {
     failureReasons.push("missing_prompt");
+    const reason: SectionFailureReason = "prompt_missing";
+    sectionDiagnostics.push({
+      sectionId, module: "rewrite", source, isCore, reason,
+      attempts: 0, durationMs: Date.now() - sectionStart,
+    });
     console.error(`[diag] Missing prompt: key=${promptKey}, locale=${locale}, section=${sectionId}`);
     return null;
   }
@@ -323,7 +469,23 @@ async function rewriteSection(
     objective_context: framing.objective_context,
   });
 
+  let lastErrorClass: ErrorClass = "hard";
+  let lastSectionReason: SectionFailureReason = "retry_exhausted";
+  let totalAttempts = 0;
+
   for (let attempt = 0; attempt < 2; attempt++) {
+    // Per-section time budget
+    if (Date.now() - sectionStart > SECTION_BUDGET_QUALITY_MS) {
+      console.warn(`[diag] Section budget exceeded for rewrite/${sectionId} after ${attempt} attempts`);
+      lastSectionReason = "llm_timeout";
+      break;
+    }
+
+    // Don't retry hard errors
+    if (attempt > 0 && lastErrorClass === "hard") break;
+
+    totalAttempts = attempt + 1;
+
     try {
       const userMessage =
         attempt === 0
@@ -337,13 +499,34 @@ async function rewriteSection(
         maxTokens: 4096,
       });
 
+      // Empty output check
+      if (!result.text || result.text.trim().length < 5) {
+        failureReasons.push("invalid_json");
+        lastErrorClass = "hard";
+        lastSectionReason = "llm_empty_output";
+        retryAttemptsByReason["llm_empty_output"] = (retryAttemptsByReason["llm_empty_output"] || 0) + 1;
+        console.warn(`[diag] Empty rewrite output: section=${sectionId}, attempt=${attempt + 1}`);
+        continue;
+      }
+
       const jsonStr = extractJson(result.text);
-      const parsed = RewriteSectionOutput.safeParse(JSON.parse(jsonStr));
+      let rawRewriteParsed: unknown;
+      try {
+        rawRewriteParsed = JSON.parse(jsonStr);
+      } catch {
+        failureReasons.push("invalid_json");
+        lastErrorClass = "transient"; // Allow retry
+        lastSectionReason = "llm_schema_invalid";
+        retryAttemptsByReason["invalid_json"] = (retryAttemptsByReason["invalid_json"] || 0) + 1;
+        console.warn(`[diag] Rewrite JSON parse failed: section=${sectionId}, attempt=${attempt + 1}`);
+        continue;
+      }
+      const parsed = RewriteSectionOutput.safeParse(rawRewriteParsed);
 
       if (parsed.success) {
         const rewrite: RewritePreview = {
           sectionId,
-          source: promptKey.includes("linkedin") ? "linkedin" : "cv",
+          source,
           original: parsed.data.original,
           improvements: parsed.data.improvements,
           missingSuggestions: parsed.data.missingSuggestions,
@@ -351,12 +534,15 @@ async function rewriteSection(
           locked: false, // locking applied later
         };
 
-        // ── Anti-placeholder guard: reject if rewrite matches mock fingerprint ──
+        // Anti-placeholder guard
         if (isMockRewrite(rewrite)) {
           console.warn(
             `[guard] Mock fingerprint detected in rewrite ${sectionId} (attempt ${attempt + 1}), retrying`
           );
           failureReasons.push("mock_fingerprint_retry");
+          lastErrorClass = "guard";
+          lastSectionReason = "guard_rejected";
+          retryAttemptsByReason["guard_rejected"] = (retryAttemptsByReason["guard_rejected"] || 0) + 1;
           continue;
         }
 
@@ -364,17 +550,33 @@ async function rewriteSection(
       }
 
       failureReasons.push("invalid_json");
+      lastErrorClass = "hard";
+      lastSectionReason = "llm_schema_invalid";
+      retryAttemptsByReason["llm_schema_invalid"] = (retryAttemptsByReason["llm_schema_invalid"] || 0) + 1;
       console.warn(
         `[diag] Rewrite parse failed: section=${sectionId}, attempt=${attempt + 1}, error=${parsed.error?.message}`
       );
     } catch (err) {
-      const reason = categorizeError(err);
+      const { reason, errorClass } = classifyError(err);
       failureReasons.push(reason);
+      lastErrorClass = errorClass;
+      lastSectionReason = reason === "timeout" ? "llm_timeout"
+        : reason === "rate_limit_429" ? "llm_rate_limited"
+        : "retry_exhausted";
+      retryAttemptsByReason[reason] = (retryAttemptsByReason[reason] || 0) + 1;
       console.warn(
-        `[diag] Rewrite LLM error: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}, error=${err instanceof Error ? err.message : "Unknown"}`
+        `[diag] Rewrite LLM error: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}, class=${errorClass}, error=${err instanceof Error ? err.message : "Unknown"}`
       );
+
+      if (errorClass === "hard") break;
     }
   }
+
+  // Record section diagnostic on failure
+  sectionDiagnostics.push({
+    sectionId, module: "rewrite", source, isCore, reason: lastSectionReason,
+    attempts: totalAttempts, durationMs: Date.now() - sectionStart,
+  });
 
   return null;
 }
@@ -391,7 +593,9 @@ async function rewriteSectionWithEntries(
   framing: ObjectiveFraming,
   locale: Locale,
   promptVersions: Record<string, number>,
-  failureReasons: FailureReason[]
+  failureReasons: FailureReason[],
+  sectionDiagnostics: SectionDiagnostic[],
+  retryAttemptsByReason: Record<string, number>
 ): Promise<{ rewrite: RewritePreview; modelUsed: string } | null> {
   // Cost cap: limit entries and per-entry length
   const cappedEntries = entries.slice(0, MAX_ENTRIES_PER_SECTION).map((e, i) => ({
@@ -418,7 +622,9 @@ async function rewriteSectionWithEntries(
       framing,
       locale,
       promptVersions,
-      failureReasons
+      failureReasons,
+      sectionDiagnostics,
+      retryAttemptsByReason
     );
   }
 
@@ -454,9 +660,15 @@ async function rewriteSectionWithEntries(
       });
 
       const jsonStr = extractJson(result.text);
-      const parsed = RewriteSectionWithEntriesOutput.safeParse(
-        JSON.parse(jsonStr)
-      );
+      let rawEntryParsed: unknown;
+      try {
+        rawEntryParsed = JSON.parse(jsonStr);
+      } catch {
+        failureReasons.push("invalid_json");
+        console.warn(`[diag] Entry rewrite JSON parse failed: section=${sectionId}, attempt=${attempt + 1}`);
+        continue;
+      }
+      const parsed = RewriteSectionWithEntriesOutput.safeParse(rawEntryParsed);
 
       if (parsed.success) {
         const rewriteEntries: RewriteEntry[] = (parsed.data.entries ?? []).map(
@@ -522,7 +734,9 @@ async function rewriteSectionWithEntries(
     framing,
     locale,
     promptVersions,
-    failureReasons
+    failureReasons,
+    sectionDiagnostics,
+    retryAttemptsByReason
   );
 }
 
@@ -574,7 +788,15 @@ async function generateCoverLetter(
       });
 
       const jsonStr = extractJson(result.text);
-      const parsed = CoverLetterOutput.safeParse(JSON.parse(jsonStr));
+      let rawCLParsed: unknown;
+      try {
+        rawCLParsed = JSON.parse(jsonStr);
+      } catch {
+        failureReasons.push("invalid_json");
+        console.warn(`[diag] Cover letter JSON parse failed: attempt=${attempt + 1}`);
+        continue;
+      }
+      const parsed = CoverLetterOutput.safeParse(rawCLParsed);
 
       if (parsed.success) {
         // ── Anti-placeholder guard for cover letter ──
@@ -784,6 +1006,11 @@ export async function generateAuditResults(
   let mockLeaksDetected = 0;
   let primaryModel = LLM_MODEL_FAST;
 
+  // PR2C: per-section diagnostics + retry tracking
+  const sectionDiagnostics: SectionDiagnostic[] = [];
+  const retryAttemptsByReason: Record<string, number> = {};
+  let totalLLMTimeMs = 0;
+
   const targetRole = getTargetRole(input);
   const jobObjective =
     input.objectiveMode === "job"
@@ -853,6 +1080,13 @@ export async function generateAuditResults(
             normalizedSuggestionsCount: 0,
             invalidJsonTooBigCount: 0,
             retryTooBigSuccessCount: 0,
+            sectionDiagnostics: [],
+            coreFailureCount: 0,
+            nonCoreFailureCount: 0,
+            fallbackReasonDistribution: {},
+            retryAttemptsByReason: {},
+            totalLLMTimeMs: 0,
+            preflightResult: { passed: true, missing: [] },
           },
         };
       } else {
@@ -864,7 +1098,37 @@ export async function generateAuditResults(
     // Cache errors should never block generation
   }
 
-  // ─── 1. Parse input sections ──────────────────────────
+  // ─── 1a. Prompt readiness preflight ──────────────────
+  // Verify required prompt keys are active before spending LLM budget.
+  const hasLinkedinInput = input.linkedinText.trim().length > 0;
+  const hasCvInput = (input.cvText ?? "").trim().length > 20;
+
+  const requiredPromptKeys: string[] = [];
+  if (hasLinkedinInput) {
+    requiredPromptKeys.push("audit.linkedin.system", "rewrite.linkedin.section");
+  }
+  if (hasCvInput) {
+    requiredPromptKeys.push("audit.cv.system", "rewrite.cv.section");
+  }
+
+  const preflightMissing: string[] = [];
+  for (const key of requiredPromptKeys) {
+    const prompt = await getActivePromptWithVersion(key, locale);
+    if (!prompt) preflightMissing.push(key);
+  }
+
+  const preflightResult = {
+    passed: preflightMissing.length === 0,
+    missing: preflightMissing,
+  };
+
+  if (!preflightResult.passed) {
+    console.error(
+      `[diag] request=${requestId} | PREFLIGHT FAIL: missing prompts=[${preflightMissing.join(", ")}]`
+    );
+  }
+
+  // ─── 1b. Parse input sections ─────────────────────────
   const linkedinSections = input.linkedinText.trim()
     ? await parseLinkedinSectionsWithFallback(input.linkedinText, locale)
     : {};
@@ -876,7 +1140,6 @@ export async function generateAuditResults(
 
   // ─── 2. Score LinkedIn sections (parallel) ────────────
   // Score ALL standard sections — missing ones get guidance content
-  const hasLinkedinInput = input.linkedinText.trim().length > 0;
   const linkedinScorePromises = (hasLinkedinInput ? LINKEDIN_SECTION_IDS : []).map(
     (id) => {
       const content =
@@ -890,14 +1153,15 @@ export async function generateAuditResults(
         framing,
         locale,
         promptVersions,
-        failureReasons
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason
       ).then((result) => ({ id, result }));
     }
   );
 
   // ─── 3. Score CV sections (parallel) ──────────────────
   // Score ALL standard CV sections when CV input exists — missing ones get guidance
-  const hasCvInput = (input.cvText ?? "").trim().length > 20;
   const cvScorePromises = (hasCvInput ? CV_SECTION_IDS : []).map(
     (id) => {
       const content =
@@ -911,7 +1175,9 @@ export async function generateAuditResults(
         framing,
         locale,
         promptVersions,
-        failureReasons
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason
       ).then((result) => ({ id, result }));
     }
   );
@@ -963,7 +1229,26 @@ export async function generateAuditResults(
       `Missing LinkedIn: [${completeness.linkedinMissing.join(", ")}], CV: [${completeness.cvMissing.join(", ")}]`
     );
     // Note: We don't auto-retry the full pipeline to avoid double-cost.
-    // The fallback mock data fills gaps. This log helps diagnose issues.
+    // The zero-mock policy means gaps are simply omitted. This log helps diagnose issues.
+  }
+
+  // ─── 4b2. Core vs non-core failure analysis ──
+  // Count failures by importance class from sectionDiagnostics (score module only)
+  const scoreDiagnostics = sectionDiagnostics.filter((d) => d.module === "score");
+  const coreScoreFailures = scoreDiagnostics.filter((d) => d.isCore);
+  const nonCoreScoreFailures = scoreDiagnostics.filter((d) => !d.isCore);
+
+  if (coreScoreFailures.length > 0) {
+    console.error(
+      `[diag] CORE SECTION FAILURES (${coreScoreFailures.length}): ` +
+      coreScoreFailures.map((d) => `${d.sectionId}:${d.reason}`).join(", ")
+    );
+  }
+  if (nonCoreScoreFailures.length > 0) {
+    console.warn(
+      `[diag] Non-core section failures (${nonCoreScoreFailures.length}): ` +
+      nonCoreScoreFailures.map((d) => `${d.sectionId}:${d.reason}`).join(", ")
+    );
   }
 
   // ─── 4c. Parse per-entry structure for experience/education ──
@@ -1013,7 +1298,9 @@ export async function generateAuditResults(
         framing,
         locale,
         promptVersions,
-        failureReasons
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason
       ).then((result) => ({ id: section.id, result }));
     }
 
@@ -1026,7 +1313,9 @@ export async function generateAuditResults(
       framing,
       locale,
       promptVersions,
-      failureReasons
+      failureReasons,
+      sectionDiagnostics,
+      retryAttemptsByReason
     ).then((result) => ({ id: section.id, result }));
   });
 
@@ -1046,7 +1335,9 @@ export async function generateAuditResults(
         framing,
         locale,
         promptVersions,
-        failureReasons
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason
       ).then((result) => ({ id: section.id, result }));
     }
 
@@ -1059,7 +1350,9 @@ export async function generateAuditResults(
       framing,
       locale,
       promptVersions,
-      failureReasons
+      failureReasons,
+      sectionDiagnostics,
+      retryAttemptsByReason
     ).then((result) => ({ id: section.id, result }));
   });
 
@@ -1244,22 +1537,58 @@ export async function generateAuditResults(
     (r) => r === "retry_too_big_success"
   ).length;
 
+  // PR2C-post: Compute core/non-core failure counts and reason distribution
+  const coreFailureCount = sectionDiagnostics.filter((d) => d.isCore).length;
+  const nonCoreFailureCount = sectionDiagnostics.filter((d) => !d.isCore).length;
+  totalLLMTimeMs = sectionDiagnostics.reduce((sum, d) => sum + d.durationMs, 0);
+
+  const fallbackReasonDistribution: Record<string, number> = {};
+  for (const d of sectionDiagnostics) {
+    fallbackReasonDistribution[d.reason] = (fallbackReasonDistribution[d.reason] || 0) + 1;
+  }
+
+  // PR2C-post: Soft alert thresholds
+  if (coreFailureCount > 0) {
+    console.error(
+      `[ALERT] request=${requestId} | Core section failures: ${coreFailureCount} — results may be unreliable`
+    );
+  }
+  if (durationMs > 120_000) {
+    console.warn(
+      `[ALERT] request=${requestId} | Total duration ${durationMs}ms exceeds 120s soft limit`
+    );
+  }
+  if (totalLLMTimeMs > 90_000) {
+    console.warn(
+      `[ALERT] request=${requestId} | Total LLM time ${totalLLMTimeMs}ms exceeds 90s soft limit`
+    );
+  }
+  if (sectionDiagnostics.length > 3) {
+    console.warn(
+      `[ALERT] request=${requestId} | High failure rate: ${sectionDiagnostics.length} section failures`
+    );
+  }
+
   // ─── 10. Integrity log (P0-1: structured diagnostics) ──
   console.log(
     `[diag] request=${requestId} | ` +
-    `duration=${durationMs}ms | ` +
+    `duration=${durationMs}ms | llmTime=${totalLLMTimeMs}ms | ` +
     `sections=${sectionCountGenerated} | ` +
     `rewrites=${linkedinRewrites.length + cvRewrites.length} | ` +
     `fallbacks=${fallbackCount}/${totalExpectedOperations} | ` +
+    `coreFailures=${coreFailureCount} | nonCoreFailures=${nonCoreFailureCount} | ` +
     `mockLeaks=${mockLeaksDetected} | ` +
     `degraded=${degraded} | ` +
     `normalized=${normalizedSuggestionsCount} | ` +
     `tooBig=${invalidJsonTooBigCount} | ` +
     `tooBigRetryOK=${retryTooBigSuccessCount} | ` +
+    `preflight=${preflightResult.passed ? "OK" : `FAIL:${preflightResult.missing.join(",")}`} | ` +
     `isAdmin=${input.isAdmin} | ` +
     `plan=${input.planId} | ` +
     `model=${primaryModel} | ` +
     `failureReasons=[${uniqueFailureReasons.join(",")}] | ` +
+    `retryAttempts=${JSON.stringify(retryAttemptsByReason)} | ` +
+    `reasonDist=${JSON.stringify(fallbackReasonDistribution)} | ` +
     `promptVersions=${JSON.stringify(promptVersions)}`
   );
 
@@ -1345,6 +1674,13 @@ export async function generateAuditResults(
       normalizedSuggestionsCount,
       invalidJsonTooBigCount,
       retryTooBigSuccessCount,
+      sectionDiagnostics,
+      coreFailureCount,
+      nonCoreFailureCount,
+      fallbackReasonDistribution,
+      retryAttemptsByReason,
+      totalLLMTimeMs,
+      preflightResult,
     },
   };
 }
