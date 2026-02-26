@@ -199,9 +199,17 @@ export async function parseLinkedinSectionsWithFallback(
 
   // If regex found 2+ sections or text is short, regex is sufficient
   const sectionCount = Object.keys(regexResult).length;
+
+  console.log(
+    `[parser] regex: ${sectionCount} sections=[${Object.keys(regexResult).join(", ")}], ` +
+    `cleaned=${cleaned.length}chars, lines=${cleaned.split("\n").length}`
+  );
+
   if (sectionCount >= 2 || cleaned.trim().length <= 300) {
     return regexResult;
   }
+
+  console.log(`[parser] LLM fallback triggered (${sectionCount} sections from ${cleaned.length} chars)`);
 
   // LLM fallback: text is substantial but regex found ≤1 section
   try {

@@ -1138,6 +1138,21 @@ export async function generateAuditResults(
       ? parseCvSections(input.cvText)
       : {};
 
+  // Diagnostic: log which sections were parsed from raw input
+  const parsedLinkedinIds = Object.keys(linkedinSections);
+  const parsedCvIds = Object.keys(cvSections);
+  const missingLinkedin = LINKEDIN_SECTION_IDS.filter(
+    (id) => !linkedinSections[id]
+  );
+  console.log(
+    `[diag] request=${requestId} | PARSE: ` +
+    `linkedin_input=${input.linkedinText.trim().length}chars, ` +
+    `parsed=[${parsedLinkedinIds.join(", ")}], ` +
+    `missing=[${missingLinkedin.join(", ")}] | ` +
+    `cv_input=${(input.cvText ?? "").trim().length}chars, ` +
+    `cv_parsed=[${parsedCvIds.join(", ")}]`
+  );
+
   // ─── 2. Score LinkedIn sections (parallel) ────────────
   // Score ALL standard sections — missing ones get guidance content
   const linkedinScorePromises = (hasLinkedinInput ? LINKEDIN_SECTION_IDS : []).map(

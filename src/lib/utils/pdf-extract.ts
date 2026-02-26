@@ -27,6 +27,62 @@ async function getPdfjsLib() {
 }
 
 /**
+ * Build line-structured text from pdfjs-dist text items.
+ *
+ * pdfjs-dist returns an array of text items, each with:
+ *   - str: the text content
+ *   - hasEOL: whether this item is followed by a line break
+ *   - transform[5]: the Y coordinate (decreases as you go down the page)
+ *
+ * The old approach joined all items with spaces, producing one giant line
+ * per page and destroying section header detection (regex needs headers
+ * at the START of a line). This version preserves line structure by:
+ *   1. Using `hasEOL` flags from pdfjs-dist
+ *   2. Detecting Y-position jumps between consecutive items
+ *   3. Inserting newlines at detected line breaks
+ */
+function buildLinesFromItems(
+  items: Array<{ str?: string; hasEOL?: boolean; transform?: number[] }>
+): string {
+  if (items.length === 0) return "";
+
+  const parts: string[] = [];
+  let prevY: number | null = null;
+
+  for (const item of items) {
+    const str = item.str ?? "";
+    if (str === "") {
+      // Empty string with hasEOL → blank line
+      if (item.hasEOL) parts.push("\n");
+      continue;
+    }
+
+    const y = item.transform?.[5] ?? null;
+
+    // Detect line break: significant Y-position change between items
+    if (prevY !== null && y !== null) {
+      const yDelta = Math.abs(prevY - y);
+      // Threshold: >2px Y change indicates a new line (typical line height ≥10px)
+      if (yDelta > 2) {
+        parts.push("\n");
+      }
+    }
+
+    parts.push(str);
+
+    // pdfjs-dist's hasEOL flag indicates end-of-line
+    if (item.hasEOL) {
+      parts.push("\n");
+      prevY = null; // reset Y tracking after explicit EOL
+    } else {
+      prevY = y;
+    }
+  }
+
+  return parts.join("");
+}
+
+/**
  * Extract text content from a PDF file.
  * Returns raw text that can be passed to parseLinkedinSections() or parseCvSections().
  *
@@ -45,10 +101,13 @@ export async function extractTextFromPdf(
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      // Join text items with spaces, preserving line structure
-      const pageText = content.items
-        .map((item) => ("str" in item ? item.str : ""))
-        .join(" ");
+      const pageText = buildLinesFromItems(
+        content.items as Array<{
+          str?: string;
+          hasEOL?: boolean;
+          transform?: number[];
+        }>
+      );
       pages.push(pageText.trim());
     }
 
