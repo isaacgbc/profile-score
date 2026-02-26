@@ -1,20 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/context/I18nContext";
 import { useApp } from "@/context/AppContext";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
-import Badge from "@/components/ui/Badge";
-import RewriteCard from "@/components/ui/RewriteCard";
-import UnlockReveal from "@/components/ui/UnlockReveal";
-import SourceToggle from "@/components/ui/SourceToggle";
 import StepIndicator from "@/components/layout/StepIndicator";
 import PricingModal from "@/components/pricing/PricingModal";
 import EmailCaptureModal from "@/components/ui/EmailCaptureModal";
-import { SparklesIcon, ChevronLeftIcon, ChevronRightIcon } from "@/components/ui/Icons";
+import StudioLeftRail from "@/components/studio/StudioLeftRail";
+import StudioTopBar from "@/components/studio/StudioTopBar";
+import StudioSectionEditor from "@/components/studio/StudioSectionEditor";
+import { useStudioPersistence } from "@/hooks/useStudioPersistence";
+import { getSectionLabel } from "@/lib/section-labels";
+import { SparklesIcon } from "@/components/ui/Icons";
 import type { SourceType } from "@/lib/types";
 
 export default function RewriteStudioPage() {
@@ -29,19 +30,35 @@ export default function RewriteStudioPage() {
     userImprovements,
     setUserImprovement,
     userRewritten,
+    userOptimized,
+    setUserOptimized,
+    resetSection,
+    resetEntry,
     regenerateSection,
     regeneratingSection,
-    unlockAnimationTriggered,
     showEmailCaptureModal,
     setShowEmailCaptureModal,
     setUserEmail,
     userEmail,
+    userInput,
+    auditId,
   } = useApp();
   const router = useRouter();
 
   // ─── Source Toggle (URL-synced) ───
   const [activeSource, setActiveSource] = useState<SourceType>("linkedin");
   const [loading, setLoading] = useState(true);
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const scrollSpyEnabled = useRef(true);
+
+  // ─── Persistence hook ───
+  const persistence = useStudioPersistence(auditId, activeSource, {
+    userOptimized,
+    userImprovements,
+  }, {
+    setUserOptimized,
+    setUserImprovement,
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -77,11 +94,70 @@ export default function RewriteStudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results]);
 
+  // ─── Scroll-spy with IntersectionObserver ───
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    if (loading || !results) return;
+
+    const rewrites =
+      activeSource === "linkedin"
+        ? results.linkedinRewrites
+        : results.cvRewrites;
+
+    // Cleanup previous observer
+    observerRef.current?.disconnect();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!scrollSpyEnabled.current) return;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveSectionId(entry.target.id);
+          }
+        }
+      },
+      { rootMargin: "-120px 0px -60% 0px" }
+    );
+
+    // Observe section elements
+    for (const rw of rewrites) {
+      const el = document.getElementById(rw.sectionId);
+      if (el) observer.observe(el);
+    }
+
+    observerRef.current = observer;
+
+    // Set initial active section
+    if (rewrites.length > 0 && !activeSectionId) {
+      setActiveSectionId(rewrites[0].sectionId);
+    }
+
+    return () => observer.disconnect();
+  }, [loading, results, activeSource]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleSourceChange(source: SourceType) {
     setActiveSource(source);
+    setActiveSectionId(null);
     const url = new URL(window.location.href);
     url.searchParams.set("source", source);
     window.history.replaceState({}, "", url.toString());
+  }
+
+  function handleSectionClick(sectionId: string) {
+    // Temporarily disable scroll-spy to prevent race with smooth scroll
+    scrollSpyEnabled.current = false;
+    setActiveSectionId(sectionId);
+
+    const el = document.getElementById(sectionId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    // Re-enable after scroll animation settles
+    setTimeout(() => {
+      scrollSpyEnabled.current = true;
+    }, 500);
   }
 
   function handleContinueToExport() {
@@ -98,14 +174,47 @@ export default function RewriteStudioPage() {
     router.push("/checkout");
   }
 
-  // Studio labels from rewriteStudio namespace
-  const studioLabels = {
-    original: t.rewriteStudio.original,
-    improvements: t.rewriteStudio.thingsToChange,
-    improvementsPlaceholder: t.rewriteStudio.improvementsPlaceholder,
-    optimized: t.rewriteStudio.optimized,
-    missingSuggestionsLabel: t.rewriteStudio.missingSuggestionsLabel,
-  };
+  // Wrapped handlers that also persist to localStorage
+  const handleOptimizedChange = useCallback(
+    (key: string, text: string) => {
+      setUserOptimized(key, text);
+      persistence.persistOptimized(key, text);
+    },
+    [setUserOptimized, persistence]
+  );
+
+  const handleImprovementChange = useCallback(
+    (sectionId: string, text: string) => {
+      setUserImprovement(sectionId, text);
+      persistence.persistImprovement(sectionId, text);
+    },
+    [setUserImprovement, persistence]
+  );
+
+  const handleResetSection = useCallback(
+    (sectionId: string) => {
+      resetSection(sectionId);
+      persistence.clearPersistedSection(sectionId);
+    },
+    [resetSection, persistence]
+  );
+
+  const handleResetEntry = useCallback(
+    (sectionId: string, entryStableId: string) => {
+      resetEntry(sectionId, entryStableId);
+      persistence.clearPersistedEntry(sectionId, entryStableId);
+    },
+    [resetEntry, persistence]
+  );
+
+  const handleRegenerate = useCallback(
+    (sectionId: string, intent: "directions" | "draft") => {
+      // For intent "draft", send currentDraft as extra field (backward-compat: backend ignores it)
+      // For now, both intents use the same regenerateSection which sends userImprovements
+      regenerateSection(sectionId, activeSource);
+    },
+    [regenerateSection, activeSource]
+  );
 
   // ─── Loading ───
   if (loading || !results) {
@@ -120,8 +229,7 @@ export default function RewriteStudioPage() {
     );
   }
 
-  // ── P0-6: STRICT degraded-mode gate for Rewrite Studio ──
-  // Never show fallback/placeholder rewrite content as if it were real.
+  // ── Degraded-mode gate ──
   const generationHasIssues =
     generationMeta?.degraded || generationMeta?.hasFallback;
 
@@ -163,13 +271,15 @@ export default function RewriteStudioPage() {
       ? results.linkedinRewrites
       : results.cvRewrites;
 
-  const contextLabel =
-    activeSource === "linkedin"
-      ? t.rewriteStudio.contextLinkedin
-      : t.rewriteStudio.contextCv;
+  const hasLinkedin = results.linkedinRewrites.length > 0;
+  const hasCv = results.cvRewrites.length > 0;
+  const sectionLabels = t.sectionLabels as Record<string, string>;
 
-  const emptySourceLabel =
-    activeSource === "linkedin" ? "LinkedIn" : "CV";
+  const hasUnsavedChanges =
+    Object.keys(userOptimized).length > 0 ||
+    Object.keys(userRewritten).length > 0;
+
+  const emptySourceLabel = activeSource === "linkedin" ? "LinkedIn" : "CV";
 
   return (
     <div className="animate-fade-in">
@@ -181,9 +291,9 @@ export default function RewriteStudioPage() {
         onSubmit={handleEmailSubmit}
       />
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-        {/* ─── Header ─── */}
-        <div className="text-center mb-8">
+      {/* ─── Page Header ─── */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 pb-4">
+        <div className="text-center mb-6">
           <div className="flex items-center justify-center gap-2 mb-3">
             <div className="w-9 h-9 rounded-full bg-[var(--accent-light)] flex items-center justify-center">
               <SparklesIcon size={18} className="text-[var(--accent)]" />
@@ -194,82 +304,121 @@ export default function RewriteStudioPage() {
           </div>
           <p className="text-[var(--text-secondary)]">{t.rewriteStudio.subtitle}</p>
         </div>
+      </div>
 
-        {/* ─── Source Toggle (only show when both sources have rewrites) ─── */}
-        {results.linkedinRewrites.length > 0 && results.cvRewrites.length > 0 && (
-          <div className="flex justify-center mb-6">
-            <SourceToggle
-              active={activeSource}
-              onChange={handleSourceChange}
+      {/* ─── Two-panel layout ─── */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+        <div className="flex gap-6">
+          {/* Left Rail (desktop) */}
+          <StudioLeftRail
+            source={activeSource}
+            onSourceChange={handleSourceChange}
+            sections={rewrites}
+            activeSectionId={activeSectionId}
+            onSectionClick={handleSectionClick}
+            hasLinkedin={hasLinkedin}
+            hasCv={hasCv}
+          />
+
+          {/* Main content */}
+          <main className="flex-1 min-w-0">
+            {/* Top bar */}
+            <StudioTopBar
+              objectiveText={
+                userInput.objectiveMode === "job"
+                  ? userInput.jobDescription?.slice(0, 80)
+                  : userInput.objectiveText?.slice(0, 80)
+              }
+              objectiveMode={userInput.objectiveMode}
+              hasUnsavedChanges={hasUnsavedChanges}
+              onContinueToExport={handleContinueToExport}
             />
-          </div>
-        )}
 
-        {/* ─── Context Badge ─── */}
-        <div className="flex justify-center mb-8">
-          <Badge variant="muted">
-            {contextLabel}
-          </Badge>
-        </div>
+            {/* Mobile section tabs */}
+            <div className="lg:hidden mb-4">
+              {/* Source toggle for mobile */}
+              {hasLinkedin && hasCv && (
+                <div className="flex gap-1 mb-3 p-1 bg-[var(--surface-secondary)] rounded-lg">
+                  <button
+                    onClick={() => handleSourceChange("linkedin")}
+                    className={`flex-1 text-xs font-medium py-2 rounded-md transition-colors ${
+                      activeSource === "linkedin"
+                        ? "bg-white shadow-sm text-[var(--accent)]"
+                        : "text-[var(--text-muted)]"
+                    }`}
+                  >
+                    LinkedIn
+                  </button>
+                  <button
+                    onClick={() => handleSourceChange("cv")}
+                    className={`flex-1 text-xs font-medium py-2 rounded-md transition-colors ${
+                      activeSource === "cv"
+                        ? "bg-white shadow-sm text-[var(--accent)]"
+                        : "text-[var(--text-muted)]"
+                    }`}
+                  >
+                    CV
+                  </button>
+                </div>
+              )}
 
-        {/* ─── Rewrite Cards ─── */}
-        {rewrites.length > 0 ? (
-          <div className="space-y-6">
-            {rewrites.map((rewrite, idx) => (
-              <UnlockReveal
-                key={rewrite.sectionId}
-                locked={false}
-                animating={unlockAnimationTriggered}
-                delay={idx * 80}
-              >
-                <RewriteCard
-                  rewrite={rewrite}
-                  userImprovement={userImprovements[rewrite.sectionId]}
-                  optimizedOverride={userRewritten[rewrite.sectionId]}
-                  onChange={(text) =>
-                    setUserImprovement(rewrite.sectionId, text)
-                  }
-                  locked={rewrite.locked && !isAdmin}
-                  onUpgradeClick={() => setShowPricingModal(true)}
-                  onRegenerate={() =>
-                    regenerateSection(rewrite.sectionId, activeSource)
-                  }
-                  isRegenerating={regeneratingSection === rewrite.sectionId}
-                  variant="studio"
-                  labels={studioLabels}
-                />
-              </UnlockReveal>
-            ))}
-          </div>
-        ) : (
-          <Card variant="default" padding="lg" className="text-center">
-            <p className="text-sm text-[var(--text-secondary)] mb-3">
-              {t.rewriteStudio.noRewritesAvailable.replace("{source}", emptySourceLabel)}
-            </p>
-            <Link href="/input">
-              <Button variant="outline" size="sm">
-                {t.common.back}
-              </Button>
-            </Link>
-          </Card>
-        )}
+              {/* Horizontal scrollable section tabs */}
+              <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
+                {rewrites.map((rw) => (
+                  <button
+                    key={rw.sectionId}
+                    onClick={() => handleSectionClick(rw.sectionId)}
+                    className={`shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                      activeSectionId === rw.sectionId
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-[var(--surface-secondary)] text-[var(--text-muted)]"
+                    }`}
+                  >
+                    {getSectionLabel(rw.sectionId, sectionLabels)}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* ─── Navigation ─── */}
-        <div className="flex items-center justify-between mt-10 pt-6 border-t border-[var(--border-light)]">
-          <Link href="/results">
-            <Button variant="ghost" size="sm">
-              <span className="flex items-center gap-1">
-                <ChevronLeftIcon size={14} />
-                {t.rewriteStudio.backToResults}
-              </span>
-            </Button>
-          </Link>
-          <Button variant="primary" size="lg" onClick={handleContinueToExport}>
-            <span className="flex items-center gap-2">
-              {t.rewriteStudio.continueToExport}
-              <ChevronRightIcon size={16} />
-            </span>
-          </Button>
+            {/* Section editors */}
+            {rewrites.length > 0 ? (
+              <div className="space-y-6">
+                {rewrites.map((rewrite) => (
+                  <StudioSectionEditor
+                    key={rewrite.sectionId}
+                    rewrite={rewrite}
+                    userImprovement={userImprovements[rewrite.sectionId]}
+                    userOptimized={userOptimized}
+                    userRewritten={userRewritten[rewrite.sectionId]}
+                    onImprovementChange={handleImprovementChange}
+                    onOptimizedChange={handleOptimizedChange}
+                    onRegenerate={(intent) =>
+                      handleRegenerate(rewrite.sectionId, intent)
+                    }
+                    onReset={handleResetSection}
+                    onResetEntry={handleResetEntry}
+                    isRegenerating={regeneratingSection === rewrite.sectionId}
+                    locked={rewrite.locked && !isAdmin}
+                    onUpgradeClick={() => setShowPricingModal(true)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <Card variant="default" padding="lg" className="text-center">
+                <p className="text-sm text-[var(--text-secondary)] mb-3">
+                  {t.rewriteStudio.noRewritesAvailable.replace(
+                    "{source}",
+                    emptySourceLabel
+                  )}
+                </p>
+                <Link href="/input">
+                  <Button variant="outline" size="sm">
+                    {t.common.back}
+                  </Button>
+                </Link>
+              </Card>
+            )}
+          </main>
         </div>
       </div>
     </div>

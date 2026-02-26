@@ -202,6 +202,7 @@ export interface AppState {
   showEmailCaptureModal: boolean;
   userEmail: string;
   userImprovements: Record<string, string>;
+  userOptimized: Record<string, string>;
   unlockAnimationTriggered: boolean;
   auditId: string | null;
   isGenerating: boolean;

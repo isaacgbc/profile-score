@@ -24,6 +24,8 @@ export const CreateExportInput = z.object({
       userImprovements: z.record(z.string(), z.string().max(5_000)).optional(),
       /** Regenerated optimized text per sectionId */
       userRewritten: z.record(z.string(), z.string().max(15_000)).optional(),
+      /** Direct user edits to optimized draft (highest priority) */
+      userOptimized: z.record(z.string(), z.string().max(15_000)).optional(),
     })
     .optional(),
 });

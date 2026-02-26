@@ -71,6 +71,7 @@ export async function POST(request: Request) {
     if (userEdits) {
       const improvementsMap = userEdits.userImprovements ?? {};
       const rewrittenMap = userEdits.userRewritten ?? {};
+      const optimizedMap = userEdits.userOptimized ?? {};
 
       const mergeRewrites = (
         rewrites: ProfileResult["linkedinRewrites"]
@@ -82,9 +83,9 @@ export async function POST(request: Request) {
               ? improvementsMap[r.sectionId]
               : r.improvements,
           rewritten:
-            rewrittenMap[r.sectionId] !== undefined
-              ? rewrittenMap[r.sectionId]
-              : r.rewritten,
+            optimizedMap[r.sectionId] ??
+            rewrittenMap[r.sectionId] ??
+            r.rewritten,
         }));
 
       results = {

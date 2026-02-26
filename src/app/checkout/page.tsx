@@ -86,6 +86,7 @@ export default function CheckoutPage() {
     setShowEmailCaptureModal,
     userImprovements,
     userRewritten,
+    userOptimized,
   } = useApp();
 
   const { getModuleState, createExport, downloadExport, retryExport } = useExport();
@@ -118,11 +119,15 @@ export default function CheckoutPage() {
   function handleGenerate(moduleId: ExportModuleId, format: ExportFormat) {
     if (!auditId) return;
 
-    // ── Analytics: export_clicked ──
+    // Export traceability analytics
+    const editedSectionCount = Object.keys(userOptimized).filter((k) => !k.includes(":")).length;
+    const editedEntryCount = Object.keys(userOptimized).filter((k) => k.includes(":")).length;
+    const usedUserOptimized = Object.keys(userOptimized).length > 0;
+
     trackEvent("export_clicked", {
       auditId,
       planId: selectedPlan,
-      metadata: { moduleId, format },
+      metadata: { moduleId, format, editedSectionCount, editedEntryCount, usedUserOptimized },
     });
 
     createExport({
@@ -135,6 +140,7 @@ export default function CheckoutPage() {
       userEdits: {
         userImprovements: Object.keys(userImprovements).length > 0 ? userImprovements : undefined,
         userRewritten: Object.keys(userRewritten).length > 0 ? userRewritten : undefined,
+        userOptimized: usedUserOptimized ? userOptimized : undefined,
       },
     });
   }
@@ -151,6 +157,7 @@ export default function CheckoutPage() {
       userEdits: {
         userImprovements: Object.keys(userImprovements).length > 0 ? userImprovements : undefined,
         userRewritten: Object.keys(userRewritten).length > 0 ? userRewritten : undefined,
+        userOptimized: Object.keys(userOptimized).length > 0 ? userOptimized : undefined,
       },
     });
   }

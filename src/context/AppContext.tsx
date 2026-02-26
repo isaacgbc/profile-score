@@ -60,6 +60,13 @@ interface AppContextValue extends AppState {
   setUserImprovement: (sectionId: string, text: string) => void;
   /** Per-section regenerated rewritten text (overrides original rewrite) */
   userRewritten: Record<string, string>;
+  /** Direct user edits to optimized draft text (highest priority override) */
+  userOptimized: Record<string, string>;
+  setUserOptimized: (key: string, text: string) => void;
+  /** Reset a section to original LLM output (clears optimized, rewritten, improvements) */
+  resetSection: (sectionId: string) => void;
+  /** Reset a single entry to original LLM output */
+  resetEntry: (sectionId: string, entryStableId: string) => void;
   /** Regenerate a section's optimized text using edited improvements */
   regenerateSection: (sectionId: string, source: "linkedin" | "cv") => Promise<void>;
   /** Per-section regeneration loading state */
@@ -95,6 +102,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [userEmail, setUserEmail] = useState("");
   const [userImprovements, setUserImprovements] = useState<Record<string, string>>({});
   const [userRewritten, setUserRewritten] = useState<Record<string, string>>({});
+  const [userOptimized, setUserOptimizedState] = useState<Record<string, string>>({});
   const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
   const [unlockAnimationTriggered, setUnlockAnimationTriggered] = useState(false);
   const [auditId, setAuditId] = useState<string | null>(null);
@@ -272,6 +280,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUserImprovements((prev) => ({ ...prev, [sectionId]: text }));
   }, []);
 
+  const setUserOptimized = useCallback((key: string, text: string) => {
+    setUserOptimizedState((prev) => ({ ...prev, [key]: text }));
+  }, []);
+
+  const resetSection = useCallback((sectionId: string) => {
+    setUserOptimizedState((prev) => {
+      const next = { ...prev };
+      // Remove section-level key
+      delete next[sectionId];
+      // Remove entry-level keys (format: "sectionId:entryStableId")
+      for (const k of Object.keys(next)) {
+        if (k.startsWith(`${sectionId}:`)) delete next[k];
+      }
+      return next;
+    });
+    setUserRewritten((prev) => {
+      const next = { ...prev };
+      delete next[sectionId];
+      return next;
+    });
+    setUserImprovements((prev) => {
+      const next = { ...prev };
+      delete next[sectionId];
+      return next;
+    });
+  }, []);
+
+  const resetEntry = useCallback((sectionId: string, entryStableId: string) => {
+    const key = `${sectionId}:${entryStableId}`;
+    setUserOptimizedState((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
   const regenerateSection = useCallback(
     async (sectionId: string, source: "linkedin" | "cv") => {
       if (!results) return;
@@ -323,6 +367,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ...prev,
               [sectionId]: data.rewritten,
             }));
+            // Clear any manual edits so regenerated text takes priority
+            setUserOptimizedState((prev) => {
+              const next = { ...prev };
+              delete next[sectionId];
+              // Also clear entry-level keys for this section
+              for (const k of Object.keys(next)) {
+                if (k.startsWith(`${sectionId}:`)) delete next[k];
+              }
+              return next;
+            });
           }
         } else {
           const err = await res.json().catch(() => ({ error: "Unknown error" }));
@@ -489,6 +543,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         userEmail,
         userImprovements,
         userRewritten,
+        userOptimized,
         regeneratingSection,
         unlockAnimationTriggered,
         auditId,
@@ -506,6 +561,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setShowEmailCaptureModal,
         setUserEmail,
         setUserImprovement,
+        setUserOptimized,
+        resetSection,
+        resetEntry,
         regenerateSection,
         triggerUnlockAnimation,
         isFeatureUnlocked,

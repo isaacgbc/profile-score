@@ -12,6 +12,7 @@ interface ModuleState {
 interface UserEdits {
   userImprovements?: Record<string, string>;
   userRewritten?: Record<string, string>;
+  userOptimized?: Record<string, string>;
 }
 
 interface CreateExportOpts {

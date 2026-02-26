@@ -339,7 +339,21 @@
     "sectionWorkExperience": "Work Experience",
     "sectionSkillsSection": "Skills Section",
     "regenerate": "Regenerate",
-    "regenerating": "Regenerating..."
+    "regenerating": "Regenerating...",
+    "optimizedDraft": "Optimized Draft",
+    "missingFromProfile": "Missing from Profile",
+    "resetSection": "Reset to original",
+    "resetEntry": "Reset this entry",
+    "resetConfirm": "Reset this section to the original AI output?",
+    "autoSaved": "All changes auto-saved",
+    "unsavedChanges": "Unsaved changes",
+    "collapseOriginal": "Hide original",
+    "expandOriginal": "Show original",
+    "directionsLabel": "Editing Directions",
+    "directionsPlaceholder": "Tell the AI what to change...",
+    "regenerateConfirm": "This will replace your current draft.",
+    "regenerateFromDirections": "From directions",
+    "regenerateFromDraft": "Using current draft"
   },
   "checkout": {
     "title": "Export Your Optimized Profile",

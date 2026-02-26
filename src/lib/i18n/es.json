@@ -339,7 +339,21 @@
     "sectionWorkExperience": "Experiencia Laboral",
     "sectionSkillsSection": "Sección de Habilidades",
     "regenerate": "Regenerar",
-    "regenerating": "Regenerando..."
+    "regenerating": "Regenerando...",
+    "optimizedDraft": "Borrador Optimizado",
+    "missingFromProfile": "Falta en tu perfil",
+    "resetSection": "Restablecer al original",
+    "resetEntry": "Restablecer esta entrada",
+    "resetConfirm": "¿Restablecer esta sección a la salida original de la IA?",
+    "autoSaved": "Todos los cambios guardados automáticamente",
+    "unsavedChanges": "Cambios sin guardar",
+    "collapseOriginal": "Ocultar original",
+    "expandOriginal": "Mostrar original",
+    "directionsLabel": "Instrucciones de Edición",
+    "directionsPlaceholder": "Dile a la IA qué cambiar...",
+    "regenerateConfirm": "Esto reemplazará tu borrador actual.",
+    "regenerateFromDirections": "Desde instrucciones",
+    "regenerateFromDraft": "Usando borrador actual"
   },
   "checkout": {
     "title": "Exporta Tu Perfil Optimizado",
