@@ -7,7 +7,7 @@ interface ScoreRingProps {
   score: number;
   maxScore: number;
   tier: ScoreTier;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   showLabel?: boolean;
   label?: string;
   animate?: boolean;
@@ -21,6 +21,7 @@ const tierColors: Record<ScoreTier, string> = {
 };
 
 const sizes = {
+  xs: { ring: 32, stroke: 3, fontSize: "text-[9px]", labelSize: "text-[7px]" },
   sm: { ring: 64, stroke: 5, fontSize: "text-lg", labelSize: "text-[10px]" },
   md: { ring: 100, stroke: 6, fontSize: "text-3xl", labelSize: "text-xs" },
   lg: { ring: 160, stroke: 8, fontSize: "text-5xl", labelSize: "text-sm" },

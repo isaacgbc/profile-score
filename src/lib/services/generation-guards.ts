@@ -398,3 +398,78 @@ export function validateGenerationResult(
     totalIssues,
   };
 }
+
+// ── 7. Repetitive Entry Content Detection ────────────
+// v1 quality guard: detect when LLM rewrites are too similar across entries
+
+/**
+ * Check if entry rewrites are suspiciously repetitive.
+ * Returns true if >50% of significant word sets are duplicates.
+ *
+ * Logging-only diagnostic — does not block generation.
+ */
+export function hasRepetitiveEntryContent(entryTexts: string[]): boolean {
+  if (entryTexts.length < 2) return false;
+
+  const wordSets = entryTexts.map((text) => extractSignificantWords(text));
+  let duplicatePairs = 0;
+  let totalPairs = 0;
+
+  for (let i = 0; i < wordSets.length; i++) {
+    for (let j = i + 1; j < wordSets.length; j++) {
+      totalPairs++;
+      const setA = wordSets[i];
+      const setB = wordSets[j];
+      if (setA.size === 0 || setB.size === 0) continue;
+
+      let overlap = 0;
+      const smaller = setA.size <= setB.size ? setA : setB;
+      const larger = setA.size > setB.size ? setA : setB;
+
+      for (const word of smaller) {
+        if (larger.has(word)) overlap++;
+      }
+
+      const overlapRatio = overlap / Math.max(smaller.size, 1);
+      if (overlapRatio > 0.7) duplicatePairs++;
+    }
+  }
+
+  // Flag if more than 50% of entry pairs are duplicates
+  return totalPairs > 0 && duplicatePairs / totalPairs > 0.5;
+}
+
+// ── 8. Hallucinated Metrics Detection ────────────────
+// v1 quality guard: detect when LLM invents numbers not in original
+
+/**
+ * Detect potentially hallucinated metrics in rewritten text.
+ * Compares numeric patterns (percentages, dollar amounts, large numbers)
+ * in the rewrite against the original. Metrics not in the original are suspicious.
+ *
+ * Returns count of hallucinated metrics found. Logging-only diagnostic.
+ */
+export function detectHallucinatedMetrics(
+  original: string,
+  rewritten: string
+): number {
+  if (!original || !rewritten) return 0;
+
+  // Extract metric patterns: percentages, dollar amounts, large numbers (1000+)
+  const METRIC_RE = /(?:\$[\d,.]+[KMBkmb]?|\d+(?:\.\d+)?%|\d{1,3}(?:,\d{3})+|\d{4,}(?:\.\d+)?[KMBkmb]?)/g;
+
+  const originalMetrics = new Set(
+    (original.match(METRIC_RE) || []).map((m) => m.toLowerCase().replace(/,/g, ""))
+  );
+  const rewrittenMetrics =
+    (rewritten.match(METRIC_RE) || []).map((m) => m.toLowerCase().replace(/,/g, ""));
+
+  let hallucinatedCount = 0;
+  for (const metric of rewrittenMetrics) {
+    if (!originalMetrics.has(metric)) {
+      hallucinatedCount++;
+    }
+  }
+
+  return hallucinatedCount;
+}

@@ -7,6 +7,7 @@ import Badge from "./Badge";
 import ScoreRing from "./ScoreRing";
 import ProgressBar from "./ProgressBar";
 import Button from "./Button";
+import EntryScoreCard from "./EntryScoreCard";
 import { getSectionLabel } from "@/lib/section-labels";
 import type { ScoreSection, ScoreTier } from "@/lib/types";
 
@@ -36,9 +37,19 @@ function getTierBadgeVariant(tier: ScoreTier): "warning" | "accent" | "success" 
 export default function ScoreCardGrid({ sections, onUpgradeClick, className = "" }: ScoreCardGridProps) {
   const { t } = useI18n();
   const [expandedExplanations, setExpandedExplanations] = useState<Set<string>>(new Set());
+  const [expandedEntryScores, setExpandedEntryScores] = useState<Set<string>>(new Set());
 
   function toggleExplanation(sectionId: string) {
     setExpandedExplanations((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) next.delete(sectionId);
+      else next.add(sectionId);
+      return next;
+    });
+  }
+
+  function toggleEntryScores(sectionId: string) {
+    setExpandedEntryScores((prev) => {
       const next = new Set(prev);
       if (next.has(sectionId)) next.delete(sectionId);
       else next.add(sectionId);
@@ -143,6 +154,31 @@ export default function ScoreCardGrid({ sections, onUpgradeClick, className = ""
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Entry-level scores (expandable) */}
+          {!section.locked && section.entryScores && section.entryScores.length > 0 && (
+            <div className="mt-3 border-t border-[var(--border-light)] pt-3">
+              <button
+                onClick={() => toggleEntryScores(section.id)}
+                className="flex items-center gap-1 text-[10px] font-semibold text-[var(--accent)] uppercase tracking-wider mb-2"
+              >
+                <span className={`transition-transform ${expandedEntryScores.has(section.id) ? "rotate-90" : ""}`}>▸</span>
+                {(t.results as Record<string, string>).entryBreakdown ?? "Entry Breakdown"} ({section.entryScores.length})
+              </button>
+              {expandedEntryScores.has(section.id) && (
+                <div className="space-y-2">
+                  {section.entryScores.map((entry, i) => (
+                    <EntryScoreCard
+                      key={i}
+                      entry={entry}
+                      locked={section.locked}
+                      onUpgradeClick={onUpgradeClick}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

@@ -7,7 +7,7 @@ import Button from "@/components/ui/Button";
 import { getSectionLabel } from "@/lib/section-labels";
 import { LockIcon, SparklesIcon } from "@/components/ui/Icons";
 import StudioEntryEditor, { computeEntryStableId } from "./StudioEntryEditor";
-import type { RewritePreview } from "@/lib/types";
+import type { RewritePreview, EntryScore, RewriteEntry } from "@/lib/types";
 
 interface StudioSectionEditorProps {
   rewrite: RewritePreview;
@@ -22,6 +22,38 @@ interface StudioSectionEditorProps {
   isRegenerating: boolean;
   locked: boolean;
   onUpgradeClick?: () => void;
+  /** Optional entry scores from results (v2 entry scoring) */
+  entryScores?: EntryScore[];
+}
+
+/**
+ * Match an entry score to a rewrite entry using robust strategies:
+ * 1. Exact normalized title match
+ * 2. Partial title substring match (first 20 chars)
+ * Falls back to undefined (UI renders normally without score context)
+ */
+function findMatchingEntryScore(
+  entry: RewriteEntry,
+  entryScores?: EntryScore[]
+): EntryScore | undefined {
+  if (!entryScores || entryScores.length === 0) return undefined;
+  const normalizedTitle = entry.entryTitle.toLowerCase().trim();
+
+  // Strategy 1: exact title match
+  const byTitle = entryScores.find(
+    (es) => es.entryTitle.toLowerCase().trim() === normalizedTitle
+  );
+  if (byTitle) return byTitle;
+
+  // Strategy 2: partial title match (first 20 chars)
+  const byPartial = entryScores.find(
+    (es) =>
+      normalizedTitle.includes(es.entryTitle.toLowerCase().trim().slice(0, 20)) ||
+      es.entryTitle.toLowerCase().trim().includes(normalizedTitle.slice(0, 20))
+  );
+  if (byPartial) return byPartial;
+
+  return undefined;
 }
 
 export default function StudioSectionEditor({
@@ -37,6 +69,7 @@ export default function StudioSectionEditor({
   isRegenerating,
   locked,
   onUpgradeClick,
+  entryScores,
 }: StudioSectionEditorProps) {
   const { t } = useI18n();
   const sectionLabels = t.sectionLabels as Record<string, string>;
@@ -133,6 +166,15 @@ export default function StudioSectionEditor({
             {rewrite.entries!.map((entry, idx) => {
               const stableId = computeEntryStableId(entry.entryTitle, entry.original);
               const entryKey = `${rewrite.sectionId}:${stableId}`;
+              // Robust matching: title-based → partial → index fallback
+              let matchingScore = findMatchingEntryScore(entry, entryScores);
+              if (
+                !matchingScore &&
+                entryScores &&
+                entryScores.length === rewrite.entries!.length
+              ) {
+                matchingScore = entryScores[idx]; // index-based fallback
+              }
               return (
                 <StudioEntryEditor
                   key={entryKey}
@@ -143,6 +185,7 @@ export default function StudioSectionEditor({
                   onOptimizedChange={onOptimizedChange}
                   onResetEntry={onResetEntry}
                   locked={locked}
+                  entryScore={matchingScore}
                 />
               );
             })}

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useI18n } from "@/context/I18nContext";
-import type { RewriteEntry } from "@/lib/types";
+import type { RewriteEntry, EntryScore } from "@/lib/types";
 
 /** Compute a stable ID from entry title + original content (survives reorders) */
 export function computeEntryStableId(title: string, original: string): string {
@@ -22,6 +22,8 @@ interface StudioEntryEditorProps {
   onOptimizedChange: (key: string, text: string) => void;
   onResetEntry: (sectionId: string, entryStableId: string) => void;
   locked: boolean;
+  /** Optional entry score context from v2 entry scoring */
+  entryScore?: EntryScore;
 }
 
 export default function StudioEntryEditor({
@@ -31,6 +33,7 @@ export default function StudioEntryEditor({
   onOptimizedChange,
   onResetEntry,
   locked,
+  entryScore,
 }: StudioEntryEditorProps) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
@@ -77,6 +80,21 @@ export default function StudioEntryEditor({
               {entry.original}
             </p>
           </div>
+
+          {/* Entry score context (v2) */}
+          {entryScore && (
+            <div className="flex items-center gap-2 px-1">
+              <span className={`text-xs font-bold tabular-nums ${
+                entryScore.score >= 70 ? "text-emerald-600" :
+                entryScore.score >= 40 ? "text-amber-600" : "text-red-500"
+              }`}>
+                {entryScore.score}/100
+              </span>
+              <span className="text-[10px] text-[var(--text-muted)] leading-snug line-clamp-1">
+                {entryScore.whyThisScore}
+              </span>
+            </div>
+          )}
 
           {/* Optimized Draft (editable) */}
           {!locked && (

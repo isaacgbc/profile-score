@@ -446,6 +446,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           isAdmin,
           locale: exportLocale,
           forceFresh: options?.forceFresh ?? false,
+          isPdfSource: !!(userInput.linkedinText && !userInput.linkedinUrl),
         }),
       });
 
@@ -469,7 +470,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fallbackCount: data.meta.fallbackCount ?? 0,
           degraded: data.meta.degraded ?? false,
           failureReasons: data.meta.failureReasons ?? [],
+          detectedLanguage: data.meta.detectedLanguage,
+          languageConfidence: data.meta.languageConfidence,
         });
+
+        // Auto-set export locale from detected language (confidence >= 0.7)
+        if (
+          data.meta.detectedLanguage &&
+          data.meta.detectedLanguage !== "unknown" &&
+          data.meta.languageConfidence >= 0.7
+        ) {
+          setExportLocale(data.meta.detectedLanguage as "en" | "es");
+        }
       } else {
         setGenerationMeta(null);
       }

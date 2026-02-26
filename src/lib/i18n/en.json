@@ -312,7 +312,17 @@
     "generationFailedTitle": "We couldn't generate personalized results",
     "generationFailedDesc": "Some results could not be fully personalized due to a temporary service issue. Please retry for accurate, input-specific results.",
     "diagnosticHint": "Details",
-    "perEntryBreakdown": "Per-entry breakdown"
+    "perEntryBreakdown": "Per-entry breakdown",
+    "detectedLanguage": "Detected Language",
+    "detectedLanguageEn": "English",
+    "detectedLanguageEs": "Spanish",
+    "detectedLanguageUnknown": "Unknown",
+    "autoLanguageHint": "Export language auto-set to {lang} based on your profile",
+    "entryBreakdown": "Entry Breakdown",
+    "entryScore": "Entry Score",
+    "whyThisScore": "Why this score",
+    "thingsToChange": "Things to change",
+    "missingFromEntry": "Missing from this entry"
   },
   "rewriteStudio": {
     "title": "Rewrite Studio",

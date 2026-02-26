@@ -47,6 +47,8 @@ const GenerateAuditInput = z.object({
   locale: z.enum(["en", "es"]).default("en"),
   /** P0-4: bypass cache and force fresh LLM generation */
   forceFresh: z.boolean().default(false),
+  /** Whether LinkedIn input came from a PDF upload (enables structuring pass) */
+  isPdfSource: z.boolean().default(false),
 });
 
 function getClientIp(request: Request): string {
@@ -188,6 +190,7 @@ export async function POST(request: Request) {
         planId: parsed.data.planId as PlanId | null,
         isAdmin: effectiveIsAdmin,
         forceFresh: parsed.data.forceFresh,
+        isPdfSource: parsed.data.isPdfSource,
       },
       parsed.data.locale as Locale
     );

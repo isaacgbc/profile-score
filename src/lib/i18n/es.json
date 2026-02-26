@@ -312,7 +312,17 @@
     "generationFailedTitle": "No pudimos generar resultados personalizados",
     "generationFailedDesc": "Algunos resultados no pudieron personalizarse completamente debido a un problema temporal del servicio. Por favor, reintenta para obtener resultados precisos.",
     "diagnosticHint": "Detalles",
-    "perEntryBreakdown": "Desglose por entrada"
+    "perEntryBreakdown": "Desglose por entrada",
+    "detectedLanguage": "Idioma detectado",
+    "detectedLanguageEn": "Inglés",
+    "detectedLanguageEs": "Español",
+    "detectedLanguageUnknown": "Desconocido",
+    "autoLanguageHint": "Idioma de exportación configurado automáticamente a {lang} según tu perfil",
+    "entryBreakdown": "Desglose por entrada",
+    "entryScore": "Puntuación de entrada",
+    "whyThisScore": "Por qué esta puntuación",
+    "thingsToChange": "Cosas a cambiar",
+    "missingFromEntry": "Falta en esta entrada"
   },
   "rewriteStudio": {
     "title": "Estudio de Reescritura",

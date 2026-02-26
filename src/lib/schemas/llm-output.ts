@@ -143,6 +143,50 @@ export const CoverLetterOutput = z.object({
 
 export type CoverLetterOutputType = z.infer<typeof CoverLetterOutput>;
 
+// ── Structured profile output (PDF structuring pass) ──
+// Used by profile-structurer.ts to parse messy PDF text into clean JSON
+
+export const StructuredExperienceEntry = z.object({
+  title: z.string().max(200),
+  organization: z.string().max(200),
+  dateRange: z.string().max(100),
+  description: z.string().max(2000),
+});
+
+export const StructuredEducationEntry = z.object({
+  degree: z.string().max(200),
+  institution: z.string().max(200),
+  dateRange: z.string().max(100),
+  details: z.string().max(1000).optional(),
+});
+
+export const StructuredProfileSchema = z.object({
+  headline: z.string().max(300).optional(),
+  about: z.string().max(3000).optional(),
+  experience: z.array(StructuredExperienceEntry).max(10).optional(),
+  education: z.array(StructuredEducationEntry).max(6).optional(),
+});
+
+export type StructuredProfileType = z.infer<typeof StructuredProfileSchema>;
+
+// ── Entry scoring output (v1 prep — wiring in v2) ──
+// Per-entry score for experience/education items
+
+export const EntryScoreOutput = z.object({
+  entryTitle: z.string().max(200),
+  score: z.number().min(0).max(100),
+  whyThisScore: z.string().max(200),
+  thingsToChange: z.string().max(200),
+  missingFromThisEntry: z.array(z.string().max(100)).max(4),
+});
+
+export const BatchEntryScoreOutput = z.object({
+  entries: z.array(EntryScoreOutput).min(1).max(6),
+});
+
+export type EntryScoreOutputType = z.infer<typeof EntryScoreOutput>;
+export type BatchEntryScoreOutputType = z.infer<typeof BatchEntryScoreOutput>;
+
 // ── Tier normalization ──
 // Seed prompts use "needs-work" but app type uses "fair"
 const TIER_MAP: Record<string, ScoreTier> = {

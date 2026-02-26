@@ -7,6 +7,7 @@ import type {
   RewriteEntry,
   CoverLetterResult,
   ScoreTier,
+  EntryScore,
 } from "@/lib/types";
 import { callLLM, LLM_MODEL_FAST, LLM_MODEL_QUALITY } from "./llm-client";
 import {
@@ -19,6 +20,7 @@ import {
   RewriteSectionWithEntriesOutput,
   OverallDescriptorOutput,
   CoverLetterOutput,
+  BatchEntryScoreOutput,
   normalizeTier,
   tierFromScore,
   extractJson,
@@ -26,6 +28,7 @@ import {
 } from "@/lib/schemas/llm-output";
 import {
   parseLinkedinSectionsWithFallback,
+  parseLinkedinWithStructuring,
   parseEntriesFromSection,
   LINKEDIN_SECTION_IDS,
   CV_SECTION_IDS,
@@ -34,6 +37,11 @@ import {
   MAX_CHARS_PER_ENTRY,
 } from "./linkedin-parser";
 import type { ParsedEntry } from "./linkedin-parser";
+import { detectProfileLanguage } from "@/lib/utils/language-detect";
+import {
+  hasRepetitiveEntryContent,
+  detectHallucinatedMetrics,
+} from "./generation-guards";
 import { mockResults } from "@/lib/mock/results";
 import { trackServerEvent } from "@/lib/analytics/server-tracker";
 import {
@@ -133,6 +141,10 @@ function categorizeError(err: unknown): FailureReason {
 const SECTION_BUDGET_FAST_MS = 25_000;   // scoring (Haiku)
 const SECTION_BUDGET_QUALITY_MS = 50_000; // rewriting (Sonnet)
 
+// ── Feature flags ──
+const ENABLE_STRUCTURING_PASS = process.env.ENABLE_STRUCTURING_PASS === "true";
+const ENABLE_ENTRY_SCORING = process.env.ENABLE_ENTRY_SCORING === "true";
+
 // ── Degraded threshold ──
 // If ≥ this fraction of total expected sections are fallbacks, results are degraded
 const DEGRADED_FALLBACK_THRESHOLD = 0.3; // 30% or more fallbacks = degraded
@@ -149,6 +161,8 @@ export interface AuditInput {
   isAdmin: boolean;
   /** P0-4: bypass cache and force fresh generation */
   forceFresh?: boolean;
+  /** Whether LinkedIn input came from a PDF upload (enables structuring pass) */
+  isPdfSource?: boolean;
 }
 
 // ── Generation metadata (enhanced for integrity tracking) ──
@@ -186,6 +200,20 @@ export interface GenerationMeta {
   totalLLMTimeMs: number;
   /** PR2C-post: prompt keys that passed readiness preflight */
   preflightResult: { passed: boolean; missing: string[] };
+  /** v1: Whether LLM structuring pass was used for parsing */
+  structuringUsed: boolean;
+  structuringDurationMs: number;
+  /** v1: Detected profile language from heuristic analysis */
+  detectedLanguage?: "en" | "es" | "unknown";
+  languageConfidence?: number;
+  /** v1: Quality guard diagnostics */
+  repetitiveEntryCount: number;
+  hallucinatedMetricCount: number;
+  /** v2: Entry-level scoring diagnostics */
+  entryScoringSectionCount: number;
+  entryScoringSuccessCount: number;
+  entryScoringFailCount: number;
+  entryScoringDurationMs: number;
 }
 
 export interface GenerationResult {
@@ -425,6 +453,136 @@ async function scoreSection(
   });
 
   return null;
+}
+
+// ── Score individual entries within a section (v2) ───────
+// One Haiku call per section, max 4 entries, 1200 chars each.
+// Returns null on any failure (soft fail — section score still valid).
+async function scoreSectionWithEntries(
+  sectionId: string,
+  entries: ParsedEntry[],
+  promptKey: string,
+  targetRole: string,
+  framing: ObjectiveFraming,
+  locale: Locale,
+  promptVersions: Record<string, number>,
+  failureReasons: FailureReason[],
+  sectionDiagnostics: SectionDiagnostic[],
+  retryAttemptsByReason: Record<string, number>
+): Promise<EntryScore[] | null> {
+  const ENTRY_SCORING_MAX_ENTRIES = 4;
+  const ENTRY_SCORING_MAX_CHARS = 1_200;
+  const sectionStart = Date.now();
+
+  // Cap entries and per-entry length
+  const cappedEntries = entries.slice(0, ENTRY_SCORING_MAX_ENTRIES).map((e) => ({
+    title: e.title,
+    organization: e.organization,
+    dateRange: e.dateRange,
+    description: e.description.slice(0, ENTRY_SCORING_MAX_CHARS),
+  }));
+
+  const entriesJson = JSON.stringify(cappedEntries, null, 2);
+
+  // Resolve prompt
+  const prompt = await getActivePromptWithVersion(promptKey, locale);
+  if (!prompt) {
+    console.warn(
+      `[diag] entry_scoring: section=${sectionId}, prompt=${promptKey} not found — skipping`
+    );
+    return null;
+  }
+  promptVersions[promptKey] = prompt.version;
+
+  const sectionName = SECTION_DISPLAY_NAMES[sectionId] ?? sectionId;
+  const systemPrompt = interpolatePrompt(prompt.content, {
+    section_name: sectionName,
+    entries_json: entriesJson,
+    entry_count: String(cappedEntries.length),
+    target_role: targetRole,
+    objective_mode_label: framing.objective_mode_label,
+    objective_framing: framing.objective_framing,
+    objective_context: framing.objective_context,
+  });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const elapsed = Date.now() - sectionStart;
+    if (elapsed > SECTION_BUDGET_FAST_MS) {
+      console.warn(
+        `[diag] entry_scoring: section=${sectionId}, budget exhausted after ${elapsed}ms`
+      );
+      break;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(
+        () => controller.abort(),
+        SECTION_BUDGET_FAST_MS - elapsed
+      );
+
+      const userMessage =
+        attempt === 0
+          ? `Score each of the ${cappedEntries.length} entries individually. Return ONLY valid JSON.`
+          : `Score each entry. Respond ONLY with valid JSON matching the schema. No explanation, no markdown, just JSON.`;
+
+      try {
+        const result = await callLLM({
+          model: LLM_MODEL_FAST,
+          systemPrompt,
+          userMessage,
+          maxTokens: 2048,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+
+        const jsonStr = extractJson(result.text);
+        const parsed = JSON.parse(jsonStr);
+        const validated = BatchEntryScoreOutput.safeParse(parsed);
+
+        if (validated.success) {
+          const entryScores: EntryScore[] = validated.data.entries.map((e) => ({
+            entryTitle: e.entryTitle,
+            score: e.score,
+            whyThisScore: e.whyThisScore,
+            thingsToChange: e.thingsToChange,
+            missingFromThisEntry: e.missingFromThisEntry,
+          }));
+
+          console.log(
+            `[diag] entry_scoring: section=${sectionId}, entries=${cappedEntries.length}, ` +
+            `success=true, duration=${Date.now() - sectionStart}ms`
+          );
+
+          return entryScores;
+        }
+
+        // Zod validation failed — retry with stricter prompt
+        console.warn(
+          `[diag] entry_scoring: section=${sectionId}, attempt=${attempt + 1}, zod_fail`
+        );
+        retryAttemptsByReason["entry_scoring_invalid_json"] =
+          (retryAttemptsByReason["entry_scoring_invalid_json"] || 0) + 1;
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch (err) {
+      const { reason } = classifyError(err);
+      console.warn(
+        `[diag] entry_scoring: section=${sectionId}, attempt=${attempt + 1}, error=${reason}`
+      );
+      // Don't retry on hard errors
+      if (reason !== "invalid_json") break;
+    }
+  }
+
+  console.log(
+    `[diag] entry_scoring: section=${sectionId}, entries=${cappedEntries.length}, ` +
+    `success=false, duration=${Date.now() - sectionStart}ms`
+  );
+
+  return null; // Soft fail
 }
 
 // ── Rewrite a single section via LLM ────────────────────
@@ -1087,6 +1245,14 @@ export async function generateAuditResults(
             retryAttemptsByReason: {},
             totalLLMTimeMs: 0,
             preflightResult: { passed: true, missing: [] },
+            structuringUsed: false,
+            structuringDurationMs: 0,
+            repetitiveEntryCount: 0,
+            hallucinatedMetricCount: 0,
+            entryScoringSectionCount: 0,
+            entryScoringSuccessCount: 0,
+            entryScoringFailCount: 0,
+            entryScoringDurationMs: 0,
           },
         };
       } else {
@@ -1128,15 +1294,34 @@ export async function generateAuditResults(
     );
   }
 
-  // ─── 1b. Parse input sections ─────────────────────────
-  const linkedinSections = input.linkedinText.trim()
-    ? await parseLinkedinSectionsWithFallback(input.linkedinText, locale)
-    : {};
+  // ─── 1b. Parse input sections (with optional structuring pass) ──
+  const useStructuring = ENABLE_STRUCTURING_PASS && !!input.isPdfSource;
+  let structuringUsed = false;
+  let structuringDurationMs = 0;
+
+  let linkedinSections: Record<string, string> = {};
+  if (input.linkedinText.trim()) {
+    const parseResult = await parseLinkedinWithStructuring(
+      input.linkedinText,
+      locale,
+      useStructuring
+    );
+    linkedinSections = parseResult.sections;
+    structuringUsed = parseResult.structuringUsed;
+    structuringDurationMs = parseResult.structuringDurationMs;
+  }
 
   const cvSections =
     input.cvText && input.cvText.trim().length > 20
       ? parseCvSections(input.cvText)
       : {};
+
+  // ─── 1c. Heuristic language detection ──────────────────
+  const combinedText = [
+    input.linkedinText,
+    input.cvText ?? "",
+  ].join("\n");
+  const langResult = detectProfileLanguage(combinedText);
 
   // Diagnostic: log which sections were parsed from raw input
   const parsedLinkedinIds = Object.keys(linkedinSections);
@@ -1150,7 +1335,9 @@ export async function generateAuditResults(
     `parsed=[${parsedLinkedinIds.join(", ")}], ` +
     `missing=[${missingLinkedin.join(", ")}] | ` +
     `cv_input=${(input.cvText ?? "").trim().length}chars, ` +
-    `cv_parsed=[${parsedCvIds.join(", ")}]`
+    `cv_parsed=[${parsedCvIds.join(", ")}] | ` +
+    `structuring=${structuringUsed} (${structuringDurationMs}ms) | ` +
+    `lang=${langResult.language} (conf=${langResult.confidence.toFixed(2)})`
   );
 
   // ─── 2. Score LinkedIn sections (parallel) ────────────
@@ -1395,6 +1582,129 @@ export async function generateAuditResults(
         settled.status === "fulfilled" ? settled.value.id : "unknown";
       console.warn(`[fallback] Skipping rewrite (no mock): ${id}`);
     }
+  }
+
+  // ─── 5b. Quality guard diagnostics (logging only) ─────
+  let repetitiveEntryCount = 0;
+  let hallucinatedMetricCount = 0;
+
+  // Check all rewrites that have entries for quality issues
+  for (const rewrite of [...linkedinRewrites, ...cvRewrites]) {
+    if (rewrite.entries && rewrite.entries.length > 0) {
+      const entryTexts = rewrite.entries.map((e) => e.rewritten);
+      if (hasRepetitiveEntryContent(entryTexts)) {
+        repetitiveEntryCount++;
+        console.warn(
+          `[guard] Repetitive entry content detected in rewrite: ${rewrite.sectionId}`
+        );
+      }
+      for (const entry of rewrite.entries) {
+        const hallCount = detectHallucinatedMetrics(entry.original, entry.rewritten);
+        if (hallCount > 0) {
+          hallucinatedMetricCount += hallCount;
+          console.warn(
+            `[guard] Hallucinated metrics detected in rewrite: ${rewrite.sectionId}/${entry.entryTitle}, count=${hallCount}`
+          );
+        }
+      }
+    }
+  }
+
+  if (repetitiveEntryCount > 0 || hallucinatedMetricCount > 0) {
+    console.log(
+      `[diag] request=${requestId} | QUALITY_GUARDS: ` +
+      `repetitiveEntries=${repetitiveEntryCount}, hallucinatedMetrics=${hallucinatedMetricCount}`
+    );
+  }
+
+  // ─── 5c. Entry-level scoring (behind ENABLE_ENTRY_SCORING flag) ──
+  const ENTRY_SCORING_SECTION_IDS_LINKEDIN = ["experience", "education"];
+  const ENTRY_SCORING_SECTION_IDS_CV = ["work-experience", "education-section"];
+  const ENTRY_SCORING_CONCURRENCY = 2; // max in-flight calls to reduce 429 risk
+
+  const entryScoringStart = Date.now();
+  let entryScoringTargetCount = 0;
+  let entryScoringSuccessCount = 0;
+  let entryScoringFailCount = 0;
+
+  if (ENABLE_ENTRY_SCORING) {
+    const entryScoreTargets: Array<{
+      section: ScoreSection;
+      entries: ParsedEntry[];
+      promptKey: string;
+    }> = [];
+
+    // LinkedIn: only experience + education
+    for (const section of scoredLinkedinSections) {
+      if (
+        ENTRY_SCORING_SECTION_IDS_LINKEDIN.includes(section.id) &&
+        linkedinEntries[section.id] &&
+        linkedinEntries[section.id].length >= 2
+      ) {
+        entryScoreTargets.push({
+          section,
+          entries: linkedinEntries[section.id],
+          promptKey: "audit.linkedin.entry.system",
+        });
+      }
+    }
+
+    // CV: only work-experience + education-section
+    for (const section of scoredCvSections) {
+      if (
+        ENTRY_SCORING_SECTION_IDS_CV.includes(section.id) &&
+        cvEntries[section.id] &&
+        cvEntries[section.id].length >= 2
+      ) {
+        entryScoreTargets.push({
+          section,
+          entries: cvEntries[section.id],
+          promptKey: "audit.cv.entry.system",
+        });
+      }
+    }
+
+    entryScoringTargetCount = entryScoreTargets.length;
+
+    // Execute in batches of ENTRY_SCORING_CONCURRENCY to limit API pressure
+    for (let i = 0; i < entryScoreTargets.length; i += ENTRY_SCORING_CONCURRENCY) {
+      const batch = entryScoreTargets.slice(i, i + ENTRY_SCORING_CONCURRENCY);
+      const batchResults = await Promise.allSettled(
+        batch.map(({ section, entries, promptKey }) =>
+          scoreSectionWithEntries(
+            section.id,
+            entries,
+            promptKey,
+            targetRole,
+            framing,
+            locale,
+            promptVersions,
+            failureReasons,
+            sectionDiagnostics,
+            retryAttemptsByReason
+          ).then((scores) => ({ sectionId: section.id, scores }))
+        )
+      );
+
+      for (const settled of batchResults) {
+        if (settled.status === "fulfilled" && settled.value.scores) {
+          const target = [...scoredLinkedinSections, ...scoredCvSections]
+            .find((s) => s.id === settled.value.sectionId);
+          if (target) {
+            target.entryScores = settled.value.scores;
+            entryScoringSuccessCount++;
+          }
+        } else {
+          entryScoringFailCount++;
+        }
+      }
+    }
+
+    console.log(
+      `[diag] request=${requestId} | ENTRY_SCORING: ` +
+      `targets=${entryScoringTargetCount}, success=${entryScoringSuccessCount}, ` +
+      `fail=${entryScoringFailCount}, duration=${Date.now() - entryScoringStart}ms`
+    );
   }
 
   // ─── 6. Cover letter (if pro/coach/admin) ────────────
@@ -1696,6 +2006,18 @@ export async function generateAuditResults(
       retryAttemptsByReason,
       totalLLMTimeMs,
       preflightResult,
+      // v1: Structuring + language detection + quality guards
+      structuringUsed,
+      structuringDurationMs,
+      detectedLanguage: langResult.language,
+      languageConfidence: langResult.confidence,
+      repetitiveEntryCount,
+      hallucinatedMetricCount,
+      // v2: Entry scoring diagnostics
+      entryScoringSectionCount: entryScoringTargetCount,
+      entryScoringSuccessCount,
+      entryScoringFailCount,
+      entryScoringDurationMs: Date.now() - entryScoringStart,
     },
   };
 }

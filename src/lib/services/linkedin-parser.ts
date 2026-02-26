@@ -472,6 +472,91 @@ export function parseEntriesFromSection(
   return result;
 }
 
+// ── LLM Structuring Pass ─────────────────────────────────
+// V4: Optional LLM structuring for PDF uploads. Gated behind
+// ENABLE_STRUCTURING_PASS flag in orchestrator.
+
+import {
+  structureProfileText,
+  structuredProfileToSections,
+} from "./profile-structurer";
+
+/**
+ * Parse LinkedIn PDF text with optional LLM structuring pass.
+ * Falls back to regex + LLM fallback if structuring fails or is disabled.
+ *
+ * @param rawText - Raw PDF text
+ * @param locale - Locale for parsing
+ * @param useStructuring - Whether to attempt LLM structuring (gated by flag + isPdfSource)
+ * @returns { sections, structuringUsed, structuringDurationMs }
+ */
+export async function parseLinkedinWithStructuring(
+  rawText: string,
+  locale: Locale = "en",
+  useStructuring: boolean = false
+): Promise<{
+  sections: Record<string, string>;
+  structuringUsed: boolean;
+  structuringDurationMs: number;
+}> {
+  if (!useStructuring) {
+    const sections = await parseLinkedinSectionsWithFallback(rawText, locale);
+    return { sections, structuringUsed: false, structuringDurationMs: 0 };
+  }
+
+  const structStart = Date.now();
+
+  try {
+    const structured = await structureProfileText(rawText);
+
+    if (structured) {
+      const structuredSections = structuredProfileToSections(structured);
+      const structDuration = Date.now() - structStart;
+
+      // Merge: regex results fill in sections that structuring missed
+      const regexSections = await parseLinkedinSectionsWithFallback(
+        rawText,
+        locale
+      );
+
+      const merged = { ...regexSections };
+      for (const [id, content] of Object.entries(structuredSections)) {
+        if (content && content.trim().length > 0) {
+          // Structuring takes priority for the 4 core sections
+          merged[id] = content;
+        }
+      }
+
+      console.log(
+        `[parser] Structuring pass: used=true, duration=${structDuration}ms, ` +
+        `structured=[${Object.keys(structuredSections).join(", ")}], ` +
+        `merged=[${Object.keys(merged).join(", ")}]`
+      );
+
+      return {
+        sections: merged,
+        structuringUsed: true,
+        structuringDurationMs: structDuration,
+      };
+    }
+  } catch (err) {
+    console.warn(
+      `[parser] Structuring pass failed, falling back to regex: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+
+  // Structuring returned null or failed — fall back to regex
+  const structDuration = Date.now() - structStart;
+  const sections = await parseLinkedinSectionsWithFallback(rawText, locale);
+  return {
+    sections,
+    structuringUsed: false,
+    structuringDurationMs: structDuration,
+  };
+}
+
 /** Max entries to send to LLM for per-entry rewriting (cost control) */
 export const MAX_ENTRIES_PER_SECTION = 6;
 

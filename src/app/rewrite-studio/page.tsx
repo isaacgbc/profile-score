@@ -383,25 +383,35 @@ export default function RewriteStudioPage() {
             {/* Section editors */}
             {rewrites.length > 0 ? (
               <div className="space-y-6">
-                {rewrites.map((rewrite) => (
-                  <StudioSectionEditor
-                    key={rewrite.sectionId}
-                    rewrite={rewrite}
-                    userImprovement={userImprovements[rewrite.sectionId]}
-                    userOptimized={userOptimized}
-                    userRewritten={userRewritten[rewrite.sectionId]}
-                    onImprovementChange={handleImprovementChange}
-                    onOptimizedChange={handleOptimizedChange}
-                    onRegenerate={(intent) =>
-                      handleRegenerate(rewrite.sectionId, intent)
-                    }
-                    onReset={handleResetSection}
-                    onResetEntry={handleResetEntry}
-                    isRegenerating={regeneratingSection === rewrite.sectionId}
-                    locked={rewrite.locked && !isAdmin}
-                    onUpgradeClick={() => setShowPricingModal(true)}
-                  />
-                ))}
+                {rewrites.map((rewrite) => {
+                  // Find matching section's entry scores from results
+                  const matchingSection = [
+                    ...(results?.linkedinSections ?? []),
+                    ...(results?.cvSections ?? []),
+                  ].find((s) => s.id === rewrite.sectionId);
+                  const entryScores = matchingSection?.entryScores;
+
+                  return (
+                    <StudioSectionEditor
+                      key={rewrite.sectionId}
+                      rewrite={rewrite}
+                      userImprovement={userImprovements[rewrite.sectionId]}
+                      userOptimized={userOptimized}
+                      userRewritten={userRewritten[rewrite.sectionId]}
+                      onImprovementChange={handleImprovementChange}
+                      onOptimizedChange={handleOptimizedChange}
+                      onRegenerate={(intent) =>
+                        handleRegenerate(rewrite.sectionId, intent)
+                      }
+                      onReset={handleResetSection}
+                      onResetEntry={handleResetEntry}
+                      isRegenerating={regeneratingSection === rewrite.sectionId}
+                      locked={rewrite.locked && !isAdmin}
+                      onUpgradeClick={() => setShowPricingModal(true)}
+                      entryScores={entryScores}
+                    />
+                  );
+                })}
               </div>
             ) : (
               <Card variant="default" padding="lg" className="text-center">

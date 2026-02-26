@@ -83,6 +83,15 @@ export interface Plan {
 // ─── Score / Results ──────────────────────────────────
 export type ScoreTier = "poor" | "fair" | "good" | "excellent";
 
+/** Per-entry score for experience/education items (v2 entry scoring) */
+export interface EntryScore {
+  entryTitle: string;
+  score: number;
+  whyThisScore: string;
+  thingsToChange: string;
+  missingFromThisEntry: string[];
+}
+
 export interface ScoreSection {
   id: string;
   score: number;
@@ -92,6 +101,8 @@ export interface ScoreSection {
   source: SourceType;
   explanation: string;
   improvementSuggestions: string[];
+  /** Per-entry scores for experience/education (populated when ENABLE_ENTRY_SCORING=true) */
+  entryScores?: EntryScore[];
 }
 
 /** Per-entry rewrite for experience/education items */
@@ -187,6 +198,9 @@ export interface GenerationMetaClient {
   degraded: boolean;
   /** Categorized failure reasons for diagnostics */
   failureReasons: string[];
+  /** v1: Detected profile language from heuristic analysis */
+  detectedLanguage?: "en" | "es" | "unknown";
+  languageConfidence?: number;
 }
 
 export interface AppState {
