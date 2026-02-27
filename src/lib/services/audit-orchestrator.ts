@@ -41,6 +41,9 @@ import { detectProfileLanguage } from "@/lib/utils/language-detect";
 import {
   hasRepetitiveEntryContent,
   detectHallucinatedMetrics,
+  detectBuzzwords,
+  countMetricTags,
+  checkCvDocumentWordCount,
 } from "./generation-guards";
 import { mockResults } from "@/lib/mock/results";
 import { trackServerEvent } from "@/lib/analytics/server-tracker";
@@ -144,6 +147,62 @@ const SECTION_BUDGET_QUALITY_MS = 50_000; // rewriting (Sonnet)
 // ── Feature flags ──
 const ENABLE_STRUCTURING_PASS = process.env.ENABLE_STRUCTURING_PASS === "true";
 const ENABLE_ENTRY_SCORING = process.env.ENABLE_ENTRY_SCORING === "true";
+const ENABLE_PROGRESSIVE_GENERATION = process.env.ENABLE_PROGRESSIVE_GENERATION === "true";
+
+// ── Progressive generation types ──────────────────────────
+export type ProgressStage =
+  | "cache_check"
+  | "extracting_input"
+  | "structuring_profile"
+  | "auditing_sections"
+  | "generating_rewrites"
+  | "scoring_entries"
+  | "generating_extras"
+  | "finalizing_results";
+
+export interface ProgressEvent {
+  stage: ProgressStage;
+  percent: number;
+  label?: string;
+  sectionReady?: {
+    section: ScoreSection;
+    rewrite: RewritePreview;
+  };
+  completedSections?: number;
+  totalSections?: number;
+}
+
+export type ProgressCallback = (event: ProgressEvent) => void;
+
+// ── Stage timer for observability ─────────────────────────
+interface StageTiming {
+  stage: string;
+  durationMs: number;
+}
+
+class StageTimer {
+  private timings: StageTiming[] = [];
+  private current: { stage: string; startMs: number } | null = null;
+
+  start(stage: string) {
+    if (this.current) this.end();
+    this.current = { stage, startMs: Date.now() };
+  }
+  end() {
+    if (!this.current) return;
+    this.timings.push({
+      stage: this.current.stage,
+      durationMs: Date.now() - this.current.startMs,
+    });
+    this.current = null;
+  }
+  getTimings(): Record<string, number> {
+    if (this.current) this.end();
+    const result: Record<string, number> = {};
+    for (const t of this.timings) result[t.stage] = t.durationMs;
+    return result;
+  }
+}
 
 // ── Degraded threshold ──
 // If ≥ this fraction of total expected sections are fallbacks, results are degraded
@@ -214,6 +273,12 @@ export interface GenerationMeta {
   entryScoringSuccessCount: number;
   entryScoringFailCount: number;
   entryScoringDurationMs: number;
+  /** Sprint 2: Stage-level timing */
+  stageTimings?: Record<string, number>;
+  timeToFirstProgressMs?: number;
+  timeToFirstSectionMs?: number;
+  llmCallCount?: number;
+  sectionsSkipped?: number;
 }
 
 export interface GenerationResult {
@@ -1154,7 +1219,8 @@ function parseCvSections(cvText: string): Record<string, string> {
 // ── Main orchestrator ───────────────────────────────────
 export async function generateAuditResults(
   input: AuditInput,
-  locale: Locale = "en"
+  locale: Locale = "en",
+  onProgress?: ProgressCallback
 ): Promise<GenerationResult> {
   const requestId = crypto.randomUUID().slice(0, 8);
   const startTime = Date.now();
@@ -1168,6 +1234,29 @@ export async function generateAuditResults(
   const sectionDiagnostics: SectionDiagnostic[] = [];
   const retryAttemptsByReason: Record<string, number> = {};
   let totalLLMTimeMs = 0;
+
+  // Sprint 2: Stage timing + progress tracking
+  const stageTimer = new StageTimer();
+  let llmCallCount = 0;
+  let sectionsSkipped = 0;
+  let firstProgressMs = 0;
+  let firstSectionMs = 0;
+  let completedSectionCount = 0;
+  let totalSectionCount = 0;
+
+  const emitProgress = (stage: ProgressStage, percent: number, label?: string, sectionReady?: ProgressEvent["sectionReady"]) => {
+    if (!onProgress || !ENABLE_PROGRESSIVE_GENERATION) return;
+    if (firstProgressMs === 0) firstProgressMs = Date.now();
+    if (sectionReady && firstSectionMs === 0) firstSectionMs = Date.now();
+    onProgress({
+      stage,
+      percent,
+      label,
+      sectionReady,
+      completedSections: completedSectionCount,
+      totalSections: totalSectionCount,
+    });
+  };
 
   const targetRole = getTargetRole(input);
   const jobObjective =
@@ -1192,6 +1281,10 @@ export async function generateAuditResults(
   if (!apiKey || apiKey.trim() !== apiKey) {
     console.error(`[diag] ANTHROPIC_API_KEY issue: set=${!!apiKey}, hasWhitespace=${apiKey ? apiKey.trim() !== apiKey : false}`);
   }
+
+  // Sprint 2: Stage progress emissions
+  stageTimer.start("cache_check");
+  emitProgress("cache_check", 0, "Checking cache...");
 
   // ─── 0. Check DB cache ────────────────────────────────
   // P0-4: skip cache when forceFresh is set
@@ -1294,6 +1387,10 @@ export async function generateAuditResults(
     );
   }
 
+  stageTimer.end();
+  stageTimer.start("extracting_input");
+  emitProgress("extracting_input", 5, "Reading your profile...");
+
   // ─── 1b. Parse input sections (with optional structuring pass) ──
   const useStructuring = ENABLE_STRUCTURING_PASS && !!input.isPdfSource;
   let structuringUsed = false;
@@ -1340,16 +1437,32 @@ export async function generateAuditResults(
     `lang=${langResult.language} (conf=${langResult.confidence.toFixed(2)})`
   );
 
+  stageTimer.end();
+  stageTimer.start("auditing_sections");
+
+  // Compute total expected sections (for progress tracking)
+  const linkedinSectionIds = hasLinkedinInput ? LINKEDIN_SECTION_IDS.filter((id) => !!linkedinSections[id]) : [];
+  const cvSectionIds = hasCvInput ? CV_SECTION_IDS.filter((id) => !!cvSections[id]) : [];
+  const skippedLinkedinCount = hasLinkedinInput ? LINKEDIN_SECTION_IDS.length - linkedinSectionIds.length : 0;
+  const skippedCvCount = hasCvInput ? CV_SECTION_IDS.length - cvSectionIds.length : 0;
+  sectionsSkipped = skippedLinkedinCount + skippedCvCount;
+  totalSectionCount = linkedinSectionIds.length + cvSectionIds.length;
+  emitProgress("auditing_sections", 15, "Scoring your sections...");
+
+  if (sectionsSkipped > 0) {
+    console.log(
+      `[diag] request=${requestId} | SKIP_EMPTY: ${sectionsSkipped} empty sections skipped (linkedin=${skippedLinkedinCount}, cv=${skippedCvCount})`
+    );
+  }
+
   // ─── 2. Score LinkedIn sections (parallel) ────────────
-  // Score ALL standard sections — missing ones get guidance content
-  const linkedinScorePromises = (hasLinkedinInput ? LINKEDIN_SECTION_IDS : []).map(
+  // Sprint 2: Only score sections that have actual content (skip empty/missing)
+  const linkedinScorePromises = linkedinSectionIds.map(
     (id) => {
-      const content =
-        linkedinSections[id] ||
-        `[This section was not found in the profile. The user has not included a ${SECTION_DISPLAY_NAMES[id] ?? id} section.]`;
+      llmCallCount++;
       return scoreSection(
         id,
-        content,
+        linkedinSections[id],
         "audit.linkedin.system",
         targetRole,
         framing,
@@ -1363,15 +1476,13 @@ export async function generateAuditResults(
   );
 
   // ─── 3. Score CV sections (parallel) ──────────────────
-  // Score ALL standard CV sections when CV input exists — missing ones get guidance
-  const cvScorePromises = (hasCvInput ? CV_SECTION_IDS : []).map(
+  // Sprint 2: Only score sections that have actual content
+  const cvScorePromises = cvSectionIds.map(
     (id) => {
-      const content =
-        cvSections[id] ||
-        `[This section was not found in the CV. The user has not included a ${SECTION_DISPLAY_NAMES[id] ?? id} section.]`;
+      llmCallCount++;
       return scoreSection(
         id,
-        content,
+        cvSections[id],
         "audit.cv.system",
         targetRole,
         framing,
@@ -1483,6 +1594,10 @@ export async function generateAuditResults(
     }
   }
 
+  stageTimer.end();
+  stageTimer.start("generating_rewrites");
+  emitProgress("generating_rewrites", 45, "Generating optimized rewrites...");
+
   // ─── 5. Rewrite sections (parallel) — per-entry for experience/education ──
   const linkedinRewritePromises = scoredLinkedinSections.map((section) => {
     const content = linkedinSections[section.id] ??
@@ -1575,6 +1690,20 @@ export async function generateAuditResults(
       } else {
         cvRewrites.push(rewrite);
       }
+
+      // Sprint 2: Emit sectionReady event for progressive rendering
+      const matchingSection = [...scoredLinkedinSections, ...scoredCvSections]
+        .find((s) => s.id === rewrite.sectionId);
+      if (matchingSection) {
+        completedSectionCount++;
+        const pct = 45 + Math.round((completedSectionCount / Math.max(totalSectionCount, 1)) * 25);
+        emitProgress(
+          "generating_rewrites",
+          Math.min(pct, 70),
+          `${SECTION_DISPLAY_NAMES[rewrite.sectionId] ?? rewrite.sectionId} ready`,
+          { section: matchingSection, rewrite }
+        );
+      }
     } else {
       // PR2C: No mock injection for rewrites — just count and skip
       fallbackCount++;
@@ -1589,33 +1718,66 @@ export async function generateAuditResults(
   let hallucinatedMetricCount = 0;
 
   // Check all rewrites that have entries for quality issues
+  let totalBuzzwordCount = 0;
+  let totalAddMetricTags = 0;
+  let totalNeedsVerificationTags = 0;
+
   for (const rewrite of [...linkedinRewrites, ...cvRewrites]) {
+    // Sprint 1: Buzzword and metric tag diagnostics on all rewrites
+    const buzzwords = detectBuzzwords(rewrite.rewritten);
+    if (buzzwords.length > 0) {
+      totalBuzzwordCount += buzzwords.length;
+      console.warn(
+        `[diag] request=${requestId} | BUZZWORDS in ${rewrite.sectionId}: [${buzzwords.join(", ")}]`
+      );
+    }
+    const metricTags = countMetricTags(rewrite.rewritten);
+    totalAddMetricTags += metricTags.addMetric;
+    totalNeedsVerificationTags += metricTags.needsVerification;
+
     if (rewrite.entries && rewrite.entries.length > 0) {
       const entryTexts = rewrite.entries.map((e) => e.rewritten);
-      if (hasRepetitiveEntryContent(entryTexts)) {
+      const repResult = hasRepetitiveEntryContent(entryTexts);
+      if (repResult.repetitive) {
         repetitiveEntryCount++;
         console.warn(
-          `[guard] Repetitive entry content detected in rewrite: ${rewrite.sectionId}`
+          `[guard] Repetitive entry content detected in rewrite: ${rewrite.sectionId} ` +
+          `(duplicatePairs=${repResult.duplicatePairs}/${repResult.totalPairs}, worstOverlap=${repResult.worstOverlap.toFixed(2)})`
         );
       }
       for (const entry of rewrite.entries) {
-        const hallCount = detectHallucinatedMetrics(entry.original, entry.rewritten);
-        if (hallCount > 0) {
-          hallucinatedMetricCount += hallCount;
+        const hallResult = detectHallucinatedMetrics(entry.original, entry.rewritten);
+        if (hallResult.count > 0) {
+          hallucinatedMetricCount += hallResult.count;
           console.warn(
-            `[guard] Hallucinated metrics detected in rewrite: ${rewrite.sectionId}/${entry.entryTitle}, count=${hallCount}`
+            `[guard] Hallucinated metrics detected in rewrite: ${rewrite.sectionId}/${entry.entryTitle}, ` +
+            `count=${hallResult.count}, severity=${hallResult.severity}, metrics=[${hallResult.metrics.join(", ")}]`
           );
         }
       }
     }
   }
 
-  if (repetitiveEntryCount > 0 || hallucinatedMetricCount > 0) {
+  // Sprint 1: CV document-level word count check
+  const cvRewriteTexts = cvRewrites.map((r) => r.rewritten);
+  if (cvRewriteTexts.length > 0) {
+    const cvWordCount = checkCvDocumentWordCount(cvRewriteTexts);
     console.log(
-      `[diag] request=${requestId} | QUALITY_GUARDS: ` +
-      `repetitiveEntries=${repetitiveEntryCount}, hallucinatedMetrics=${hallucinatedMetricCount}`
+      `[diag] request=${requestId} | CV_WORD_COUNT: ${cvWordCount.wordCount} words, inRange=${cvWordCount.inRange}`
     );
   }
+
+  if (repetitiveEntryCount > 0 || hallucinatedMetricCount > 0 || totalBuzzwordCount > 0) {
+    console.log(
+      `[diag] request=${requestId} | QUALITY_GUARDS: ` +
+      `repetitiveEntries=${repetitiveEntryCount}, hallucinatedMetrics=${hallucinatedMetricCount}, ` +
+      `buzzwords=${totalBuzzwordCount}, addMetricTags=${totalAddMetricTags}, needsVerificationTags=${totalNeedsVerificationTags}`
+    );
+  }
+
+  stageTimer.end();
+  stageTimer.start("scoring_entries");
+  emitProgress("scoring_entries", 70, "Scoring individual entries...");
 
   // ─── 5c. Entry-level scoring (behind ENABLE_ENTRY_SCORING flag) ──
   const ENTRY_SCORING_SECTION_IDS_LINKEDIN = ["experience", "education"];
@@ -1707,6 +1869,10 @@ export async function generateAuditResults(
     );
   }
 
+  stageTimer.end();
+  stageTimer.start("generating_extras");
+  emitProgress("generating_extras", 80, "Generating cover letter & summary...");
+
   // ─── 6. Cover letter (if pro/coach/admin) ────────────
   let coverLetter: CoverLetterResult | null = null;
   const shouldGenerateCoverLetter =
@@ -1766,6 +1932,10 @@ export async function generateAuditResults(
     promptVersions,
     failureReasons
   );
+
+  stageTimer.end();
+  stageTimer.start("finalizing_results");
+  emitProgress("finalizing_results", 90, "Finalizing your results...");
 
   // ─── 8. Apply plan-based locking ─────────────────────
   const linkedinIds = scoredLinkedinSections.map((s) => s.id);
@@ -1917,6 +2087,19 @@ export async function generateAuditResults(
     `promptVersions=${JSON.stringify(promptVersions)}`
   );
 
+  stageTimer.end();
+  const stageTimings = stageTimer.getTimings();
+
+  // Sprint 2: Performance diagnostics log
+  const ttfp = firstProgressMs > 0 ? firstProgressMs - startTime : -1;
+  const ttfs = firstSectionMs > 0 ? firstSectionMs - startTime : -1;
+  console.log(
+    `[perf] request=${requestId} | total=${durationMs}ms | ttfp=${ttfp}ms | ` +
+    `ttfs=${ttfs}ms | llmCalls=${llmCallCount} | ` +
+    `stages=${Object.entries(stageTimings).map(([s, d]) => `${s}:${d}ms`).join(",")} | ` +
+    `sectionsSkipped=${sectionsSkipped}`
+  );
+
   // ─── 11. Track analytics events (fire-and-forget) ─────
   trackServerEvent("llm_audit_generated", {
     metadata: {
@@ -2018,6 +2201,12 @@ export async function generateAuditResults(
       entryScoringSuccessCount,
       entryScoringFailCount,
       entryScoringDurationMs: Date.now() - entryScoringStart,
+      // Sprint 2: Perf observability
+      stageTimings,
+      timeToFirstProgressMs: ttfp >= 0 ? ttfp : undefined,
+      timeToFirstSectionMs: ttfs >= 0 ? ttfs : undefined,
+      llmCallCount,
+      sectionsSkipped,
     },
   };
 }

@@ -15,6 +15,10 @@ export interface EvalFixture {
   expectedScoreRange: [number, number];
   /** Expected tier(s) that would be acceptable */
   expectedTiers: string[];
+  /** Objective mode: "job" (default) or "objective" (growth) */
+  objectiveMode?: "job" | "objective";
+  /** Objective text for objective mode */
+  objectiveText?: string;
 }
 
 // ── 3 Strong Profiles ────────────────────────────────────
@@ -330,6 +334,216 @@ Looking for tech internship`,
   expectedTiers: ["fair", "poor"],
 };
 
+// ── Sprint 1: 5 New Fixtures (ES, growth mode, career changer, executive, student) ──
+
+const strongMarketingDirectorES: EvalFixture = {
+  name: "Strong – Marketing Director (ES)",
+  linkedinText: `Carolina Mendez
+Directora de Marketing Digital | Growth Marketing | SaaS B2B | Ex-MercadoLibre
+
+Acerca de
+Lidero estrategias de marketing digital que generan resultados medibles. En MercadoLibre, escale el equipo de growth de 3 a 18 personas y aumente los ingresos por canal digital en 240% en 2 anos. Actualmente como Directora de Marketing en Globant, gestiono un presupuesto de $5M USD y un equipo de 12 profesionales enfocados en generacion de demanda para clientes enterprise.
+
+Mi especialidad: convertir datos en estrategias que mueven metricas de negocio.
+
+Experiencia
+Directora de Marketing — Globant (2022–Presente)
+- Lidero equipo de 12 personas con presupuesto de $5M USD en generacion de demanda B2B
+- Implemente estrategia ABM que genero $18M en pipeline cualificado en primer ano
+- Reduje CAC en 35% mediante optimizacion de canales y automatizacion con HubSpot
+
+Head of Growth — MercadoLibre (2018–2022)
+- Escale equipo de growth marketing de 3 a 18 personas en 2 anos
+- Aumente revenue de canales digitales en 240% ($12M a $41M)
+- Lance programa de referidos que aporto 22% de nuevos usuarios mensuales
+
+Educacion
+Universidad de Buenos Aires — Lic. en Comunicacion (2010–2014)
+IE Business School — Master en Marketing Digital (2016–2017)
+
+Habilidades
+Growth Marketing, ABM, HubSpot, Salesforce, Google Ads, SEO, Data Analytics, Marketing Automation, B2B SaaS`,
+  jobDescription: "VP de Marketing en empresa SaaS B2B con presencia en LATAM",
+  targetAudience: "C-suite ejecutivos en tecnologia",
+  expectedScoreRange: [45, 92],
+  expectedTiers: ["excellent", "good", "fair"],
+};
+
+const averageStartupFounderES: EvalFixture = {
+  name: "Average – Startup Founder (ES)",
+  linkedinText: `Miguel Torres
+Fundador & CEO de TechStartup | Emprendedor | Innovacion
+
+Acerca de
+Emprendedor apasionado por la tecnologia y la innovacion. Funde mi startup en 2021 donde desarrollamos soluciones SaaS para pymes. Me encanta construir productos que resuelven problemas reales. Busco conectar con inversores y mentores en el ecosistema emprendedor.
+
+Experiencia
+Fundador & CEO — TechStartup (2021–Presente)
+- Desarrollo plataforma SaaS para gestion de pymes
+- Gestion de equipo de 5 personas
+- Levante ronda pre-seed
+
+Desarrollador Web — AgenciaDigital (2018–2021)
+- Desarrollo de sitios web para clientes
+- Trabajo con React y Node.js
+- Mantenimiento de sistemas existentes
+
+Educacion
+Universidad Politecnica de Madrid — Ing. Informatica (2014–2018)
+
+Habilidades
+JavaScript, React, Node.js, Emprendimiento, Liderazgo, Product Management`,
+  jobDescription: "",
+  targetAudience: "Inversores y mentores del ecosistema startup",
+  expectedScoreRange: [25, 70],
+  expectedTiers: ["good", "fair", "poor"],
+  objectiveMode: "objective",
+  objectiveText: "Posicionarme como lider de pensamiento en el ecosistema de startups LATAM y atraer inversores para ronda seed",
+};
+
+const careerChangerTeacherToPM: EvalFixture = {
+  name: "Career Changer – Teacher to PM",
+  linkedinText: `Jennifer Walsh
+Aspiring Product Manager | Career Transition from Education
+
+About
+After 8 years as a high school math teacher, I am transitioning into product management. I believe my skills in curriculum design, student data analysis, and stakeholder management translate well to PM work. Currently completing a product management bootcamp and seeking entry-level PM roles.
+
+Experience
+Math Teacher — Lincoln High School (2016–2024)
+- Taught Algebra and Calculus to 150+ students per year
+- Designed curriculum that improved standardized test scores
+- Used data from student assessments to adjust teaching methods
+- Coordinated with parents and administration on student progress
+
+Student Teacher — Jefferson Middle School (2015–2016)
+- Assisted lead teacher with lesson planning
+- Graded assignments and provided feedback
+
+Education
+University of Michigan — B.S. Mathematics (2011–2015)
+General Assembly — Product Management Bootcamp (2024)
+
+Skills
+Curriculum Design, Data Analysis, Communication, Excel, Problem Solving, Stakeholder Management`,
+  cvText: `Jennifer Walsh
+Detroit, MI | jennifer.walsh@email.com | (313) 555-0192
+
+Objective: Transitioning from 8 years in education to product management, leveraging data-driven curriculum design and stakeholder coordination skills.
+
+Work Experience
+Math Teacher — Lincoln High School (2016–2024)
+- Taught Algebra II and AP Calculus to 150+ students annually
+- Redesigned Algebra II curriculum based on student performance data
+- Improved standardized test pass rates from 68% to 81% over 3 years
+- Managed parent-teacher communication for 150+ families
+
+Education
+General Assembly — Product Management Certificate (2024)
+University of Michigan — B.S. Mathematics, cum laude (2011–2015)
+
+Skills: Excel, Google Analytics (certified), Jira (bootcamp project), SQL (beginner), Figma (beginner)`,
+  jobDescription: "Associate Product Manager at an EdTech startup building K-12 learning platforms",
+  targetAudience: "Hiring managers in EdTech",
+  expectedScoreRange: [20, 55],
+  expectedTiers: ["good", "fair", "poor"],
+};
+
+const executiveVPEngineeringGrowth: EvalFixture = {
+  name: "Executive – VP Engineering (Growth)",
+  linkedinText: `Robert Kim
+VP of Engineering at DataScale | Building High-Performance Engineering Orgs | Cloud Infrastructure | Ex-AWS
+
+About
+I build and scale world-class engineering organizations. At DataScale, I grew the engineering team from 40 to 180 engineers across 5 offices while maintaining top-quartile velocity metrics. Previously at AWS, where I led the S3 Storage team (60 engineers) and shipped Object Lambda, generating $200M in first-year revenue.
+
+I write weekly about engineering leadership, team scaling, and infrastructure architecture. Follow me for practical frameworks from 18 years of building engineering teams.
+
+Experience
+VP of Engineering — DataScale (2021–Present)
+- Scaled engineering org from 40 to 180 engineers across Seattle, Austin, London, Berlin, and Singapore
+- Reduced deployment cycle from 2 weeks to daily, achieving 99.99% deployment success rate
+- Implemented engineering career ladder that reduced attrition from 22% to 8%
+- Architected migration from monolith to microservices, reducing infrastructure costs by $4.2M/year
+
+Senior Engineering Manager — AWS (2016–2021)
+- Led S3 Storage team of 60 engineers, responsible for storing 100+ exabytes of data
+- Shipped S3 Object Lambda, new $200M/year product line
+- Built and launched S3 Intelligent-Tiering, saving customers $1B+ in storage costs
+- Mentored 8 engineers into management roles
+
+Engineering Manager — Dropbox (2012–2016)
+- Grew sync engine team from 5 to 22 engineers
+- Delivered Smart Sync feature reducing local disk usage by 60%
+- Led migration from Python to Rust for core sync operations
+
+Education
+MIT — M.S. Computer Science (2010–2012)
+UC Berkeley — B.S. EECS (2006–2010)
+
+Skills
+Engineering Leadership, Distributed Systems, Cloud Infrastructure, AWS, Team Scaling, Architecture, Go, Rust, Python`,
+  jobDescription: "",
+  targetAudience: "Engineering leaders, CTOs, and tech community",
+  expectedScoreRange: [50, 85],
+  expectedTiers: ["excellent", "good"],
+  objectiveMode: "objective",
+  objectiveText: "Build a personal brand as a thought leader in engineering leadership and infrastructure architecture. Grow LinkedIn following and attract speaking opportunities.",
+};
+
+const entryLevelCSStudent: EvalFixture = {
+  name: "Entry-Level – CS Student",
+  linkedinText: `Alex Rivera
+Computer Science Student at UT Austin | Graduating May 2025
+
+About
+CS student interested in software engineering. I have done some projects and am looking for a full-time job after graduation.
+
+Experience
+Intern — LocalTechCo (Summer 2024)
+- Worked on the frontend team
+- Built some React components
+- Attended stand-up meetings
+
+Barista — Starbucks (2022–2024)
+- Made drinks
+- Customer service
+
+Education
+UT Austin — B.S. Computer Science (Expected May 2025)
+GPA: 3.4
+Relevant coursework: Data Structures, Algorithms, Operating Systems, Databases
+
+Skills
+Java, Python, React, Git`,
+  cvText: `Alex Rivera
+Austin, TX | alex.rivera@utexas.edu | (512) 555-0147
+
+Education
+University of Texas at Austin — B.S. Computer Science (Expected May 2025)
+GPA: 3.4/4.0
+Coursework: Data Structures, Algorithms, Operating Systems, Database Systems, Software Engineering
+
+Experience
+Software Engineering Intern — LocalTechCo (June 2024–August 2024)
+- Built React components for customer dashboard
+- Participated in daily standups and sprint planning
+
+Barista — Starbucks (2022–2024)
+- Provided customer service in high-volume store
+
+Projects
+Task Manager App — Personal Project
+- Built a full-stack task manager using React and Express
+- Used MongoDB for data storage
+
+Skills: Java, Python, JavaScript, React, Node.js, Git, SQL`,
+  jobDescription: "New Grad Software Engineer at a mid-size tech company (100-500 employees)",
+  targetAudience: "University recruiters and engineering managers",
+  expectedScoreRange: [15, 50],
+  expectedTiers: ["good", "fair", "poor"],
+};
+
 // ── Export all fixtures ──────────────────────────────────
 export const EVAL_FIXTURES: EvalFixture[] = [
   // Strong (3)
@@ -345,4 +559,10 @@ export const EVAL_FIXTURES: EvalFixture[] = [
   weakMinimalProfile,
   weakNoDetails,
   weakIncomplete,
+  // Sprint 1: New fixtures (5)
+  strongMarketingDirectorES,
+  averageStartupFounderES,
+  careerChangerTeacherToPM,
+  executiveVPEngineeringGrowth,
+  entryLevelCSStudent,
 ];

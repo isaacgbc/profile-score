@@ -400,20 +400,30 @@ export function validateGenerationResult(
 }
 
 // ── 7. Repetitive Entry Content Detection ────────────
-// v1 quality guard: detect when LLM rewrites are too similar across entries
+// v2 quality guard: detect when LLM rewrites are too similar across entries
+
+export interface RepetitiveContentResult {
+  repetitive: boolean;
+  duplicatePairs: number;
+  totalPairs: number;
+  worstOverlap: number;
+}
 
 /**
  * Check if entry rewrites are suspiciously repetitive.
- * Returns true if >50% of significant word sets are duplicates.
+ * Returns detailed result with overlap metrics.
  *
  * Logging-only diagnostic — does not block generation.
  */
-export function hasRepetitiveEntryContent(entryTexts: string[]): boolean {
-  if (entryTexts.length < 2) return false;
+export function hasRepetitiveEntryContent(entryTexts: string[]): RepetitiveContentResult {
+  if (entryTexts.length < 2) {
+    return { repetitive: false, duplicatePairs: 0, totalPairs: 0, worstOverlap: 0 };
+  }
 
   const wordSets = entryTexts.map((text) => extractSignificantWords(text));
   let duplicatePairs = 0;
   let totalPairs = 0;
+  let worstOverlap = 0;
 
   for (let i = 0; i < wordSets.length; i++) {
     for (let j = i + 1; j < wordSets.length; j++) {
@@ -431,29 +441,41 @@ export function hasRepetitiveEntryContent(entryTexts: string[]): boolean {
       }
 
       const overlapRatio = overlap / Math.max(smaller.size, 1);
+      if (overlapRatio > worstOverlap) worstOverlap = overlapRatio;
       if (overlapRatio > 0.7) duplicatePairs++;
     }
   }
 
   // Flag if more than 50% of entry pairs are duplicates
-  return totalPairs > 0 && duplicatePairs / totalPairs > 0.5;
+  const repetitive = totalPairs > 0 && duplicatePairs / totalPairs > 0.5;
+  return { repetitive, duplicatePairs, totalPairs, worstOverlap };
 }
 
 // ── 8. Hallucinated Metrics Detection ────────────────
-// v1 quality guard: detect when LLM invents numbers not in original
+// v2 quality guard: detect when LLM invents numbers not in original
+
+export interface HallucinatedMetricsResult {
+  count: number;
+  metrics: string[];
+  severity: "none" | "low" | "high";
+}
 
 /**
  * Detect potentially hallucinated metrics in rewritten text.
  * Compares numeric patterns (percentages, dollar amounts, large numbers)
  * in the rewrite against the original. Metrics not in the original are suspicious.
  *
- * Returns count of hallucinated metrics found. Logging-only diagnostic.
+ * Returns detailed result with specific hallucinated metrics and severity.
+ * Severity: 0 = none, 1-2 = low, 3+ = high.
+ * Logging-only diagnostic.
  */
 export function detectHallucinatedMetrics(
   original: string,
   rewritten: string
-): number {
-  if (!original || !rewritten) return 0;
+): HallucinatedMetricsResult {
+  if (!original || !rewritten) {
+    return { count: 0, metrics: [], severity: "none" };
+  }
 
   // Extract metric patterns: percentages, dollar amounts, large numbers (1000+)
   const METRIC_RE = /(?:\$[\d,.]+[KMBkmb]?|\d+(?:\.\d+)?%|\d{1,3}(?:,\d{3})+|\d{4,}(?:\.\d+)?[KMBkmb]?)/g;
@@ -464,12 +486,83 @@ export function detectHallucinatedMetrics(
   const rewrittenMetrics =
     (rewritten.match(METRIC_RE) || []).map((m) => m.toLowerCase().replace(/,/g, ""));
 
-  let hallucinatedCount = 0;
+  const hallucinated: string[] = [];
   for (const metric of rewrittenMetrics) {
     if (!originalMetrics.has(metric)) {
-      hallucinatedCount++;
+      hallucinated.push(metric);
     }
   }
 
-  return hallucinatedCount;
+  const count = hallucinated.length;
+  const severity: "none" | "low" | "high" =
+    count === 0 ? "none" : count <= 2 ? "low" : "high";
+
+  return { count, metrics: hallucinated, severity };
+}
+
+// ── 9. Buzzword Detection ────────────────────────────
+// Sprint 1: detect overused LinkedIn/CV buzzwords
+
+/**
+ * Known buzzword blacklist from research. These are the most overused
+ * LinkedIn/CV descriptors that raise AI-detection red flags with recruiters.
+ *
+ * Note: "spearheaded" is excluded — acceptable as an action verb in bullets,
+ * only problematic as a standalone descriptor. Handled contextually in prompts.
+ */
+const BUZZWORD_BLACKLIST = [
+  "results-driven", "passionate", "strategic thinker", "thought leader",
+  "guru", "ninja", "rockstar", "seasoned professional", "seasoned",
+  "experienced leader", "motivated", "leveraging", "synergies",
+  "cutting-edge", "innovative leader",
+];
+
+/**
+ * Detect buzzword violations in text.
+ * Returns array of detected buzzwords (lowercase). Logging-only diagnostic.
+ */
+export function detectBuzzwords(text: string): string[] {
+  if (!text) return [];
+  const lower = text.toLowerCase();
+  return BUZZWORD_BLACKLIST.filter((bw) => lower.includes(bw));
+}
+
+// ── 10. Metric Tag Counter ───────────────────────────
+// Sprint 1: verify LLM is using [ADD_METRIC] / [NEEDS_VERIFICATION] tags
+
+export interface MetricTagCounts {
+  addMetric: number;
+  needsVerification: number;
+}
+
+/**
+ * Count [ADD_METRIC] and [NEEDS_VERIFICATION] tags in output.
+ * Used for diagnostics — verifies the LLM is actually using the tag system
+ * introduced in Sprint 1 prompts.
+ */
+export function countMetricTags(text: string): MetricTagCounts {
+  if (!text) return { addMetric: 0, needsVerification: 0 };
+  const addMetric = (text.match(/\[ADD_METRIC\]/gi) || []).length;
+  const needsVerification = (text.match(/\[NEEDS_VERIFICATION\]/gi) || []).length;
+  return { addMetric, needsVerification };
+}
+
+// ── 11. CV Document Word Count ───────────────────────
+// Sprint 1: evaluate full CV word count against optimal 475-600 range
+
+export interface CvWordCountResult {
+  wordCount: number;
+  inRange: boolean;
+}
+
+/**
+ * Evaluate full CV document word count against optimal 475-600 word range.
+ * Takes all CV section texts concatenated. Document-level check, NOT per-section.
+ * Called once per request after all CV rewrites are assembled.
+ * Logging-only diagnostic.
+ */
+export function checkCvDocumentWordCount(sectionTexts: string[]): CvWordCountResult {
+  const combined = sectionTexts.join(" ");
+  const wordCount = combined.trim().split(/\s+/).filter((w) => w.length > 0).length;
+  return { wordCount, inRange: wordCount >= 475 && wordCount <= 600 };
 }

@@ -413,6 +413,22 @@
     "exportDownload": "Descargar",
     "exportGenerating": "Generando..."
   },
+  "progress": {
+    "analyzing": "Analizando tu perfil",
+    "sectionsComplete": "secciones completadas",
+    "stageExtractingInput": "Leyendo tu perfil...",
+    "stageStructuring": "Estructurando tu perfil...",
+    "stageAuditing": "Puntuando tus secciones...",
+    "stageRewrites": "Generando reescrituras optimizadas...",
+    "stageScoringEntries": "Puntuando entradas individuales...",
+    "stageExtras": "Generando carta de presentación y resumen...",
+    "stageFinalizing": "Finalizando tus resultados...",
+    "scoringSection": "Puntuando {section}...",
+    "rewritingSection": "Reescribiendo {section}...",
+    "sectionReady": "{section} listo",
+    "disconnected": "Conexión perdida. Reintentando...",
+    "reconnecting": "Reconectando..."
+  },
   "admin": {
     "promptsTitle": "Registro de Prompts",
     "promptsDesc": "Gestiona plantillas de prompts versionadas para todas las funciones de IA.",

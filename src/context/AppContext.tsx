@@ -30,6 +30,13 @@ import {
   getUnlockedCvIds,
   isCoverLetterUnlockedForPlan,
 } from "@/lib/services/unlock-matrix";
+import {
+  useGenerationStream,
+  type SectionPair,
+} from "@/hooks/useGenerationStream";
+import type { ProgressStage } from "@/lib/services/audit-orchestrator";
+
+const ENABLE_PROGRESSIVE = process.env.NEXT_PUBLIC_ENABLE_PROGRESSIVE === "true";
 
 /** Lightweight user info from our Prisma User model */
 export interface AppUser {
@@ -77,6 +84,12 @@ interface AppContextValue extends AppState {
   isCoverLetterUnlocked: () => boolean;
   isExportModuleUnlocked: (moduleId: ExportModuleId) => boolean;
   generateResults: (options?: { forceFresh?: boolean }) => Promise<void>;
+  /** Sprint 2: Progressive generation state */
+  progressStage: ProgressStage | null;
+  progressPercent: number;
+  progressLabel: string;
+  completedSections: SectionPair[];
+  totalExpectedSections: number;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -109,6 +122,96 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationMeta, setGenerationMeta] = useState<GenerationMetaClient | null>(null);
+
+  // Sprint 2: Progressive generation stream
+  const {
+    state: streamState,
+    startStream,
+    reset: resetStream,
+  } = useGenerationStream();
+
+  // Sprint 2: Sync stream completion into results state
+  useEffect(() => {
+    if (streamState.isComplete && streamState.finalResults) {
+      const generatedResults = streamState.finalResults.results;
+      const meta = streamState.finalResults.meta;
+
+      setResultsState(generatedResults);
+      setIsGenerating(false);
+
+      if (meta) {
+        setGenerationMeta({
+          modelUsed: meta.modelUsed,
+          promptVersionsUsed: meta.promptVersionsUsed,
+          hasFallback: meta.hasFallback ?? (meta.fallbackCount ?? 0) > 0,
+          durationMs: meta.durationMs,
+          fallbackCount: meta.fallbackCount ?? 0,
+          degraded: meta.degraded ?? false,
+          failureReasons: meta.failureReasons ?? [],
+          detectedLanguage: meta.detectedLanguage as "en" | "es" | undefined,
+          languageConfidence: meta.languageConfidence,
+        });
+
+        // Auto-set export locale from detected language
+        if (
+          meta.detectedLanguage &&
+          meta.detectedLanguage !== "unknown" &&
+          (meta.languageConfidence ?? 0) >= 0.7
+        ) {
+          setExportLocale(meta.detectedLanguage as "en" | "es");
+        }
+      }
+
+      // Persist results server-side for export generation
+      fetch("/api/audits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          results: generatedResults,
+          planId: selectedPlan,
+          userInput: {
+            jobDescription: userInput.jobDescription,
+            targetAudience: userInput.targetAudience,
+            objectiveMode: userInput.objectiveMode,
+            objectiveText: userInput.objectiveText,
+          },
+          generationMeta: meta ?? null,
+        }),
+      })
+        .then((r) => r.json())
+        .then((persistData) => {
+          if (persistData.auditId) {
+            setAuditId(persistData.auditId);
+            trackEvent("audit_completed", {
+              auditId: persistData.auditId,
+              planId: selectedPlan,
+              sourceType: userInput.method ?? undefined,
+            });
+          }
+        })
+        .catch(() => {});
+
+      // Initialize user improvements
+      const initialImprovements: Record<string, string> = {};
+      [...generatedResults.linkedinRewrites, ...generatedResults.cvRewrites].forEach((r) => {
+        if (!r.locked) {
+          initialImprovements[r.sectionId] = r.improvements;
+        }
+      });
+      setUserImprovements(initialImprovements);
+
+      resetStream();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamState.isComplete, streamState.finalResults]);
+
+  // Sprint 2: Sync stream error into generation error
+  useEffect(() => {
+    if (streamState.error && !streamState.isStreaming) {
+      setGenerationError(streamState.error);
+      setIsGenerating(false);
+    }
+  }, [streamState.error, streamState.isStreaming]);
 
   // ── Auth: listen for session changes + fetch user ──
   useEffect(() => {
@@ -431,23 +534,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setIsGenerating(true);
     setGenerationError(null);
 
+    const inputPayload = {
+      linkedinText: userInput.linkedinText,
+      cvText: userInput.cvText || undefined,
+      jobDescription: userInput.jobDescription,
+      targetAudience: userInput.targetAudience,
+      objectiveMode: userInput.objectiveMode,
+      objectiveText: userInput.objectiveText,
+      planId: selectedPlan,
+      isAdmin,
+      locale: exportLocale,
+      forceFresh: options?.forceFresh ?? false,
+      isPdfSource: !!(userInput.linkedinText && !userInput.linkedinUrl),
+    };
+
+    // Sprint 2: Use streaming path when progressive generation is enabled
+    if (ENABLE_PROGRESSIVE) {
+      startStream(inputPayload);
+      // The stream state is synced via the useEffect above
+      // isGenerating stays true until stream completes or errors
+      return;
+    }
+
+    // Classic fetch path (fallback when progressive is disabled)
     try {
       const res = await fetch("/api/audit/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          linkedinText: userInput.linkedinText,
-          cvText: userInput.cvText || undefined,
-          jobDescription: userInput.jobDescription,
-          targetAudience: userInput.targetAudience,
-          objectiveMode: userInput.objectiveMode,
-          objectiveText: userInput.objectiveText,
-          planId: selectedPlan,
-          isAdmin,
-          locale: exportLocale,
-          forceFresh: options?.forceFresh ?? false,
-          isPdfSource: !!(userInput.linkedinText && !userInput.linkedinUrl),
-        }),
+        body: JSON.stringify(inputPayload),
       });
 
       if (!res.ok) {
@@ -493,7 +607,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({
           results: generatedResults,
           planId: selectedPlan,
-          // Persist sanitized userInput + generation metadata
           userInput: {
             jobDescription: userInput.jobDescription,
             targetAudience: userInput.targetAudience,
@@ -507,7 +620,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .then((persistData) => {
           if (persistData.auditId) {
             setAuditId(persistData.auditId);
-            // ── Analytics: audit_completed ──
             trackEvent("audit_completed", {
               auditId: persistData.auditId,
               planId: selectedPlan,
@@ -515,9 +627,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             });
           }
         })
-        .catch(() => {
-          // Audit persistence failed — exports won't work but UI still functions
-        });
+        .catch(() => {});
 
       // Initialize user improvements from generated data
       const initialImprovements: Record<string, string> = {};
@@ -534,7 +644,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsGenerating(false);
     }
-  }, [userInput, selectedPlan, isAdmin, exportLocale]);
+  }, [userInput, selectedPlan, isAdmin, exportLocale, startStream]);
 
   return (
     <AppContext.Provider
@@ -583,6 +693,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         isCoverLetterUnlocked,
         isExportModuleUnlocked,
         generateResults,
+        progressStage: streamState.stage,
+        progressPercent: streamState.percent,
+        progressLabel: streamState.label,
+        completedSections: streamState.completedSections,
+        totalExpectedSections: streamState.totalSections,
       }}
     >
       {children}

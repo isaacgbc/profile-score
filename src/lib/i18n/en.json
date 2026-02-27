@@ -413,6 +413,22 @@
     "exportDownload": "Download",
     "exportGenerating": "Generating..."
   },
+  "progress": {
+    "analyzing": "Analyzing your profile",
+    "sectionsComplete": "sections complete",
+    "stageExtractingInput": "Reading your profile...",
+    "stageStructuring": "Structuring your profile...",
+    "stageAuditing": "Scoring your sections...",
+    "stageRewrites": "Generating optimized rewrites...",
+    "stageScoringEntries": "Scoring individual entries...",
+    "stageExtras": "Generating cover letter & summary...",
+    "stageFinalizing": "Finalizing your results...",
+    "scoringSection": "Scoring {section}...",
+    "rewritingSection": "Rewriting {section}...",
+    "sectionReady": "{section} ready",
+    "disconnected": "Connection lost. Retrying...",
+    "reconnecting": "Reconnecting..."
+  },
   "admin": {
     "promptsTitle": "Prompt Registry",
     "promptsDesc": "Manage versioned prompt templates for all AI-powered features.",

@@ -15,6 +15,7 @@ import SourceToggle from "@/components/ui/SourceToggle";
 import EmailCaptureModal from "@/components/ui/EmailCaptureModal";
 import StepIndicator from "@/components/layout/StepIndicator";
 import PricingModal from "@/components/pricing/PricingModal";
+import GenerationProgress from "@/components/ui/GenerationProgress";
 import { getSectionLabel } from "@/lib/section-labels";
 import { GlobeIcon, LockIcon, SparklesIcon, ChevronRightIcon } from "@/components/ui/Icons";
 import type { ScoreTier, SourceType } from "@/lib/types";
@@ -36,6 +37,12 @@ export default function ResultsPage() {
     setShowEmailCaptureModal,
     setUserEmail,
     userEmail,
+    // Sprint 2: Progressive generation state
+    progressStage,
+    progressPercent,
+    progressLabel,
+    completedSections,
+    totalExpectedSections,
   } = useApp();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -146,8 +153,25 @@ export default function ResultsPage() {
     );
   }
 
-  // --- Loading state ---
+  // --- Loading state (Sprint 2: progressive or spinner) ---
   if (loading || isGenerating) {
+    // Sprint 2: Show progressive generation UI when streaming is active
+    const hasProgressData = progressStage !== null || completedSections.length > 0;
+
+    if (hasProgressData) {
+      return (
+        <GenerationProgress
+          stage={progressStage}
+          percent={progressPercent}
+          label={progressLabel}
+          completedSections={completedSections}
+          totalSections={totalExpectedSections}
+          isPaid={isPaid}
+        />
+      );
+    }
+
+    // Fallback spinner (classic mode or before first progress event)
     return (
       <div className="animate-fade-in">
         <StepIndicator currentStep="results" />
