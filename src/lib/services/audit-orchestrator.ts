@@ -1248,6 +1248,14 @@ export async function generateAuditResults(
     if (!onProgress || !ENABLE_PROGRESSIVE_GENERATION) return;
     if (firstProgressMs === 0) firstProgressMs = Date.now();
     if (sectionReady && firstSectionMs === 0) firstSectionMs = Date.now();
+    // Sprint 2.1: Log individual sectionReady timestamps for incremental delivery verification
+    if (sectionReady) {
+      const elapsed = Date.now() - startTime;
+      console.log(
+        `[stream] request=${requestId} | sectionReady=${sectionReady.section.id} ` +
+        `at=${elapsed}ms | ${completedSectionCount}/${totalSectionCount}`
+      );
+    }
     onProgress({
       stage,
       percent,
@@ -1599,41 +1607,81 @@ export async function generateAuditResults(
   emitProgress("generating_rewrites", 45, "Generating optimized rewrites...");
 
   // ─── 5. Rewrite sections (parallel) — per-entry for experience/education ──
+  // Sprint 2.1: Each rewrite promise emits sectionReady IMMEDIATELY on completion
+  // (not batched after Promise.allSettled). This ensures incremental SSE delivery.
+  const linkedinRewrites: RewritePreview[] = [];
+  const cvRewrites: RewritePreview[] = [];
+  const allScoredSections = [...scoredLinkedinSections, ...scoredCvSections];
+
+  const handleRewriteResult = (
+    section: ScoreSection,
+    result: { rewrite: RewritePreview; modelUsed: string } | null,
+  ) => {
+    if (!result) {
+      fallbackCount++;
+      console.warn(`[fallback] Skipping rewrite (no mock): ${section.id}`);
+      return;
+    }
+    const { rewrite } = result;
+    primaryModel = result.modelUsed;
+    if (rewrite.source === "linkedin") {
+      linkedinRewrites.push(rewrite);
+    } else {
+      cvRewrites.push(rewrite);
+    }
+
+    // Sprint 2.1: Emit sectionReady IMMEDIATELY — fires as each rewrite resolves
+    completedSectionCount++;
+    const pct = 45 + Math.round((completedSectionCount / Math.max(totalSectionCount, 1)) * 25);
+    emitProgress(
+      "generating_rewrites",
+      Math.min(pct, 70),
+      `${SECTION_DISPLAY_NAMES[rewrite.sectionId] ?? rewrite.sectionId} ready`,
+      { section, rewrite }
+    );
+  };
+
   const linkedinRewritePromises = scoredLinkedinSections.map((section) => {
     const content = linkedinSections[section.id] ??
       `[This section was not found in the profile. The user has not included a ${SECTION_DISPLAY_NAMES[section.id] ?? section.id} section.]`;
 
     // Use per-entry rewrite for sections with parsed entries
-    if (linkedinEntries[section.id] && linkedinEntries[section.id].length > 0) {
-      return rewriteSectionWithEntries(
-        section.id,
-        linkedinEntries[section.id],
-        content,
-        "rewrite.linkedin.section.entries",
-        targetRole,
-        jobObjective,
-        framing,
-        locale,
-        promptVersions,
-        failureReasons,
-        sectionDiagnostics,
-        retryAttemptsByReason
-      ).then((result) => ({ id: section.id, result }));
-    }
+    const rewritePromise = (linkedinEntries[section.id] && linkedinEntries[section.id].length > 0)
+      ? rewriteSectionWithEntries(
+          section.id,
+          linkedinEntries[section.id],
+          content,
+          "rewrite.linkedin.section.entries",
+          targetRole,
+          jobObjective,
+          framing,
+          locale,
+          promptVersions,
+          failureReasons,
+          sectionDiagnostics,
+          retryAttemptsByReason
+        )
+      : rewriteSection(
+          section.id,
+          content,
+          "rewrite.linkedin.section",
+          targetRole,
+          jobObjective,
+          framing,
+          locale,
+          promptVersions,
+          failureReasons,
+          sectionDiagnostics,
+          retryAttemptsByReason
+        );
 
-    return rewriteSection(
-      section.id,
-      content,
-      "rewrite.linkedin.section",
-      targetRole,
-      jobObjective,
-      framing,
-      locale,
-      promptVersions,
-      failureReasons,
-      sectionDiagnostics,
-      retryAttemptsByReason
-    ).then((result) => ({ id: section.id, result }));
+    return rewritePromise.then((result) => {
+      handleRewriteResult(section, result);
+      return { id: section.id, result };
+    }).catch((err) => {
+      handleRewriteResult(section, null);
+      throw err;
+    });
   });
 
   const cvRewritePromises = scoredCvSections.map((section) => {
@@ -1641,77 +1689,49 @@ export async function generateAuditResults(
       `[This section was not found in the CV. The user has not included a ${SECTION_DISPLAY_NAMES[section.id] ?? section.id} section.]`;
 
     // Use per-entry rewrite for sections with parsed entries
-    if (cvEntries[section.id] && cvEntries[section.id].length > 0) {
-      return rewriteSectionWithEntries(
-        section.id,
-        cvEntries[section.id],
-        content,
-        "rewrite.cv.section.entries",
-        targetRole,
-        jobObjective,
-        framing,
-        locale,
-        promptVersions,
-        failureReasons,
-        sectionDiagnostics,
-        retryAttemptsByReason
-      ).then((result) => ({ id: section.id, result }));
-    }
+    const rewritePromise = (cvEntries[section.id] && cvEntries[section.id].length > 0)
+      ? rewriteSectionWithEntries(
+          section.id,
+          cvEntries[section.id],
+          content,
+          "rewrite.cv.section.entries",
+          targetRole,
+          jobObjective,
+          framing,
+          locale,
+          promptVersions,
+          failureReasons,
+          sectionDiagnostics,
+          retryAttemptsByReason
+        )
+      : rewriteSection(
+          section.id,
+          content,
+          "rewrite.cv.section",
+          targetRole,
+          jobObjective,
+          framing,
+          locale,
+          promptVersions,
+          failureReasons,
+          sectionDiagnostics,
+          retryAttemptsByReason
+        );
 
-    return rewriteSection(
-      section.id,
-      content,
-      "rewrite.cv.section",
-      targetRole,
-      jobObjective,
-      framing,
-      locale,
-      promptVersions,
-      failureReasons,
-      sectionDiagnostics,
-      retryAttemptsByReason
-    ).then((result) => ({ id: section.id, result }));
+    return rewritePromise.then((result) => {
+      handleRewriteResult(section, result);
+      return { id: section.id, result };
+    }).catch((err) => {
+      handleRewriteResult(section, null);
+      throw err;
+    });
   });
 
-  const allRewriteResults = await Promise.allSettled([
+  // Wait for all rewrites to finish (sectionReady events already emitted individually above)
+  await Promise.allSettled([
     ...linkedinRewritePromises,
     ...cvRewritePromises,
   ]);
-
-  const linkedinRewrites: RewritePreview[] = [];
-  const cvRewrites: RewritePreview[] = [];
-
-  for (const settled of allRewriteResults) {
-    if (settled.status === "fulfilled" && settled.value.result) {
-      const rewrite = settled.value.result.rewrite;
-      primaryModel = settled.value.result.modelUsed;
-      if (rewrite.source === "linkedin") {
-        linkedinRewrites.push(rewrite);
-      } else {
-        cvRewrites.push(rewrite);
-      }
-
-      // Sprint 2: Emit sectionReady event for progressive rendering
-      const matchingSection = [...scoredLinkedinSections, ...scoredCvSections]
-        .find((s) => s.id === rewrite.sectionId);
-      if (matchingSection) {
-        completedSectionCount++;
-        const pct = 45 + Math.round((completedSectionCount / Math.max(totalSectionCount, 1)) * 25);
-        emitProgress(
-          "generating_rewrites",
-          Math.min(pct, 70),
-          `${SECTION_DISPLAY_NAMES[rewrite.sectionId] ?? rewrite.sectionId} ready`,
-          { section: matchingSection, rewrite }
-        );
-      }
-    } else {
-      // PR2C: No mock injection for rewrites — just count and skip
-      fallbackCount++;
-      const id =
-        settled.status === "fulfilled" ? settled.value.id : "unknown";
-      console.warn(`[fallback] Skipping rewrite (no mock): ${id}`);
-    }
-  }
 
   // ─── 5b. Quality guard diagnostics (logging only) ─────
   let repetitiveEntryCount = 0;
