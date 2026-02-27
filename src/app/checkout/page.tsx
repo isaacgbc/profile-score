@@ -91,6 +91,7 @@ export default function CheckoutPage() {
     userInput,
     selectedFeatures,
     results,
+    manualSections,
   } = useApp();
 
   const { getModuleState, createExport, downloadExport, retryExport } = useExport();
@@ -262,8 +263,26 @@ export default function CheckoutPage() {
         }
       }
     }
-    return { totalSections, editedSections, editedEntries, placeholderCount };
-  }, [results, userOptimized]);
+
+    // HOTFIX-3: Count missing critical sections
+    const CRITICAL_LINKEDIN = new Set(["headline", "summary", "experience", "education"]);
+    const CRITICAL_CV = new Set(["work-experience", "education-section", "skills-section"]);
+    const presentLinkedin = new Set(results.linkedinRewrites.map((r) => r.sectionId));
+    const presentCv = new Set(results.cvRewrites.map((r) => r.sectionId));
+    let missingSections = 0;
+    if (inputMethod === "linkedin" || inputMethod === "both") {
+      for (const id of CRITICAL_LINKEDIN) {
+        if (!presentLinkedin.has(id) && !manualSections[id]) missingSections++;
+      }
+    }
+    if (inputMethod === "cv" || inputMethod === "both") {
+      for (const id of CRITICAL_CV) {
+        if (!presentCv.has(id) && !manualSections[id]) missingSections++;
+      }
+    }
+
+    return { totalSections, editedSections, editedEntries, placeholderCount, missingSections };
+  }, [results, userOptimized, inputMethod, manualSections]);
 
   return (
     <div className="animate-fade-in">
@@ -353,6 +372,12 @@ export default function CheckoutPage() {
                   {(t.checkout as Record<string, string>).placeholderHint ?? "Fill in [BRACKET] placeholders in Rewrite Studio before exporting for best results"}
                 </p>
               )}
+              {valueSummary.missingSections > 0 && (
+                <p className="text-[10px] text-red-600 text-center mt-2">
+                  {(t.checkout as Record<string, string>).missingSectionsHint
+                    ?? `${valueSummary.missingSections} critical section${valueSummary.missingSections > 1 ? "s are" : " is"} missing — add them in Rewrite Studio to unlock exports`}
+                </p>
+              )}
             </Card>
           </section>
         )}
@@ -372,6 +397,16 @@ export default function CheckoutPage() {
                 ? getMinPlanForModule(mod.id)
                 : null;
 
+              // HOTFIX-3: Block export while unresolved placeholders or missing critical sections exist
+              const hasUnresolvedPlaceholders = (valueSummary?.placeholderCount ?? 0) > 0;
+              const hasMissingSections = (valueSummary?.missingSections ?? 0) > 0;
+              const isBlocked = hasUnresolvedPlaceholders || hasMissingSections;
+              const blockReason = hasMissingSections
+                ? `Add ${valueSummary!.missingSections} missing critical section${valueSummary!.missingSections > 1 ? "s" : ""} in Rewrite Studio`
+                : hasUnresolvedPlaceholders
+                  ? `Resolve ${valueSummary!.placeholderCount} placeholder${valueSummary!.placeholderCount > 1 ? "s" : ""} before export`
+                  : undefined;
+
               return (
                 <ExportModuleCard
                   key={mod.id}
@@ -387,6 +422,8 @@ export default function CheckoutPage() {
                   onRetry={(fmt) => handleRetry(mod.id, fmt)}
                   onUnlock={() => setShowPricingModal(true)}
                   animDelay={idx * 60}
+                  disabled={isBlocked}
+                  disabledReason={blockReason}
                 />
               );
             })}

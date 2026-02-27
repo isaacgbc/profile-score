@@ -29,6 +29,9 @@ interface ExportModuleCardProps {
   onRetry: (format: ExportFormat) => void;
   onUnlock: () => void;
   animDelay: number;
+  /** HOTFIX-3: Disable generation while placeholders remain */
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 // Which modules support which formats — all PDF as of Export Sprint
@@ -53,6 +56,8 @@ export default function ExportModuleCard({
   onRetry,
   onUnlock,
   animDelay,
+  disabled,
+  disabledReason,
 }: ExportModuleCardProps) {
   const { t } = useI18n();
   const formats = MODULE_FORMATS[moduleId];
@@ -111,8 +116,12 @@ export default function ExportModuleCard({
 
         {/* Actions */}
         {unlocked ? (
-          <div className="flex items-center gap-2 shrink-0">
-            {status === "processing" ? (
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            {disabled && disabledReason ? (
+              <span className="text-xs text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded max-w-[200px] text-right">
+                {disabledReason}
+              </span>
+            ) : status === "processing" ? (
               <Button variant="primary" size="sm" disabled>
                 <LoaderIcon size={14} className="animate-spin mr-1" />
                 {t.checkout.exportGenerating}
@@ -134,16 +143,19 @@ export default function ExportModuleCard({
                 {t.checkout.exportRetry}
               </Button>
             ) : (
-              formats.map((fmt) => (
-                <Button
-                  key={fmt}
-                  variant={fmt === "pdf" ? "primary" : "outline"}
-                  size="sm"
-                  onClick={() => onGenerate(fmt)}
-                >
-                  {fmt.toUpperCase()}
-                </Button>
-              ))
+              <div className="flex items-center gap-2">
+                {formats.map((fmt) => (
+                  <Button
+                    key={fmt}
+                    variant={fmt === "pdf" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => onGenerate(fmt)}
+                    disabled={disabled}
+                  >
+                    {fmt.toUpperCase()}
+                  </Button>
+                ))}
+              </div>
             )}
           </div>
         ) : (

@@ -13,10 +13,15 @@ import EmailCaptureModal from "@/components/ui/EmailCaptureModal";
 import StudioLeftRail from "@/components/studio/StudioLeftRail";
 import StudioTopBar from "@/components/studio/StudioTopBar";
 import StudioSectionEditor from "@/components/studio/StudioSectionEditor";
+import MissingSectionCard from "@/components/studio/MissingSectionCard";
 import { useStudioPersistence } from "@/hooks/useStudioPersistence";
 import { getSectionLabel } from "@/lib/section-labels";
 import { SparklesIcon } from "@/components/ui/Icons";
 import type { SourceType, RewritePreview } from "@/lib/types";
+
+// HOTFIX-3: Critical sections that MUST be present for a complete analysis
+const CRITICAL_LINKEDIN = new Set(["headline", "summary", "experience", "education"]);
+const CRITICAL_CV = new Set(["personal-information", "work-experience", "education-section", "skills-section"]);
 
 // ── Canonical section display order ──
 const LINKEDIN_SECTION_ORDER = [
@@ -65,6 +70,8 @@ export default function RewriteStudioPage() {
     userEmail,
     userInput,
     auditId,
+    manualSections,
+    setManualSection,
   } = useApp();
   const router = useRouter();
 
@@ -239,6 +246,16 @@ export default function RewriteStudioPage() {
     [regenerateSection, activeSource]
   );
 
+  // HOTFIX-3: Manual section recovery handler
+  const handleAddAndRegenerate = useCallback(
+    async (sectionId: string, content: string) => {
+      setManualSection(sectionId, content);
+      // Trigger regeneration with the manual content
+      await regenerateSection(sectionId, activeSource);
+    },
+    [setManualSection, regenerateSection, activeSource]
+  );
+
   // ─── Loading ───
   if (loading || !results) {
     return (
@@ -298,10 +315,14 @@ export default function RewriteStudioPage() {
   const coreSections = rewrites.filter((r) => coreSet.has(r.sectionId));
   const otherSections = rewrites.filter((r) => !coreSet.has(r.sectionId));
 
-  // HOTFIX-2: Compute missing sections (expected but not present in results)
-  const expectedOrder = activeSource === "linkedin" ? LINKEDIN_SECTION_ORDER : CV_SECTION_ORDER;
+  // HOTFIX-3: Compute missing sections — only flag sections that are in the SCOREABLE set
+  // (CORE + certifications). Don't flag projects/volunteer/honors/publications as "missing"
+  // since they are truly optional and rare — they appear under "Others" if present.
+  const SCOREABLE_LINKEDIN = new Set([...CORE_LINKEDIN, "certifications", "featured", "recommendations"]);
+  const SCOREABLE_CV = new Set([...CORE_CV, "certifications"]);
+  const scoreableSet = activeSource === "linkedin" ? SCOREABLE_LINKEDIN : SCOREABLE_CV;
   const presentIds = new Set(rewrites.map((r) => r.sectionId));
-  const missingSectionIds = expectedOrder.filter((id) => !presentIds.has(id));
+  const missingSectionIds = Array.from(scoreableSet).filter((id) => !presentIds.has(id));
 
   const hasLinkedin = results.linkedinRewrites.length > 0;
   const hasCv = results.cvRewrites.length > 0;
@@ -485,24 +506,47 @@ export default function RewriteStudioPage() {
                   </>
                 )}
 
-                {/* HOTFIX-2: Missing sections notice */}
-                {missingSectionIds.length > 0 && (
-                  <Card variant="default" padding="md" className="mt-4 bg-amber-50/40 border-amber-200">
-                    <p className="text-xs font-semibold text-amber-700 mb-2">
-                      {(t.rewriteStudio as Record<string, string>).missingSectionsTitle ?? "Sections not found in source"}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {missingSectionIds.map((id) => (
-                        <span key={id} className="inline-block px-2 py-0.5 text-[10px] bg-amber-100 text-amber-700 rounded-full">
-                          {getSectionLabel(id, sectionLabels)}
-                        </span>
-                      ))}
-                    </div>
-                    <p className="text-[10px] text-amber-600">
-                      {(t.rewriteStudio as Record<string, string>).missingSectionsDesc ?? "These sections were not detected in your uploaded profile. Add them to your source for a complete analysis."}
-                    </p>
-                  </Card>
-                )}
+                {/* HOTFIX-3: Missing sections — critical get MissingSectionCard, others get badge list */}
+                {(() => {
+                  const criticalSet = activeSource === "linkedin" ? CRITICAL_LINKEDIN : CRITICAL_CV;
+                  const criticalMissing = missingSectionIds.filter((id) => criticalSet.has(id) && !manualSections[id]);
+                  const nonCriticalMissing = missingSectionIds.filter((id) => !criticalSet.has(id));
+
+                  return (
+                    <>
+                      {criticalMissing.length > 0 && (
+                        <div className="space-y-3 mt-4">
+                          {criticalMissing.map((id) => (
+                            <MissingSectionCard
+                              key={id}
+                              sectionId={id}
+                              source={activeSource}
+                              onAddAndRegenerate={handleAddAndRegenerate}
+                              isRegenerating={regeneratingSection === id}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {nonCriticalMissing.length > 0 && (
+                        <Card variant="default" padding="md" className="mt-4 bg-amber-50/40 border-amber-200">
+                          <p className="text-xs font-semibold text-amber-700 mb-2">
+                            {(t.rewriteStudio as Record<string, string>).missingSectionsTitle ?? "Sections not found in source"}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 mb-2">
+                            {nonCriticalMissing.map((id) => (
+                              <span key={id} className="inline-block px-2 py-0.5 text-[10px] bg-amber-100 text-amber-700 rounded-full">
+                                {getSectionLabel(id, sectionLabels)}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-amber-600">
+                            {(t.rewriteStudio as Record<string, string>).missingSectionsDesc ?? "These sections were not detected in your uploaded profile. Add them to your source for a complete analysis."}
+                          </p>
+                        </Card>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <Card variant="default" padding="lg" className="text-center">

@@ -373,7 +373,12 @@
     "regenerateFromDraft": "Using current draft",
     "othersLabel": "Others",
     "missingSectionsTitle": "Sections not found in source",
-    "missingSectionsDesc": "These sections were not detected in your uploaded profile. Add them to your source for a complete analysis."
+    "missingSectionsDesc": "These sections were not detected in your uploaded profile. Add them to your source for a complete analysis.",
+    "missingSectionCardTitle": "Not found in source",
+    "missingSectionCardDesc": "This section was not detected in your uploaded profile. Paste your content below and click regenerate to include it in your analysis.",
+    "missingSectionCardPlaceholder": "Paste your content here...",
+    "addAndRegenerate": "Add & Regenerate",
+    "placeholderLegend": "Items in [BRACKETS] need your input before final use"
   },
   "checkout": {
     "title": "Export Your Optimized Profile",
@@ -429,7 +434,8 @@
     "placeholderHint": "Fill in [BRACKET] placeholders in Rewrite Studio before exporting for best results",
     "uploadCvToUnlock": "Upload your CV to unlock",
     "addLinkedinToUnlock": "Add your LinkedIn profile to unlock",
-    "selectFeatureToUnlock": "Select the relevant feature in Step 2 to enable"
+    "selectFeatureToUnlock": "Select the relevant feature in Step 2 to enable",
+    "missingSectionsHint": "Critical sections are missing — add them in Rewrite Studio to unlock exports"
   },
   "progress": {
     "analyzing": "Analyzing your profile",

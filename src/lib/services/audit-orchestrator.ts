@@ -1192,20 +1192,26 @@ function parseCvSections(cvText: string): Record<string, string> {
   const sections: Record<string, string> = {};
   const lines = cvText.split("\n");
 
+  // HOTFIX-3: Relaxed prefix matching (like LinkedIn parser) + Spanish patterns + broader fallbacks
   const cvHeaders: { pattern: RegExp; id: string }[] = [
-    { pattern: /^contact\s*(info|information|details)?$/i, id: "contact-info" },
+    { pattern: /^contact\s*(info|information|details)?(\s|$)/i, id: "contact-info" },
+    { pattern: /^(datos\s+(personales|de\s+contacto))(\s|$)/i, id: "contact-info" },
     {
-      pattern: /^(professional\s+)?summary|profile|objective$/i,
+      pattern: /^(professional\s+)?summary|profile(\s+summary)?|objective(\s|$)/i,
       id: "professional-summary",
     },
+    { pattern: /^(perfil|resumen)\s*(profesional)?(\s|$)/i, id: "professional-summary" },
     {
-      pattern: /^(work\s+)?experience|employment(\s+history)?$/i,
+      pattern: /^(work\s+)?experience|employment(\s+history)?(\s|$)/i,
       id: "work-experience",
     },
-    { pattern: /^(technical\s+)?skills|competencies$/i, id: "skills-section" },
-    { pattern: /^education$/i, id: "education-section" },
+    { pattern: /^experiencia\s*(laboral|profesional)?(\s|$)/i, id: "work-experience" },
+    { pattern: /^(technical\s+)?skills|competenc(ies|ias)(\s|$)/i, id: "skills-section" },
+    { pattern: /^(habilidades|aptitudes)(\s|$)/i, id: "skills-section" },
+    { pattern: /^education(\s|$)/i, id: "education-section" },
+    { pattern: /^(educación|formación)(\s+académica)?(\s|$)/i, id: "education-section" },
     {
-      pattern: /^certifications?|licenses?|awards?|honors?$/i,
+      pattern: /^certifications?|licenses?\s*(&|and)?\s*certifications?|awards?|honors?(\s|$)/i,
       id: "certifications",
     },
   ];
@@ -1237,6 +1243,28 @@ function parseCvSections(cvText: string): Record<string, string> {
     }
   }
   flush();
+
+  // HOTFIX-3: Fallback — if no `work-experience` found, look for a generic "EXPERIENCE" line
+  if (!sections["work-experience"] && cvText.trim().length > 0) {
+    const expIdx = lines.findIndex((l) => /^experience(\s|$)/i.test(l.trim()));
+    if (expIdx >= 0) {
+      // Collect lines from "EXPERIENCE" until the next known section header
+      const expLines: string[] = [];
+      for (let i = expIdx + 1; i < lines.length; i++) {
+        let isHeader = false;
+        for (const { pattern } of cvHeaders) {
+          if (pattern.test(lines[i].trim())) { isHeader = true; break; }
+        }
+        if (isHeader) break;
+        expLines.push(lines[i]);
+      }
+      const content = expLines.join("\n").trim();
+      if (content.length > 20) {
+        sections["work-experience"] = content;
+        console.log(`[diag] CV parser fallback: mapped generic "EXPERIENCE" header to work-experience (${content.length} chars)`);
+      }
+    }
+  }
 
   // If no sections were parsed, treat the whole text as professional-summary
   if (Object.keys(sections).length === 0 && cvText.trim().length > 0) {
@@ -1480,6 +1508,28 @@ export async function generateAuditResults(
     `structuring=${structuringUsed} (${structuringDurationMs}ms) | ` +
     `lang=${langResult.language} (conf=${langResult.confidence.toFixed(2)})`
   );
+
+  // HOTFIX-3: Enhanced parse-stage diagnostics
+  {
+    const linkedinChars = Object.values(linkedinSections).reduce((sum, s) => sum + s.length, 0);
+    const cvChars = Object.values(cvSections).reduce((sum, s) => sum + s.length, 0);
+    console.log(
+      `[diag] request=${requestId} | PARSE_DETAIL: ` +
+      `linkedin: extractedChars=${input.linkedinText.trim().length}, parsedChars=${linkedinChars}, sectionsKept=${parsedLinkedinIds.length} | ` +
+      `cv: extractedChars=${(input.cvText ?? "").trim().length}, parsedChars=${cvChars}, sectionsKept=${parsedCvIds.length}`
+    );
+    // Log per-section char counts for debugging content loss
+    for (const [id, content] of Object.entries(linkedinSections)) {
+      const entryCount = (id === "experience" || id === "education")
+        ? parseEntriesFromSection(id, content).entries.length : 0;
+      console.log(`[diag] request=${requestId} | SECTION linkedin.${id}: ${content.length}chars, entries=${entryCount}`);
+    }
+    for (const [id, content] of Object.entries(cvSections)) {
+      const entryCount = (id === "work-experience" || id === "education-section")
+        ? parseEntriesFromSection(id, content).entries.length : 0;
+      console.log(`[diag] request=${requestId} | SECTION cv.${id}: ${content.length}chars, entries=${entryCount}`);
+    }
+  }
 
   stageTimer.end();
   stageTimer.start("auditing_sections");
@@ -1770,6 +1820,13 @@ export async function generateAuditResults(
     ...linkedinRewritePromises,
     ...cvRewritePromises,
   ]);
+
+  // HOTFIX-3: Rewrite-stage diagnostics
+  console.log(
+    `[diag] request=${requestId} | REWRITE_STAGE: ` +
+    `linkedin=${linkedinRewrites.length} rewrites (entries: ${linkedinRewrites.reduce((sum, r) => sum + (r.entries?.length ?? 0), 0)}), ` +
+    `cv=${cvRewrites.length} rewrites (entries: ${cvRewrites.reduce((sum, r) => sum + (r.entries?.length ?? 0), 0)})`
+  );
 
   // ─── 5b. Quality guard diagnostics (logging only) ─────
   let repetitiveEntryCount = 0;

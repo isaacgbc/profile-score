@@ -14,8 +14,9 @@ import type { Locale } from "@/lib/types";
 const VALID_SOURCES = ["linkedin", "cv"] as const;
 const VALID_SECTION_IDS = new Set([
   "headline", "summary", "experience", "skills", "education", "recommendations",
+  "featured", "certifications", "projects", "volunteer", "honors", "publications",
   "contact-info", "professional-summary", "work-experience", "skills-section",
-  "education-section", "certifications",
+  "education-section",
 ]);
 
 const RegenerateInput = z.object({
@@ -25,6 +26,8 @@ const RegenerateInput = z.object({
   editedImprovements: z.string().min(5).max(5_000),
   objectiveContext: z.string().max(2_000).optional(),
   locale: z.enum(["en", "es"]).optional(),
+  /** HOTFIX-3: Manual content for sections missing from parsed input */
+  manualContent: z.string().max(10_000).optional(),
 });
 
 export async function POST(request: Request) {
@@ -61,6 +64,7 @@ export async function POST(request: Request) {
       editedImprovements,
       objectiveContext,
       locale: inputLocale,
+      manualContent,
     } = parsed.data;
 
     const locale: Locale = inputLocale ?? "en";
@@ -87,10 +91,15 @@ export async function POST(request: Request) {
 
     const sectionName = SECTION_DISPLAY_NAMES[sectionId] ?? sectionId;
 
+    // HOTFIX-3: Use manualContent as original_content when provided (missing section recovery)
+    const effectiveOriginal = manualContent?.trim()
+      ? manualContent.trim()
+      : originalContent;
+
     const systemPrompt = interpolatePrompt(prompt.content, {
       section_name: sectionName,
       source_type: source,
-      original_content: originalContent.slice(0, 10_000),
+      original_content: effectiveOriginal.slice(0, 10_000),
       editing_directives: editedImprovements.slice(0, 3_000),
       objective_context: objectiveContext?.slice(0, 1_500) ?? "Professional growth",
     });

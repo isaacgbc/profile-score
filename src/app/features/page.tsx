@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/context/I18nContext";
@@ -8,9 +9,9 @@ import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import StepIndicator from "@/components/layout/StepIndicator";
-import { featureIcons, CheckIcon } from "@/components/ui/Icons";
+import { featureIcons, CheckIcon, GlobeIcon } from "@/components/ui/Icons";
 import { mockFeatures } from "@/lib/mock/features";
-import type { FeatureId, PlanId } from "@/lib/types";
+import type { FeatureId, PlanId, Locale } from "@/lib/types";
 
 const featureTranslationKeys: Record<FeatureId, { title: string; desc: string }> = {
   "linkedin-audit": { title: "linkedinAuditTitle", desc: "linkedinAuditDesc" },
@@ -28,8 +29,16 @@ const planNameKeys: Record<PlanId, string> = {
 
 export default function FeaturesPage() {
   const { t } = useI18n();
-  const { selectedFeatures, toggleFeature } = useApp();
+  const { selectedFeatures, toggleFeature, userInput, exportLocale, setExportLocale } = useApp();
   const router = useRouter();
+
+  // HOTFIX-3: Auto-suggest CV Rewrite when CV-only input
+  useEffect(() => {
+    if (userInput.method === "cv" && !selectedFeatures.includes("cv-rewrite")) {
+      toggleFeature("cv-rewrite");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const canContinue = selectedFeatures.length > 0;
 
@@ -127,6 +136,22 @@ export default function FeaturesPage() {
               <div key={id} className="w-2 h-2 rounded-full bg-[var(--accent)]" />
             ))}
           </div>
+        </div>
+
+        {/* HOTFIX-3: Export Language Toggle */}
+        <div className="flex items-center justify-center gap-2 mb-6">
+          <GlobeIcon size={14} className="text-[var(--text-muted)]" />
+          <span className="text-xs text-[var(--text-muted)]">
+            {t.common.exportLanguage}:
+          </span>
+          <select
+            value={exportLocale}
+            onChange={(e) => setExportLocale(e.target.value as Locale)}
+            className="text-xs font-medium text-[var(--text-primary)] bg-[var(--surface-secondary)] border border-[var(--border-light)] rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          >
+            <option value="en">{t.common.english}</option>
+            <option value="es">{t.common.spanish}</option>
+          </select>
         </div>
 
         {/* Error */}

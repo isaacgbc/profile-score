@@ -272,6 +272,7 @@ export const LINKEDIN_SECTION_IDS = [
   "education",
   "featured",
   "recommendations",
+  "certifications",
 ] as const;
 
 /**

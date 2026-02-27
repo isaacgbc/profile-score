@@ -91,22 +91,47 @@ export default function StudioEntryEditor({
             </div>
           )}
 
-          {/* Optimized Draft (editable) */}
+          {/* Optimized Draft (editable) with HOTFIX-3 inline placeholder highlighting */}
           {!locked && (
             <div className="bg-emerald-50/40 border border-emerald-200 rounded-lg p-3">
               <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mb-2">
                 {optimizedLabel}
               </p>
-              <textarea
-                value={displayText}
-                onChange={(e) => onOptimizedChange(stateKey, e.target.value)}
-                className="w-full min-h-[80px] text-sm text-[var(--text-primary)] bg-white/60 border border-emerald-100 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300/50 leading-relaxed"
-                style={{ fieldSizing: "content" } as React.CSSProperties}
-              />
-              {/* HOTFIX-2: Placeholder legend */}
+              <div className="relative">
+                {hasPlaceholders(displayText) && (
+                  <div
+                    className="absolute inset-0 p-2 text-sm leading-relaxed whitespace-pre-wrap break-words pointer-events-none overflow-hidden"
+                    aria-hidden="true"
+                    dangerouslySetInnerHTML={{
+                      __html: displayText
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;")
+                        .replace(
+                          /\[[A-Z][A-Z0-9_ /'-]*\]/g,
+                          (match) => `<mark class="bg-amber-200/70 text-amber-900 rounded px-0.5">${match}</mark>`
+                        ),
+                    }}
+                  />
+                )}
+                <textarea
+                  value={displayText}
+                  onChange={(e) => onOptimizedChange(stateKey, e.target.value)}
+                  className={`relative w-full min-h-[80px] text-sm border border-emerald-100 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300/50 leading-relaxed ${
+                    hasPlaceholders(displayText)
+                      ? "text-transparent caret-[var(--text-primary)] bg-transparent"
+                      : "text-[var(--text-primary)] bg-white/60"
+                  }`}
+                  style={hasPlaceholders(displayText)
+                    ? { fieldSizing: "content", WebkitTextFillColor: "transparent" } as React.CSSProperties
+                    : { fieldSizing: "content" } as React.CSSProperties
+                  }
+                />
+              </div>
+              {/* HOTFIX-3: Placeholder legend */}
               {hasPlaceholders(displayText) && (
-                <p className="mt-1 text-[10px] text-amber-600 flex items-center gap-1">
-                  <span className="inline-block w-3.5 h-3.5 rounded bg-amber-100 border border-amber-300 text-center text-[8px] font-bold leading-[14px]">!</span>
+                <p className="mt-1.5 text-xs text-amber-700 font-medium flex items-center gap-1.5">
+                  <span className="inline-block w-4 h-4 rounded bg-amber-200 border border-amber-400 text-center text-[9px] font-bold leading-[16px]">!</span>
                   Items in [BRACKETS] need your input before final use
                 </p>
               )}

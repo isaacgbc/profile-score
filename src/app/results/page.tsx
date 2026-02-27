@@ -37,6 +37,7 @@ export default function ResultsPage() {
     setShowEmailCaptureModal,
     setUserEmail,
     userEmail,
+    userInput,
     // Sprint 2: Progressive generation state
     progressStage,
     progressPercent,
@@ -172,6 +173,9 @@ export default function ResultsPage() {
           completedSections={completedSections}
           totalSections={totalExpectedSections}
           isPaid={isPaid}
+          fileName={userInput.cvFileName || userInput.linkedinUrl || undefined}
+          objective={userInput.objectiveText || undefined}
+          outputLanguage={exportLocale}
         />
       );
     }

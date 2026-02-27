@@ -126,39 +126,73 @@ export async function generateLinkedinUpdatesPdf(
 
     // ── Entry-level rendering (experience/education) ──
     if (rewrite.entries && rewrite.entries.length > 0) {
+      console.log(`[export] ${rewrite.sectionId}: rendering ${rewrite.entries.length} entries`);
       for (let entryIndex = 0; entryIndex < rewrite.entries.length; entryIndex++) {
         const entry = rewrite.entries[entryIndex];
-        ensureSpace(80);
+        ensureSpace(100);
 
-        // Light separator line between entries (not before first)
+        // Separator line between entries (not before first) — HOTFIX-3: stronger spacing
         if (entryIndex > 0) {
+          y -= 4;
           page.drawLine({
             start: { x: margin + 10, y: y + 4 },
             end: { x: pageWidth - margin - 10, y: y + 4 },
-            thickness: 0.3,
+            thickness: 0.4,
             color: COLORS.border,
           });
-          y -= 6;
+          y -= 10;
         }
 
-        // Entry title (bold)
-        const titleLines = wrapText(
-          sanitizeForPdf(entry.entryTitle),
-          fontBold,
-          11,
-          contentWidth
-        );
-        for (const line of titleLines) {
-          ensureSpace(50);
-          page.drawText(line, {
-            x: margin + 5,
-            y,
-            size: 11,
-            font: fontBold,
-            color: COLORS.text,
-          });
-          y -= 16; // increased from 15 for better spacing
+        // HOTFIX-3: Parse entry title for "Position at Company" pattern
+        const titleText = sanitizeForPdf(entry.entryTitle);
+        const atMatch = titleText.match(/^(.+?)\s+at\s+(.+)$/i);
+        const enMatch = titleText.match(/^(.+?)\s+en\s+(.+)$/i);
+        const parsed = atMatch ?? enMatch;
+
+        if (parsed) {
+          // Position (bold)
+          const positionLines = wrapText(parsed[1].trim(), fontBold, 11, contentWidth);
+          for (const line of positionLines) {
+            ensureSpace(50);
+            page.drawText(line, {
+              x: margin + 5,
+              y,
+              size: 11,
+              font: fontBold,
+              color: COLORS.text,
+            });
+            y -= 15;
+          }
+          // Company (italic via regular, smaller)
+          const companyLines = wrapText(parsed[2].trim(), fontRegular, 10, contentWidth);
+          for (const line of companyLines) {
+            ensureSpace(50);
+            page.drawText(line, {
+              x: margin + 5,
+              y,
+              size: 10,
+              font: fontRegular,
+              color: COLORS.textMuted,
+            });
+            y -= 14;
+          }
+        } else {
+          // Fallback: render full title bold
+          const titleLines = wrapText(titleText, fontBold, 11, contentWidth);
+          for (const line of titleLines) {
+            ensureSpace(50);
+            page.drawText(line, {
+              x: margin + 5,
+              y,
+              size: 11,
+              font: fontBold,
+              color: COLORS.text,
+            });
+            y -= 16;
+          }
         }
+
+        y -= 4; // spacing between title block and content
 
         // Entry rewritten content (bullets/paragraphs)
         const paragraphs = entry.rewritten.split("\n").filter(Boolean);
@@ -177,7 +211,7 @@ export async function generateLinkedinUpdatesPdf(
           }
           y -= 2;
         }
-        y -= 12; // increased from 8 for clearer visual blocks
+        y -= 14; // HOTFIX-3: clearer visual separation between entries
       }
     } else {
       // ── Section-level rendering ──

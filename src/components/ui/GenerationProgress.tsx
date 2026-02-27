@@ -22,6 +22,10 @@ interface GenerationProgressProps {
   completedSections: SectionPairProp[];
   totalSections: number;
   isPaid: boolean;
+  /** HOTFIX-3: Context info for loader display */
+  fileName?: string;
+  objective?: string;
+  outputLanguage?: string;
 }
 
 function getTierBadgeVariant(tier: ScoreTier): "warning" | "accent" | "success" | "muted" {
@@ -73,6 +77,9 @@ export default function GenerationProgress({
   completedSections,
   totalSections,
   isPaid,
+  fileName,
+  objective,
+  outputLanguage,
 }: GenerationProgressProps) {
   const { t } = useI18n();
   const sectionLabels = t.sectionLabels as Record<string, string>;
@@ -108,6 +115,27 @@ export default function GenerationProgress({
               {completedSections.length} / {totalSections}{" "}
               {progressStrings.sectionsComplete ?? "sections complete"}
             </p>
+          )}
+
+          {/* HOTFIX-3: Context info bar (filename, objective, language) */}
+          {(fileName || objective || outputLanguage) && (
+            <div className="flex items-center justify-center gap-3 mt-3 flex-wrap">
+              {fileName && (
+                <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface-secondary)] px-2 py-0.5 rounded">
+                  {fileName}
+                </span>
+              )}
+              {objective && (
+                <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface-secondary)] px-2 py-0.5 rounded truncate max-w-[200px]">
+                  {objective}
+                </span>
+              )}
+              {outputLanguage && (
+                <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface-secondary)] px-2 py-0.5 rounded">
+                  {outputLanguage === "es" ? "Espa\u00f1ol" : "English"}
+                </span>
+              )}
+            </div>
           )}
         </div>
 

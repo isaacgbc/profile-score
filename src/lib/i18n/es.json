@@ -373,7 +373,12 @@
     "regenerateFromDraft": "Usando borrador actual",
     "othersLabel": "Otros",
     "missingSectionsTitle": "Secciones no encontradas en la fuente",
-    "missingSectionsDesc": "Estas secciones no se detectaron en tu perfil cargado. Agrégalas a tu fuente para un análisis completo."
+    "missingSectionsDesc": "Estas secciones no se detectaron en tu perfil cargado. Agrégalas a tu fuente para un análisis completo.",
+    "missingSectionCardTitle": "No encontrada en la fuente",
+    "missingSectionCardDesc": "Esta sección no se detectó en tu perfil cargado. Pega tu contenido abajo y haz clic en regenerar para incluirla en tu análisis.",
+    "missingSectionCardPlaceholder": "Pega tu contenido aquí...",
+    "addAndRegenerate": "Agregar y Regenerar",
+    "placeholderLegend": "Los elementos entre [CORCHETES] necesitan tu información antes del uso final"
   },
   "checkout": {
     "title": "Exporta Tu Perfil Optimizado",
@@ -429,7 +434,8 @@
     "placeholderHint": "Completa los marcadores [ENTRE CORCHETES] en el Estudio de Reescritura antes de exportar",
     "uploadCvToUnlock": "Sube tu CV para desbloquear",
     "addLinkedinToUnlock": "Agrega tu perfil de LinkedIn para desbloquear",
-    "selectFeatureToUnlock": "Selecciona la función correspondiente en el Paso 2 para habilitar"
+    "selectFeatureToUnlock": "Selecciona la función correspondiente en el Paso 2 para habilitar",
+    "missingSectionsHint": "Faltan secciones críticas — agrégalas en el Estudio de Reescritura para desbloquear exportaciones"
   },
   "progress": {
     "analyzing": "Analizando tu perfil",

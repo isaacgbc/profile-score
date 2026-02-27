@@ -329,14 +329,14 @@ export default function InputPage() {
                 aria-label="LinkedIn profile text"
               />
 
-              {/* HOTFIX-2: Char counter + over-limit warning */}
-              {userInput.linkedinText.length > 20 && (
-                <div className="flex items-center justify-between mt-1">
-                  <span className={`text-[10px] ${userInput.linkedinText.length > MAX_PROCESSABLE_CHARS ? "text-amber-600 font-medium" : "text-[var(--text-muted)]"}`}>
+              {/* HOTFIX-3: Char counter — visible from first character, stronger contrast */}
+              {userInput.linkedinText.length > 0 && (
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className={`text-xs font-medium ${userInput.linkedinText.length > MAX_PROCESSABLE_CHARS ? "text-amber-600 font-semibold" : "text-[var(--text-secondary)]"}`}>
                     {userInput.linkedinText.length.toLocaleString()} / {MAX_PROCESSABLE_CHARS.toLocaleString()} chars
                   </span>
                   {userInput.linkedinText.length > MAX_PROCESSABLE_CHARS && (
-                    <span className="text-[10px] text-amber-600">
+                    <span className="text-xs text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded">
                       {t.input?.charsProcessed?.replace("{max}", MAX_PROCESSABLE_CHARS.toLocaleString()) ?? `Only the first ${MAX_PROCESSABLE_CHARS.toLocaleString()} characters will be processed`}
                     </span>
                   )}
@@ -483,14 +483,14 @@ export default function InputPage() {
                 aria-label="CV text"
               />
 
-              {/* HOTFIX-2: Char counter + over-limit warning */}
-              {userInput.cvText.length > 20 && (
-                <div className="flex items-center justify-between mt-1">
-                  <span className={`text-[10px] ${userInput.cvText.length > MAX_PROCESSABLE_CHARS ? "text-amber-600 font-medium" : "text-[var(--text-muted)]"}`}>
+              {/* HOTFIX-3: Char counter — visible from first character, stronger contrast */}
+              {userInput.cvText.length > 0 && (
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className={`text-xs font-medium ${userInput.cvText.length > MAX_PROCESSABLE_CHARS ? "text-amber-600 font-semibold" : "text-[var(--text-secondary)]"}`}>
                     {userInput.cvText.length.toLocaleString()} / {MAX_PROCESSABLE_CHARS.toLocaleString()} chars
                   </span>
                   {userInput.cvText.length > MAX_PROCESSABLE_CHARS && (
-                    <span className="text-[10px] text-amber-600">
+                    <span className="text-xs text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded">
                       {t.input?.charsProcessed?.replace("{max}", MAX_PROCESSABLE_CHARS.toLocaleString()) ?? `Only the first ${MAX_PROCESSABLE_CHARS.toLocaleString()} characters will be processed`}
                     </span>
                   )}

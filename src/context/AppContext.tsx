@@ -81,6 +81,9 @@ interface AppContextValue extends AppState {
   regenerateSection: (sectionId: string, source: "linkedin" | "cv") => Promise<void>;
   /** Per-section regeneration loading state */
   regeneratingSection: string | null;
+  /** HOTFIX-3: Manually added section content (for missing critical sections) */
+  manualSections: Record<string, string>;
+  setManualSection: (sectionId: string, content: string) => void;
   triggerUnlockAnimation: () => void;
   isFeatureUnlocked: (featureId: FeatureId) => boolean;
   isSectionLocked: (sectionId: string) => boolean;
@@ -129,6 +132,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationMeta, setGenerationMeta] = useState<GenerationMetaClient | null>(null);
+
+  // HOTFIX-3: Manual section recovery state
+  const [manualSections, setManualSections] = useState<Record<string, string>>({});
+  const setManualSection = useCallback((sectionId: string, content: string) => {
+    setManualSections((prev) => ({ ...prev, [sectionId]: content }));
+  }, []);
 
   // Sprint 2: Progressive generation stream (SSE — works on Pro/Enterprise)
   const {
@@ -534,13 +543,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const rewrites =
           source === "linkedin" ? results.linkedinRewrites : results.cvRewrites;
         const rewrite = rewrites.find((r) => r.sectionId === sectionId);
-        if (!rewrite) {
-          console.warn(`[regenerate] No rewrite found for ${sectionId}`);
+
+        // HOTFIX-3: If no rewrite exists, check for manual content (missing section recovery)
+        const manual = manualSections[sectionId];
+        if (!rewrite && !manual) {
+          console.warn(`[regenerate] No rewrite or manual content found for ${sectionId}`);
           return;
         }
 
-        // Check if section is locked
-        if (rewrite.locked && !isAdmin) {
+        // Check if section is locked (only applies to existing rewrites)
+        if (rewrite?.locked && !isAdmin) {
           console.warn(`[regenerate] Section ${sectionId} is locked`);
           return;
         }
@@ -560,11 +572,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({
             sectionId,
             source,
-            originalContent: rewrite.original,
+            originalContent: rewrite?.original ?? manual ?? "",
             editedImprovements:
-              userImprovements[sectionId] ?? rewrite.improvements,
+              userImprovements[sectionId] ?? rewrite?.improvements ?? "Rewrite and improve this section professionally.",
             objectiveContext: objectiveContext || undefined,
             locale: exportLocale,
+            // HOTFIX-3: Include manual content for missing section recovery
+            ...(manual ? { manualContent: manual } : {}),
           }),
         });
 
@@ -596,7 +610,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setRegeneratingSection(null);
       }
     },
-    [results, isAdmin, userInput, userImprovements, exportLocale]
+    [results, isAdmin, userInput, userImprovements, exportLocale, manualSections]
   );
 
   const isFeatureUnlocked = useCallback(
@@ -808,6 +822,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         resetSection,
         resetEntry,
         regenerateSection,
+        manualSections,
+        setManualSection,
         triggerUnlockAnimation,
         isFeatureUnlocked,
         isSectionLocked,
