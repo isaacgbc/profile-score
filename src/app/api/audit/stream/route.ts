@@ -80,7 +80,9 @@ export async function POST(request: Request) {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
+        // Prevent Vercel/CDN response buffering that blocks SSE streaming
         "X-Accel-Buffering": "no",
+        "Content-Encoding": "none",
       },
     });
   } catch (err) {
