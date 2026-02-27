@@ -35,6 +35,26 @@ function parseEntryTitle(title: string): { company: string; position: string } |
 }
 
 /**
+ * HOTFIX-4: Strip LLM-generated section title from rewritten text.
+ * Sometimes the LLM repeats the section heading as the first line of the rewritten content.
+ * This prevents that duplication from appearing in the PDF.
+ */
+function stripLeadingSectionTitle(text: string, sectionLabel: string): string {
+  const lines = text.split("\n");
+  if (lines.length === 0) return text;
+  const firstLine = lines[0].trim().replace(/[:#\-*]+$/, "").trim();
+  const normalizedLabel = sectionLabel.toLowerCase().replace(/[^a-z0-9\s]/gi, "").trim();
+  const normalizedFirst = firstLine.toLowerCase().replace(/[^a-z0-9\s]/gi, "").trim();
+  if (
+    normalizedFirst === normalizedLabel ||
+    normalizedFirst === normalizedLabel.toUpperCase().toLowerCase()
+  ) {
+    return lines.slice(1).join("\n").trimStart();
+  }
+  return text;
+}
+
+/**
  * Generate an Updated CV PDF matching professional CV template style.
  *
  * Layout:
@@ -206,7 +226,9 @@ export async function generateUpdatedCvPdf(
         }
 
         // Entry content as bullet points
-        const lines = entry.rewritten.split("\n").filter(Boolean);
+        // HOTFIX-4: Strip potential duplicated entry title from rewritten text
+        const cleanedEntryContent = stripLeadingSectionTitle(entry.rewritten, entry.entryTitle);
+        const lines = cleanedEntryContent.split("\n").filter(Boolean);
         for (const rawLine of lines) {
           const isBullet = rawLine.trimStart().startsWith("-") || rawLine.trimStart().startsWith("*");
           const cleanLine = isBullet
@@ -247,11 +269,14 @@ export async function generateUpdatedCvPdf(
       }
     } else {
       // ── Section-level content ──
+      // HOTFIX-4: Strip LLM-duplicated section titles from rewritten text
+      const cleanedRewritten = stripLeadingSectionTitle(rewrite.rewritten, label);
+
       // Skills section: render with bold "Skills:" prefix
       if (rewrite.sectionId === "skills-section") {
         const skillsLabel = language === "es" ? "Habilidades:" : "Skills:";
         const boldWidth = fontBold.widthOfTextAtSize(sanitizeForPdf(skillsLabel), 10);
-        const skillsText = sanitizeForPdf(rewrite.rewritten);
+        const skillsText = sanitizeForPdf(cleanedRewritten);
         const firstLineWidth = contentWidth - boldWidth - 4;
 
         // Wrap skills text for the first line (after bold prefix) and subsequent lines
@@ -299,7 +324,7 @@ export async function generateUpdatedCvPdf(
         }
       } else {
         // General sections: wrapped paragraphs
-        const paragraphs = rewrite.rewritten.split("\n").filter(Boolean);
+        const paragraphs = cleanedRewritten.split("\n").filter(Boolean);
         for (const para of paragraphs) {
           const wrappedLines = wrapText(sanitizeForPdf(para), fontRegular, 10, contentWidth);
           for (const line of wrappedLines) {

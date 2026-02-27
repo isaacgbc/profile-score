@@ -238,7 +238,9 @@
     "coverLetterDesc": "Generate a compelling, personalized cover letter matched to your target position.",
     "selectedCount": "{count} feature(s) selected",
     "noSelection": "Select at least one feature to continue.",
-    "includedInPlan": "Included in {plan}"
+    "includedInPlan": "Included in {plan}",
+    "requiresLinkedin": "Add LinkedIn input to enable",
+    "requiresCv": "Upload CV to enable"
   },
   "pricing": {
     "title": "Choose Your Plan",
@@ -378,7 +380,15 @@
     "missingSectionCardDesc": "This section was not detected in your uploaded profile. Paste your content below and click regenerate to include it in your analysis.",
     "missingSectionCardPlaceholder": "Paste your content here...",
     "addAndRegenerate": "Add & Regenerate",
-    "placeholderLegend": "Items in [BRACKETS] need your input before final use"
+    "placeholderLegend": "Items in [BRACKETS] need your input before final use",
+    "truncationNotice": "This section was truncated due to size limits. Some content may not appear in the rewrite.",
+    "contactInfoDesc": "Add your contact details. Name is required for CV export.",
+    "contactInfoName": "Full Name",
+    "contactInfoEmail": "Email",
+    "contactInfoPhone": "Phone",
+    "contactInfoLinkedin": "LinkedIn URL",
+    "contactInfoLocation": "Location",
+    "contactInfoRequired": "Name is required"
   },
   "checkout": {
     "title": "Export Your Optimized Profile",

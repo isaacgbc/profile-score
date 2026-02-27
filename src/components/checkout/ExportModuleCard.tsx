@@ -34,10 +34,11 @@ interface ExportModuleCardProps {
   disabledReason?: string;
 }
 
-// Which modules support which formats — all PDF as of Export Sprint
+// Which modules support which formats
+// HOTFIX-4: Updated CV now supports PDF + DOCX
 const MODULE_FORMATS: Record<ExportModuleId, ExportFormat[]> = {
   "results-summary": ["pdf"],
-  "updated-cv": ["pdf"],
+  "updated-cv": ["pdf", "docx"],
   "full-audit": ["pdf"],
   "linkedin-updates": ["pdf"],
   "cover-letter": ["pdf"],

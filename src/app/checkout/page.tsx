@@ -266,7 +266,7 @@ export default function CheckoutPage() {
 
     // HOTFIX-3: Count missing critical sections
     const CRITICAL_LINKEDIN = new Set(["headline", "summary", "experience", "education"]);
-    const CRITICAL_CV = new Set(["work-experience", "education-section", "skills-section"]);
+    const CRITICAL_CV = new Set(["contact-info", "work-experience", "education-section", "skills-section"]);
     const presentLinkedin = new Set(results.linkedinRewrites.map((r) => r.sectionId));
     const presentCv = new Set(results.cvRewrites.map((r) => r.sectionId));
     let missingSections = 0;

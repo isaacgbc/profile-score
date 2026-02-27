@@ -131,13 +131,13 @@ export async function generateLinkedinUpdatesPdf(
         const entry = rewrite.entries[entryIndex];
         ensureSpace(100);
 
-        // Separator line between entries (not before first) — HOTFIX-3: stronger spacing
+        // Separator line between entries (not before first) — HOTFIX-3/4: visible separator
         if (entryIndex > 0) {
           y -= 4;
           page.drawLine({
             start: { x: margin + 10, y: y + 4 },
             end: { x: pageWidth - margin - 10, y: y + 4 },
-            thickness: 0.4,
+            thickness: 0.5,
             color: COLORS.border,
           });
           y -= 10;
@@ -163,7 +163,7 @@ export async function generateLinkedinUpdatesPdf(
             });
             y -= 15;
           }
-          // Company (italic via regular, smaller)
+          // Company (regular, smaller)
           const companyLines = wrapText(parsed[2].trim(), fontRegular, 10, contentWidth);
           for (const line of companyLines) {
             ensureSpace(50);
@@ -190,6 +190,24 @@ export async function generateLinkedinUpdatesPdf(
             });
             y -= 16;
           }
+        }
+
+        // HOTFIX-4: Extract date/location from original text first line
+        const originalFirstLine = entry.original.split("\n").find((l) => l.trim().length > 0)?.trim() ?? "";
+        const dateLocMatch = originalFirstLine.match(
+          /^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Ene|Abr|Ago|Dic)[a-z]*\.?\s+\d{4}|(?:19|20)\d{2})\s*[-–]\s*(?:Present|Actual|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Ene|Abr|Ago|Dic)[a-z]*\.?\s+\d{4}|(?:19|20)\d{2})(?:\s*[·|,]\s*.+)?$/i
+        );
+        if (dateLocMatch) {
+          ensureSpace(40);
+          const dateLocText = sanitizeForPdf(dateLocMatch[0]);
+          page.drawText(dateLocText, {
+            x: margin + 5,
+            y,
+            size: 9,
+            font: fontRegular,
+            color: COLORS.textMuted,
+          });
+          y -= 12;
         }
 
         y -= 4; // spacing between title block and content

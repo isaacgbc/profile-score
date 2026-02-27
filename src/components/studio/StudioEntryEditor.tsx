@@ -19,6 +19,8 @@ interface StudioEntryEditorProps {
   locked: boolean;
   /** Optional entry score context from v2 entry scoring */
   entryScore?: EntryScore;
+  /** HOTFIX-4: Force always-expanded (no collapsible header). Used for education sections. */
+  forceExpanded?: boolean;
 }
 
 export default function StudioEntryEditor({
@@ -29,9 +31,10 @@ export default function StudioEntryEditor({
   onResetEntry,
   locked,
   entryScore,
+  forceExpanded,
 }: StudioEntryEditorProps) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(forceExpanded ?? false);
 
   const stableId = computeEntryStableId(entry.entryTitle, entry.original);
   const stateKey = `${sectionId}:${stableId}`;
@@ -44,27 +47,41 @@ export default function StudioEntryEditor({
     (t.rewriteStudio as Record<string, string>).optimizedDraft ?? "Optimized Draft";
   const originalLabel = t.rewriteStudio.original;
 
-  return (
-    <div className="border border-[var(--border-light)] rounded-xl overflow-hidden">
-      {/* Collapsible header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[var(--surface-secondary)]/50 transition-colors"
-      >
-        <span className="text-sm font-medium text-[var(--text-primary)]">
-          {entry.entryTitle}
-        </span>
-        <span
-          className={`text-xs text-[var(--text-muted)] transition-transform ${
-            expanded ? "rotate-180" : ""
-          }`}
-        >
-          ▾
-        </span>
-      </button>
+  // HOTFIX-4: When forceExpanded, always show content (no toggle)
+  const isOpen = forceExpanded || expanded;
 
-      {/* Lazy-rendered content: only mounts when expanded */}
-      {expanded && (
+  return (
+    <div className={forceExpanded
+      ? "border-b border-[var(--border-light)] last:border-b-0 pb-4 mb-2"
+      : "border border-[var(--border-light)] rounded-xl overflow-hidden"
+    }>
+      {/* Header: collapsible for experience, static label for education */}
+      {forceExpanded ? (
+        <div className="px-1 py-2">
+          <span className="text-sm font-semibold text-[var(--text-primary)]">
+            {entry.entryTitle}
+          </span>
+        </div>
+      ) : (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[var(--surface-secondary)]/50 transition-colors"
+        >
+          <span className="text-sm font-medium text-[var(--text-primary)]">
+            {entry.entryTitle}
+          </span>
+          <span
+            className={`text-xs text-[var(--text-muted)] transition-transform ${
+              expanded ? "rotate-180" : ""
+            }`}
+          >
+            ▾
+          </span>
+        </button>
+      )}
+
+      {/* Content: always mounted when forceExpanded, lazy otherwise */}
+      {isOpen && (
         <div className="px-4 pb-4 space-y-3">
           {/* Original (read-only) */}
           <div className="bg-red-50/40 rounded-lg p-3">

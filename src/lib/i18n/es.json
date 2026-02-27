@@ -238,7 +238,9 @@
     "coverLetterDesc": "Genera una carta de presentación convincente y personalizada para tu puesto objetivo.",
     "selectedCount": "{count} función(es) seleccionada(s)",
     "noSelection": "Selecciona al menos una función para continuar.",
-    "includedInPlan": "Incluido en {plan}"
+    "includedInPlan": "Incluido en {plan}",
+    "requiresLinkedin": "Agrega LinkedIn para habilitar",
+    "requiresCv": "Sube un CV para habilitar"
   },
   "pricing": {
     "title": "Elige Tu Plan",
@@ -378,7 +380,15 @@
     "missingSectionCardDesc": "Esta sección no se detectó en tu perfil cargado. Pega tu contenido abajo y haz clic en regenerar para incluirla en tu análisis.",
     "missingSectionCardPlaceholder": "Pega tu contenido aquí...",
     "addAndRegenerate": "Agregar y Regenerar",
-    "placeholderLegend": "Los elementos entre [CORCHETES] necesitan tu información antes del uso final"
+    "placeholderLegend": "Los elementos entre [CORCHETES] necesitan tu información antes del uso final",
+    "truncationNotice": "Esta sección fue truncada por límites de tamaño. Parte del contenido puede no aparecer en la reescritura.",
+    "contactInfoDesc": "Agrega tus datos de contacto. El nombre es obligatorio para exportar el CV.",
+    "contactInfoName": "Nombre Completo",
+    "contactInfoEmail": "Correo Electrónico",
+    "contactInfoPhone": "Teléfono",
+    "contactInfoLinkedin": "URL de LinkedIn",
+    "contactInfoLocation": "Ubicación",
+    "contactInfoRequired": "El nombre es obligatorio"
   },
   "checkout": {
     "title": "Exporta Tu Perfil Optimizado",

@@ -32,10 +32,20 @@ export default function FeaturesPage() {
   const { selectedFeatures, toggleFeature, userInput, exportLocale, setExportLocale } = useApp();
   const router = useRouter();
 
-  // HOTFIX-3: Auto-suggest CV Rewrite when CV-only input
+  // HOTFIX-3 + HOTFIX-4: Smart feature recommendation based on input method
   useEffect(() => {
-    if (userInput.method === "cv" && !selectedFeatures.includes("cv-rewrite")) {
-      toggleFeature("cv-rewrite");
+    if (userInput.method === "cv") {
+      // Auto-select CV Rewrite, deselect LinkedIn Audit
+      if (!selectedFeatures.includes("cv-rewrite")) toggleFeature("cv-rewrite");
+      if (selectedFeatures.includes("linkedin-audit")) toggleFeature("linkedin-audit");
+    } else if (userInput.method === "linkedin") {
+      // Auto-select LinkedIn Audit, deselect CV Rewrite
+      if (!selectedFeatures.includes("linkedin-audit")) toggleFeature("linkedin-audit");
+      if (selectedFeatures.includes("cv-rewrite")) toggleFeature("cv-rewrite");
+    } else if (userInput.method === "both") {
+      // Ensure both are selected
+      if (!selectedFeatures.includes("linkedin-audit")) toggleFeature("linkedin-audit");
+      if (!selectedFeatures.includes("cv-rewrite")) toggleFeature("cv-rewrite");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -64,13 +74,21 @@ export default function FeaturesPage() {
             const isSelected = selectedFeatures.includes(feature.id);
             const Icon = featureIcons[feature.icon];
 
+            // HOTFIX-4: Deprioritize features that don't match the input method
+            const isDeprioritized =
+              (userInput.method === "cv" && feature.id === "linkedin-audit") ||
+              (userInput.method === "linkedin" && feature.id === "cv-rewrite");
+            const deprioritizedHint = feature.id === "linkedin-audit"
+              ? ((t.features as Record<string, string>).requiresLinkedin ?? "Add LinkedIn input to enable")
+              : ((t.features as Record<string, string>).requiresCv ?? "Upload CV to enable");
+
             return (
               <Card
                 key={feature.id}
                 variant={isSelected ? "highlighted" : "default"}
                 padding="md"
                 hoverable
-                className="animate-slide-up relative"
+                className={`animate-slide-up relative ${isDeprioritized ? "opacity-50" : ""}`}
                 style={{ animationDelay: `${idx * 60}ms` }}
                 onClick={() => toggleFeature(feature.id)}
               >
@@ -108,6 +126,10 @@ export default function FeaturesPage() {
                     <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-2">
                       {desc}
                     </p>
+                    {/* HOTFIX-4: Deprioritized hint */}
+                    {isDeprioritized && (
+                      <p className="text-xs text-amber-600 mb-1">{deprioritizedHint}</p>
+                    )}
                     {/* Plan inclusion badges */}
                     <div className="flex flex-wrap gap-1">
                       {feature.includedInPlans.map((planId) => {

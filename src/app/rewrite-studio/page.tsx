@@ -21,7 +21,7 @@ import type { SourceType, RewritePreview } from "@/lib/types";
 
 // HOTFIX-3: Critical sections that MUST be present for a complete analysis
 const CRITICAL_LINKEDIN = new Set(["headline", "summary", "experience", "education"]);
-const CRITICAL_CV = new Set(["personal-information", "work-experience", "education-section", "skills-section"]);
+const CRITICAL_CV = new Set(["contact-info", "personal-information", "work-experience", "education-section", "skills-section"]);
 
 // ── Canonical section display order ──
 const LINKEDIN_SECTION_ORDER = [

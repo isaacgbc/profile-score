@@ -147,7 +147,7 @@ export interface ProfileResult {
 
 // ─── Export Records ──────────────────────────────────
 export type ExportStatus = "queued" | "processing" | "ready" | "failed";
-export type ExportFormat = "pdf";
+export type ExportFormat = "pdf" | "docx";
 export type ExportLanguage = "en" | "es";
 
 export interface ExportRecord {

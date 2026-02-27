@@ -85,6 +85,8 @@ export default function StudioSectionEditor({
   const displayRewritten = sectionOptimized ?? userRewritten ?? rewrite.rewritten;
   const hasManualEdits = sectionOptimized !== undefined;
   const hasEntries = rewrite.entries && rewrite.entries.length > 0;
+  // HOTFIX-4: Education sections use unified workspace (non-collapsible entries)
+  const isEducation = rewrite.sectionId === "education" || rewrite.sectionId === "education-section";
 
   function handleRegenClick() {
     if (hasManualEdits) {
@@ -149,6 +151,16 @@ export default function StudioSectionEditor({
           </div>
         </div>
 
+        {/* HOTFIX-4: Truncation notice when section is near MAX_SECTION_CHARS limit */}
+        {rewrite.original.length >= 9500 && (
+          <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-xs text-amber-700">
+              {studioT.truncationNotice ?? "This section was truncated due to size limits. Some content may not appear in the rewrite."}
+              <span className="ml-1 text-amber-500 font-medium">({rewrite.original.length.toLocaleString()} chars)</span>
+            </p>
+          </div>
+        )}
+
         {/* Original (collapsible) */}
         {showOriginal && (
           <div className="mb-4 bg-red-50/40 border border-red-100 rounded-xl p-4">
@@ -186,6 +198,7 @@ export default function StudioSectionEditor({
                   onOptimizedChange={onOptimizedChange}
                   onResetEntry={onResetEntry}
                   locked={locked}
+                  forceExpanded={isEducation}
                   entryScore={matchingScore}
                 />
               );

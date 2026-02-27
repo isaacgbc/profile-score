@@ -4,6 +4,7 @@ import { generateUpdatedCvPdf } from "./pdf/updated-cv";
 import { generateFullAuditPdf } from "./pdf/full-audit";
 import { generateLinkedinUpdatesPdf } from "./pdf/linkedin-updates";
 import { generateCoverLetterPdf } from "./pdf/cover-letter";
+import { generateUpdatedCvDocx } from "./docx/updated-cv-docx";
 import { callLLM, LLM_MODEL_FAST } from "./llm-client";
 import { getActivePromptWithVersion, interpolatePrompt } from "./prompt-resolver";
 import { extractJson } from "@/lib/schemas/llm-output";
@@ -150,7 +151,15 @@ export async function generateExport(
     }
 
     case "updated-cv": {
-      if (format !== "pdf") throw new Error("Updated CV only supports PDF format");
+      if (format === "docx") {
+        const bytes = await generateUpdatedCvDocx(polishedResults, language);
+        return {
+          bytes,
+          contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          ext: "docx",
+        };
+      }
+      if (format !== "pdf") throw new Error("Updated CV only supports PDF and DOCX formats");
       const bytes = await generateUpdatedCvPdf(polishedResults, language);
       return { bytes, contentType: "application/pdf", ext: "pdf" };
     }

@@ -290,8 +290,16 @@ export interface GenerationResult {
 // ── Privacy: max input length per section ───────────────
 const MAX_SECTION_CHARS = 10_000;
 
-function truncate(text: string, max: number = MAX_SECTION_CHARS): string {
-  return text.length > max ? text.slice(0, max) + "…" : text;
+// HOTFIX-4: Truncation tracking for diagnostics
+interface TruncationEntry { sectionId: string; originalChars: number; keptChars: number }
+let _truncationLog: TruncationEntry[] = [];
+
+function truncate(text: string, max: number = MAX_SECTION_CHARS, sectionId?: string): string {
+  if (text.length > max) {
+    if (sectionId) _truncationLog.push({ sectionId, originalChars: text.length, keptChars: max });
+    return text.slice(0, max) + "…";
+  }
+  return text;
 }
 
 // ── Determine target role from input ────────────────────
@@ -363,7 +371,7 @@ async function scoreSection(
 
   const systemPrompt = interpolatePrompt(prompt.content, {
     section_name: SECTION_DISPLAY_NAMES[sectionId] ?? sectionId,
-    section_content: truncate(sectionContent),
+    section_content: truncate(sectionContent, MAX_SECTION_CHARS, sectionId),
     target_role: targetRole,
     objective_mode_label: framing.objective_mode_label,
     objective_framing: framing.objective_framing,
@@ -685,7 +693,7 @@ async function rewriteSection(
 
   const systemPrompt = interpolatePrompt(prompt.content, {
     section_name: SECTION_DISPLAY_NAMES[sectionId] ?? sectionId,
-    original_content: truncate(originalContent),
+    original_content: truncate(originalContent, MAX_SECTION_CHARS, sectionId),
     target_role: targetRole,
     job_objective: jobObjective,
     objective_mode_label: framing.objective_mode_label,
@@ -871,7 +879,7 @@ async function rewriteSectionWithEntries(
 
   const systemPrompt = interpolatePrompt(prompt.content, {
     section_name: SECTION_DISPLAY_NAMES[sectionId] ?? sectionId,
-    original_content: truncate(fullSectionContent),
+    original_content: truncate(fullSectionContent, MAX_SECTION_CHARS, sectionId),
     entries_json: entriesJson,
     entry_count: String(cappedEntries.length),
     target_role: targetRole,
@@ -1285,6 +1293,8 @@ export async function generateAuditResults(
   const startTime = Date.now();
   const promptVersions: Record<string, number> = {};
   const failureReasons: FailureReason[] = [];
+  // HOTFIX-4: Reset truncation tracking
+  _truncationLog = [];
   let fallbackCount = 0;
   let mockLeaksDetected = 0;
   let primaryModel = LLM_MODEL_FAST;
@@ -1509,14 +1519,34 @@ export async function generateAuditResults(
     `lang=${langResult.language} (conf=${langResult.confidence.toFixed(2)})`
   );
 
-  // HOTFIX-3: Enhanced parse-stage diagnostics
+  // HOTFIX-3 + HOTFIX-4: Enhanced parse-stage diagnostics
   {
     const linkedinChars = Object.values(linkedinSections).reduce((sum, s) => sum + s.length, 0);
     const cvChars = Object.values(cvSections).reduce((sum, s) => sum + s.length, 0);
+
+    // HOTFIX-4: Skills count (split by newlines/commas for rough item count)
+    const skillsText = linkedinSections["skills"] ?? "";
+    const parsedSkillsCount = skillsText ? skillsText.split(/[\n,;·•]+/).filter((s) => s.trim().length > 1).length : 0;
+
+    // HOTFIX-4: Identify dropped sections (present in SECTION_IDS but empty after parsing)
+    const droppedLinkedin = hasLinkedinInput
+      ? LINKEDIN_SECTION_IDS.filter((id) => !linkedinSections[id] && input.linkedinText.toLowerCase().includes(id))
+      : [];
+    const droppedCv = hasCvInput
+      ? CV_SECTION_IDS.filter((id) => !cvSections[id] && (input.cvText ?? "").toLowerCase().includes(id.replace("-section", "").replace("-info", "")))
+      : [];
+    const droppedSections = [...droppedLinkedin.map((id) => `linkedin.${id}`), ...droppedCv.map((id) => `cv.${id}`)];
+
+    // HOTFIX-4: Truncation summary
+    const truncationApplied = _truncationLog.length > 0;
+    const truncatedChars = _truncationLog.reduce((sum, t) => sum + (t.originalChars - t.keptChars), 0);
+
     console.log(
       `[diag] request=${requestId} | PARSE_DETAIL: ` +
-      `linkedin: extractedChars=${input.linkedinText.trim().length}, parsedChars=${linkedinChars}, sectionsKept=${parsedLinkedinIds.length} | ` +
-      `cv: extractedChars=${(input.cvText ?? "").trim().length}, parsedChars=${cvChars}, sectionsKept=${parsedCvIds.length}`
+      `linkedin: extractedChars=${input.linkedinText.trim().length}, parsedChars=${linkedinChars}, sectionsKept=${parsedLinkedinIds.length}, parsedSkillsCount=${parsedSkillsCount} | ` +
+      `cv: extractedChars=${(input.cvText ?? "").trim().length}, parsedChars=${cvChars}, sectionsKept=${parsedCvIds.length} | ` +
+      `droppedSections=[${droppedSections.join(",")}] | ` +
+      `truncationApplied=${truncationApplied}, truncatedChars=${truncatedChars}`
     );
     // Log per-section char counts for debugging content loss
     for (const [id, content] of Object.entries(linkedinSections)) {
@@ -1528,6 +1558,12 @@ export async function generateAuditResults(
       const entryCount = (id === "work-experience" || id === "education-section")
         ? parseEntriesFromSection(id, content).entries.length : 0;
       console.log(`[diag] request=${requestId} | SECTION cv.${id}: ${content.length}chars, entries=${entryCount}`);
+    }
+    // HOTFIX-4: Per-section truncation detail
+    if (truncationApplied) {
+      for (const t of _truncationLog) {
+        console.log(`[diag] request=${requestId} | TRUNCATION: ${t.sectionId}: ${t.originalChars} → ${t.keptChars} (dropped ${t.originalChars - t.keptChars})`);
+      }
     }
   }
 
