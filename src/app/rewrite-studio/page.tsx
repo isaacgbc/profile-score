@@ -298,6 +298,11 @@ export default function RewriteStudioPage() {
   const coreSections = rewrites.filter((r) => coreSet.has(r.sectionId));
   const otherSections = rewrites.filter((r) => !coreSet.has(r.sectionId));
 
+  // HOTFIX-2: Compute missing sections (expected but not present in results)
+  const expectedOrder = activeSource === "linkedin" ? LINKEDIN_SECTION_ORDER : CV_SECTION_ORDER;
+  const presentIds = new Set(rewrites.map((r) => r.sectionId));
+  const missingSectionIds = expectedOrder.filter((id) => !presentIds.has(id));
+
   const hasLinkedin = results.linkedinRewrites.length > 0;
   const hasCv = results.cvRewrites.length > 0;
   const sectionLabels = t.sectionLabels as Record<string, string>;
@@ -478,6 +483,25 @@ export default function RewriteStudioPage() {
                       );
                     })}
                   </>
+                )}
+
+                {/* HOTFIX-2: Missing sections notice */}
+                {missingSectionIds.length > 0 && (
+                  <Card variant="default" padding="md" className="mt-4 bg-amber-50/40 border-amber-200">
+                    <p className="text-xs font-semibold text-amber-700 mb-2">
+                      {(t.rewriteStudio as Record<string, string>).missingSectionsTitle ?? "Sections not found in source"}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {missingSectionIds.map((id) => (
+                        <span key={id} className="inline-block px-2 py-0.5 text-[10px] bg-amber-100 text-amber-700 rounded-full">
+                          {getSectionLabel(id, sectionLabels)}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-amber-600">
+                      {(t.rewriteStudio as Record<string, string>).missingSectionsDesc ?? "These sections were not detected in your uploaded profile. Add them to your source for a complete analysis."}
+                    </p>
+                  </Card>
                 )}
               </div>
             ) : (

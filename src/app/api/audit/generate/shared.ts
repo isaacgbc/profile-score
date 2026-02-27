@@ -44,6 +44,8 @@ export const GenerateAuditInput = z.object({
   planId: z.string().max(50).nullable().default(null),
   isAdmin: z.boolean().default(false),
   locale: z.enum(["en", "es"]).default("en"),
+  /** HOTFIX-2: App UI locale for scoring comments (separate from export locale) */
+  appLocale: z.enum(["en", "es"]).default("en"),
   forceFresh: z.boolean().default(false),
   isPdfSource: z.boolean().default(false),
   /** Sprint 2.2: Client-generated requestId for poll-based progress tracking */
@@ -57,9 +59,20 @@ function getClientIp(request: Request): string {
   return forwarded?.split(",")[0]?.trim() ?? "unknown";
 }
 
+/** HOTFIX-2: Maximum processable characters per source (server-side truncation) */
+const MAX_PROCESSABLE_CHARS = 15_000;
+
+export interface ProcessedChars {
+  linkedin: number;
+  cv: number;
+  linkedinOrig: number;
+  cvOrig: number;
+}
+
 export interface ValidatedInput {
   parsed: GenerateAuditInputType;
   effectiveIsAdmin: boolean;
+  processedChars: ProcessedChars;
 }
 
 /**
@@ -188,5 +201,22 @@ export async function validateAndPrepareInput(
     }
   }
 
-  return { parsed, effectiveIsAdmin };
+  // HOTFIX-2: Deterministic server-side truncation + processedChars echo
+  const linkedinOrig = parsed.linkedinText.length;
+  const cvOrig = (parsed.cvText ?? "").length;
+  if (parsed.linkedinText.length > MAX_PROCESSABLE_CHARS) {
+    parsed.linkedinText = parsed.linkedinText.slice(0, MAX_PROCESSABLE_CHARS);
+  }
+  if (parsed.cvText && parsed.cvText.length > MAX_PROCESSABLE_CHARS) {
+    parsed.cvText = parsed.cvText.slice(0, MAX_PROCESSABLE_CHARS);
+  }
+
+  const processedChars: ProcessedChars = {
+    linkedin: parsed.linkedinText.length,
+    cv: (parsed.cvText ?? "").length,
+    linkedinOrig,
+    cvOrig,
+  };
+
+  return { parsed, effectiveIsAdmin, processedChars };
 }

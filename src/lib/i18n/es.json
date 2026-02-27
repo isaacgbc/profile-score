@@ -221,7 +221,9 @@
     "audienceHelp": "¿A quién quieres impresionar? Optimizamos para esa audiencia.",
     "validation": "Por favor añade tu perfil de LinkedIn o sube un CV para continuar.",
     "exportLangLabel": "Idioma de exportación",
-    "exportLangHelp": "Tus resultados y reescrituras se generarán en este idioma."
+    "exportLangHelp": "Tus resultados y reescrituras se generarán en este idioma.",
+    "charsOverLimit": "caracteres sobre el límite",
+    "charsProcessed": "Solo los primeros {max} caracteres serán procesados"
   },
   "features": {
     "title": "Elige Tus Funciones",
@@ -369,7 +371,9 @@
     "regenerateConfirm": "Esto reemplazará tu borrador actual.",
     "regenerateFromDirections": "Desde instrucciones",
     "regenerateFromDraft": "Usando borrador actual",
-    "othersLabel": "Otros"
+    "othersLabel": "Otros",
+    "missingSectionsTitle": "Secciones no encontradas en la fuente",
+    "missingSectionsDesc": "Estas secciones no se detectaron en tu perfil cargado. Agrégalas a tu fuente para un análisis completo."
   },
   "checkout": {
     "title": "Exporta Tu Perfil Optimizado",
@@ -417,7 +421,15 @@
     "exportFailed": "Error",
     "exportRetry": "Reintentar",
     "exportDownload": "Descargar",
-    "exportGenerating": "Generando..."
+    "exportGenerating": "Generando...",
+    "sectionsImproved": "Secciones Mejoradas",
+    "customEdits": "Ediciones Personalizadas",
+    "entriesRewritten": "Entradas Reescritas",
+    "placeholdersLeft": "Marcadores Pendientes",
+    "placeholderHint": "Completa los marcadores [ENTRE CORCHETES] en el Estudio de Reescritura antes de exportar",
+    "uploadCvToUnlock": "Sube tu CV para desbloquear",
+    "addLinkedinToUnlock": "Agrega tu perfil de LinkedIn para desbloquear",
+    "selectFeatureToUnlock": "Selecciona la función correspondiente en el Paso 2 para habilitar"
   },
   "progress": {
     "analyzing": "Analizando tu perfil",

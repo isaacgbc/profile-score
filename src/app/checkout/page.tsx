@@ -25,9 +25,10 @@ import {
 } from "@/components/ui/Icons";
 import { mockPlans } from "@/lib/mock/plans";
 import { mockExportModules } from "@/lib/mock/export-modules";
-import type { PlanId, ExportModuleId, ExportFormat } from "@/lib/types";
-import { useEffect } from "react";
+import type { PlanId, ExportModuleId, ExportFormat, FeatureId } from "@/lib/types";
+import { useEffect, useMemo } from "react";
 import { trackEvent, hasTrackedThisSession, markTrackedThisSession } from "@/lib/analytics/tracker";
+import { countPlaceholders } from "@/lib/utils/placeholder-detect";
 
 const planNameKeys: Record<PlanId, string> = {
   starter: "starterName",
@@ -87,6 +88,9 @@ export default function CheckoutPage() {
     userImprovements,
     userRewritten,
     userOptimized,
+    userInput,
+    selectedFeatures,
+    results,
   } = useApp();
 
   const { getModuleState, createExport, downloadExport, retryExport } = useExport();
@@ -209,6 +213,58 @@ export default function CheckoutPage() {
     return null;
   }
 
+  // ── HOTFIX-2: Feature + input-aware export filtering ──
+  const FEATURE_MODULE_MAP: Record<FeatureId, ExportModuleId[]> = {
+    "linkedin-audit": ["results-summary", "full-audit", "linkedin-updates"],
+    "cv-rewrite": ["updated-cv"],
+    "job-optimization": [],
+    "cover-letter": ["cover-letter"],
+  };
+
+  const featureEnabledModules = useMemo(() => {
+    const set = new Set<ExportModuleId>(["results-summary"]); // always relevant
+    for (const f of selectedFeatures) {
+      for (const m of FEATURE_MODULE_MAP[f] ?? []) {
+        set.add(m);
+      }
+    }
+    return set;
+  }, [selectedFeatures]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const inputMethod = userInput.method;
+  const isModuleRelevant = (id: ExportModuleId): boolean => {
+    if (!featureEnabledModules.has(id)) return false;
+    if (inputMethod === "linkedin" && id === "updated-cv") return false;
+    if (inputMethod === "cv" && id === "linkedin-updates") return false;
+    return true;
+  };
+
+  const relevantModules = mockExportModules.filter((m) => isModuleRelevant(m.id));
+  const irrelevantModules = mockExportModules.filter((m) => !isModuleRelevant(m.id));
+
+  // ── HOTFIX-2: Value summary stats ──
+  const valueSummary = useMemo(() => {
+    if (!results) return null;
+    const allRewrites = [...results.linkedinRewrites, ...results.cvRewrites];
+    const totalSections = allRewrites.filter((r) => !r.locked).length;
+    const editedSections = Object.keys(userOptimized).filter((k) => !k.includes(":")).length;
+    const editedEntries = Object.keys(userOptimized).filter((k) => k.includes(":")).length;
+    let placeholderCount = 0;
+    for (const rw of allRewrites) {
+      if (rw.locked) continue;
+      const text = userOptimized[rw.sectionId] ?? rw.rewritten;
+      placeholderCount += countPlaceholders(text);
+      if (rw.entries) {
+        for (const entry of rw.entries) {
+          const entryKey = `${rw.sectionId}:${entry.entryIndex}`;
+          const entryText = userOptimized[entryKey] ?? entry.rewritten;
+          placeholderCount += countPlaceholders(entryText);
+        }
+      }
+    }
+    return { totalSections, editedSections, editedEntries, placeholderCount };
+  }, [results, userOptimized]);
+
   return (
     <div className="animate-fade-in">
       <StepIndicator currentStep="checkout" />
@@ -260,13 +316,54 @@ export default function CheckoutPage() {
           )}
         </div>
 
+        {/* ─── HOTFIX-2: Value Summary Card ─── */}
+        {valueSummary && (
+          <section className="mb-6">
+            <Card variant="default" padding="md" className="bg-emerald-50/40 border-emerald-200">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                <div>
+                  <p className="text-xl font-bold text-emerald-600">{valueSummary.totalSections}</p>
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+                    {(t.checkout as Record<string, string>).sectionsImproved ?? "Sections Improved"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-emerald-600">{valueSummary.editedSections}</p>
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+                    {(t.checkout as Record<string, string>).customEdits ?? "Custom Edits"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-emerald-600">{valueSummary.editedEntries}</p>
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+                    {(t.checkout as Record<string, string>).entriesRewritten ?? "Entries Rewritten"}
+                  </p>
+                </div>
+                <div>
+                  <p className={`text-xl font-bold ${valueSummary.placeholderCount > 0 ? "text-amber-500" : "text-emerald-600"}`}>
+                    {valueSummary.placeholderCount}
+                  </p>
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+                    {(t.checkout as Record<string, string>).placeholdersLeft ?? "Placeholders Left"}
+                  </p>
+                </div>
+              </div>
+              {valueSummary.placeholderCount > 0 && (
+                <p className="text-[10px] text-amber-600 text-center mt-3">
+                  {(t.checkout as Record<string, string>).placeholderHint ?? "Fill in [BRACKET] placeholders in Rewrite Studio before exporting for best results"}
+                </p>
+              )}
+            </Card>
+          </section>
+        )}
+
         {/* ─── Export Modules ─── */}
         <section className="mb-8">
           <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-4">
             {t.checkout.exportModulesTitle}
           </h2>
           <div className="space-y-3">
-            {mockExportModules.map((mod, idx) => {
+            {relevantModules.map((mod, idx) => {
               const unlocked = isExportModuleUnlocked(mod.id);
               const keys = moduleTranslationKeys[mod.id];
               const name = (t.checkout as Record<string, string>)[keys.name];
@@ -294,6 +391,33 @@ export default function CheckoutPage() {
               );
             })}
           </div>
+
+          {/* HOTFIX-2: Irrelevant modules (dimmed with contextual hint) */}
+          {irrelevantModules.length > 0 && (
+            <div className="mt-4 opacity-50">
+              <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                Not available for your current selection
+              </p>
+              {irrelevantModules.map((mod) => {
+                const keys = moduleTranslationKeys[mod.id];
+                const name = (t.checkout as Record<string, string>)[keys.name];
+                const hint = !featureEnabledModules.has(mod.id)
+                  ? (t.checkout as Record<string, string>).selectFeatureToUnlock ?? "Select the relevant feature in Step 2 to enable"
+                  : mod.id === "updated-cv"
+                    ? (t.checkout as Record<string, string>).uploadCvToUnlock ?? "Upload your CV to unlock"
+                    : (t.checkout as Record<string, string>).addLinkedinToUnlock ?? "Add your LinkedIn profile to unlock";
+                return (
+                  <div key={mod.id} className="flex items-center gap-3 py-2 px-3 bg-[var(--surface-secondary)] rounded-lg mb-1.5">
+                    <div className="text-[var(--text-muted)]">{moduleIcons[mod.id]}</div>
+                    <div>
+                      <p className="text-xs font-medium text-[var(--text-muted)]">{name}</p>
+                      <p className="text-[10px] text-[var(--text-muted)]">{hint}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* ─── What You Unlock Next (upsell) ─── */}

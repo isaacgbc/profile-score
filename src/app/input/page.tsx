@@ -21,6 +21,9 @@ import {
 import type { Locale } from "@/lib/types";
 import { trackEvent } from "@/lib/analytics/tracker";
 
+/** HOTFIX-2: Maximum processable characters per source (matches server-side truncation) */
+const MAX_PROCESSABLE_CHARS = 15_000;
+
 export default function InputPage() {
   const { t } = useI18n();
   const { userInput, setUserInput, exportLocale, setExportLocale } = useApp();
@@ -326,6 +329,20 @@ export default function InputPage() {
                 aria-label="LinkedIn profile text"
               />
 
+              {/* HOTFIX-2: Char counter + over-limit warning */}
+              {userInput.linkedinText.length > 20 && (
+                <div className="flex items-center justify-between mt-1">
+                  <span className={`text-[10px] ${userInput.linkedinText.length > MAX_PROCESSABLE_CHARS ? "text-amber-600 font-medium" : "text-[var(--text-muted)]"}`}>
+                    {userInput.linkedinText.length.toLocaleString()} / {MAX_PROCESSABLE_CHARS.toLocaleString()} chars
+                  </span>
+                  {userInput.linkedinText.length > MAX_PROCESSABLE_CHARS && (
+                    <span className="text-[10px] text-amber-600">
+                      {t.input?.charsProcessed?.replace("{max}", MAX_PROCESSABLE_CHARS.toLocaleString()) ?? `Only the first ${MAX_PROCESSABLE_CHARS.toLocaleString()} characters will be processed`}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Extracted text preview */}
               {hasLinkedin && linkedinPdfName && (
                 <p className="text-xs text-[var(--text-muted)] mt-1 truncate">
@@ -465,6 +482,20 @@ export default function InputPage() {
                 className="w-full px-3 py-2.5 text-sm text-[var(--text-primary)] bg-[var(--surface-secondary)] border border-[var(--border-light)] rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent placeholder:text-[var(--text-muted)] leading-relaxed transition-shadow"
                 aria-label="CV text"
               />
+
+              {/* HOTFIX-2: Char counter + over-limit warning */}
+              {userInput.cvText.length > 20 && (
+                <div className="flex items-center justify-between mt-1">
+                  <span className={`text-[10px] ${userInput.cvText.length > MAX_PROCESSABLE_CHARS ? "text-amber-600 font-medium" : "text-[var(--text-muted)]"}`}>
+                    {userInput.cvText.length.toLocaleString()} / {MAX_PROCESSABLE_CHARS.toLocaleString()} chars
+                  </span>
+                  {userInput.cvText.length > MAX_PROCESSABLE_CHARS && (
+                    <span className="text-[10px] text-amber-600">
+                      {t.input?.charsProcessed?.replace("{max}", MAX_PROCESSABLE_CHARS.toLocaleString()) ?? `Only the first ${MAX_PROCESSABLE_CHARS.toLocaleString()} characters will be processed`}
+                    </span>
+                  )}
+                </div>
+              )}
             </Card>
           </div>
 

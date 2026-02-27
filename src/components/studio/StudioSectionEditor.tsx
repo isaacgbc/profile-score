@@ -7,6 +7,7 @@ import Button from "@/components/ui/Button";
 import { getSectionLabel } from "@/lib/section-labels";
 import { LockIcon, SparklesIcon } from "@/components/ui/Icons";
 import StudioEntryEditor, { computeEntryStableId } from "./StudioEntryEditor";
+import { hasPlaceholders } from "@/lib/utils/placeholder-detect";
 import type { RewritePreview, EntryScore, RewriteEntry } from "@/lib/types";
 
 interface StudioSectionEditorProps {
@@ -204,6 +205,13 @@ export default function StudioSectionEditor({
               className="w-full min-h-[120px] text-sm text-[var(--text-primary)] bg-white/60 border border-emerald-100 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300/50 leading-relaxed"
               style={{ fieldSizing: "content" } as React.CSSProperties}
             />
+            {/* HOTFIX-2: Placeholder legend */}
+            {hasPlaceholders(displayRewritten) && (
+              <p className="mt-1.5 text-[10px] text-amber-600 flex items-center gap-1">
+                <span className="inline-block w-3.5 h-3.5 rounded bg-amber-100 border border-amber-300 text-center text-[8px] font-bold leading-[14px]">!</span>
+                Items in [BRACKETS] need your input before final use
+              </p>
+            )}
           </div>
         )}
 

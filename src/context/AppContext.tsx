@@ -24,6 +24,7 @@ import type {
 import { emptyUserInput } from "@/lib/mock/profile-data";
 import { mockPlans } from "@/lib/mock/plans";
 import { featureFlags } from "@/lib/feature-flags";
+import { useI18n } from "@/context/I18nContext";
 import { trackEvent } from "@/lib/analytics/tracker";
 import {
   getUnlockedLinkedinIds,
@@ -97,6 +98,9 @@ interface AppContextValue extends AppState {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  // HOTFIX-2: App UI locale from I18nContext (for scoring comments in UI language)
+  const { locale } = useI18n();
+
   // ── Auth state ──
   const [authUser, setAuthUser] = useState<AppUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -650,6 +654,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       planId: selectedPlan,
       isAdmin,
       locale: exportLocale,
+      /** HOTFIX-2: App UI locale for scoring comments (separate from export locale) */
+      appLocale: locale,
       forceFresh: options?.forceFresh ?? false,
       isPdfSource: !!(userInput.linkedinText && !userInput.linkedinUrl),
     };

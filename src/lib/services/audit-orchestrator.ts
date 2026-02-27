@@ -37,7 +37,7 @@ import {
   MAX_CHARS_PER_ENTRY,
 } from "./linkedin-parser";
 import type { ParsedEntry } from "./linkedin-parser";
-import { detectProfileLanguage } from "@/lib/utils/language-detect";
+import { detectProfileLanguage, isOutputInTargetLocale } from "@/lib/utils/language-detect";
 import {
   hasRepetitiveEntryContent,
   detectHallucinatedMetrics,
@@ -80,6 +80,7 @@ export type FailureReason =
   | "generic_output_retry"
   | "normalized_suggestions"
   | "retry_too_big_success"
+  | "lang_drift_retry"
   | "unknown";
 
 // ── PR2C: Per-section failure reason taxonomy ──
@@ -710,10 +711,15 @@ async function rewriteSection(
     totalAttempts = attempt + 1;
 
     try {
+      // HOTFIX-2: Explicit language instruction for non-English locales
+      const langInstruction = locale !== "en"
+        ? " ALL output text (original, improvements, missingSuggestions, rewritten) MUST be in Spanish."
+        : "";
+
       const userMessage =
         attempt === 0
-          ? "Rewrite this section. Respond in JSON format with keys: original, improvements, missingSuggestions, rewritten."
-          : "Your previous response was not valid JSON. Please respond with ONLY a valid JSON object with keys: original, improvements, missingSuggestions, rewritten.";
+          ? `Rewrite this section. Respond in JSON format with keys: original, improvements, missingSuggestions, rewritten.${langInstruction}`
+          : `Your previous response was not valid JSON. Please respond with ONLY a valid JSON object with keys: original, improvements, missingSuggestions, rewritten.${langInstruction}`;
 
       const result = await callLLM({
         model: LLM_MODEL_QUALITY,
@@ -766,6 +772,16 @@ async function rewriteSection(
           lastErrorClass = "guard";
           lastSectionReason = "guard_rejected";
           retryAttemptsByReason["guard_rejected"] = (retryAttemptsByReason["guard_rejected"] || 0) + 1;
+          continue;
+        }
+
+        // HOTFIX-2: Language drift detection — retry if rewrite is in wrong language
+        if (locale !== "en" && attempt === 0 && !isOutputInTargetLocale(rewrite.rewritten, locale)) {
+          console.warn(
+            `[lang-guard] Language drift in rewrite ${sectionId} (attempt ${attempt + 1}), retrying`
+          );
+          failureReasons.push("lang_drift_retry");
+          retryAttemptsByReason["lang_drift"] = (retryAttemptsByReason["lang_drift"] || 0) + 1;
           continue;
         }
 
@@ -867,10 +883,15 @@ async function rewriteSectionWithEntries(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      // HOTFIX-2: Explicit language instruction for non-English locales
+      const langInstruction = locale !== "en"
+        ? " ALL output text (original, improvements, missingSuggestions, rewritten, and all entry fields) MUST be in Spanish."
+        : "";
+
       const userMessage =
         attempt === 0
-          ? `Rewrite this ${SECTION_DISPLAY_NAMES[sectionId] ?? sectionId} section. Provide BOTH a section-level summary AND per-entry rewrites. Respond in JSON with keys: original, improvements, missingSuggestions, rewritten, entries (array of {entryTitle, original, improvements, missingSuggestions, rewritten}).`
-          : "Your previous response was not valid JSON. Please respond with ONLY valid JSON.";
+          ? `Rewrite this ${SECTION_DISPLAY_NAMES[sectionId] ?? sectionId} section. Provide BOTH a section-level summary AND per-entry rewrites. Respond in JSON with keys: original, improvements, missingSuggestions, rewritten, entries (array of {entryTitle, original, improvements, missingSuggestions, rewritten}).${langInstruction}`
+          : `Your previous response was not valid JSON. Please respond with ONLY valid JSON.${langInstruction}`;
 
       const result = await callLLM({
         model: LLM_MODEL_QUALITY,
@@ -921,6 +942,15 @@ async function rewriteSectionWithEntries(
             `[guard] Mock fingerprint in entry rewrite ${sectionId} (attempt ${attempt + 1}), retrying`
           );
           failureReasons.push("mock_fingerprint_retry");
+          continue;
+        }
+
+        // HOTFIX-2: Language drift detection — retry if rewrite is in wrong language
+        if (locale !== "en" && attempt === 0 && !isOutputInTargetLocale(rewrite.rewritten, locale)) {
+          console.warn(
+            `[lang-guard] Language drift in entry rewrite ${sectionId} (attempt ${attempt + 1}), retrying`
+          );
+          failureReasons.push("lang_drift_retry");
           continue;
         }
 
@@ -1220,6 +1250,7 @@ function parseCvSections(cvText: string): Record<string, string> {
 export async function generateAuditResults(
   input: AuditInput,
   locale: Locale = "en",
+  appLocale: Locale = "en",
   onProgress?: ProgressCallback
 ): Promise<GenerationResult> {
   const requestId = crypto.randomUUID().slice(0, 8);
@@ -1282,6 +1313,11 @@ export async function generateAuditResults(
     `objective=${input.objectiveMode} | ` +
     `plan=${input.planId} | ` +
     `forceFresh=${input.forceFresh ?? false}`
+  );
+  console.log(
+    `[diag] request=${requestId} | ` +
+    `auditModel=${LLM_MODEL_FAST} | rewriteModel=${LLM_MODEL_QUALITY} | ` +
+    `locale=${locale} | appLocale=${appLocale}`
   );
 
   // P0-3: Verify LLM env vars are set (detect trailing newline issues)
@@ -1465,6 +1501,7 @@ export async function generateAuditResults(
 
   // ─── 2. Score LinkedIn sections (parallel) ────────────
   // Sprint 2: Only score sections that have actual content (skip empty/missing)
+  // HOTFIX-2: scoreSection uses appLocale so scoring comments are in the app UI language
   const linkedinScorePromises = linkedinSectionIds.map(
     (id) => {
       llmCallCount++;
@@ -1474,7 +1511,7 @@ export async function generateAuditResults(
         "audit.linkedin.system",
         targetRole,
         framing,
-        locale,
+        appLocale,
         promptVersions,
         failureReasons,
         sectionDiagnostics,
@@ -1485,6 +1522,7 @@ export async function generateAuditResults(
 
   // ─── 3. Score CV sections (parallel) ──────────────────
   // Sprint 2: Only score sections that have actual content
+  // HOTFIX-2: scoreSection uses appLocale so scoring comments are in the app UI language
   const cvScorePromises = cvSectionIds.map(
     (id) => {
       llmCallCount++;
@@ -1494,7 +1532,7 @@ export async function generateAuditResults(
         "audit.cv.system",
         targetRole,
         framing,
-        locale,
+        appLocale,
         promptVersions,
         failureReasons,
         sectionDiagnostics,

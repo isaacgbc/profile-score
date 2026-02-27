@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useI18n } from "@/context/I18nContext";
 import type { RewriteEntry, EntryScore } from "@/lib/types";
 import { computeEntryStableId } from "@/lib/utils/entry-id";
+import { hasPlaceholders } from "@/lib/utils/placeholder-detect";
 
 // Re-export for backward compatibility
 export { computeEntryStableId };
@@ -102,6 +103,13 @@ export default function StudioEntryEditor({
                 className="w-full min-h-[80px] text-sm text-[var(--text-primary)] bg-white/60 border border-emerald-100 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300/50 leading-relaxed"
                 style={{ fieldSizing: "content" } as React.CSSProperties}
               />
+              {/* HOTFIX-2: Placeholder legend */}
+              {hasPlaceholders(displayText) && (
+                <p className="mt-1 text-[10px] text-amber-600 flex items-center gap-1">
+                  <span className="inline-block w-3.5 h-3.5 rounded bg-amber-100 border border-amber-300 text-center text-[8px] font-bold leading-[14px]">!</span>
+                  Items in [BRACKETS] need your input before final use
+                </p>
+              )}
               {hasEdits && (
                 <button
                   onClick={() => onResetEntry(sectionId, stableId)}

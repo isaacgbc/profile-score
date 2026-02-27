@@ -52,8 +52,9 @@ export async function POST(request: Request) {
             isPdfSource: parsed.isPdfSource,
           },
           parsed.locale as Locale,
+          (parsed.appLocale as Locale) ?? (parsed.locale as Locale),
           // Progress callback → SSE events (flushed immediately via writer.write)
-          (progress) => {
+          (progress: unknown) => {
             send("progress", progress);
           }
         );

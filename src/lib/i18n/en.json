@@ -221,7 +221,9 @@
     "audienceHelp": "Who do you want to impress? We optimize for that audience.",
     "validation": "Please add your LinkedIn profile or upload a CV to continue.",
     "exportLangLabel": "Export language",
-    "exportLangHelp": "Your results and rewrites will be generated in this language."
+    "exportLangHelp": "Your results and rewrites will be generated in this language.",
+    "charsOverLimit": "chars over limit",
+    "charsProcessed": "Only the first {max} characters will be processed"
   },
   "features": {
     "title": "Choose Your Features",
@@ -369,7 +371,9 @@
     "regenerateConfirm": "This will replace your current draft.",
     "regenerateFromDirections": "From directions",
     "regenerateFromDraft": "Using current draft",
-    "othersLabel": "Others"
+    "othersLabel": "Others",
+    "missingSectionsTitle": "Sections not found in source",
+    "missingSectionsDesc": "These sections were not detected in your uploaded profile. Add them to your source for a complete analysis."
   },
   "checkout": {
     "title": "Export Your Optimized Profile",
@@ -417,7 +421,15 @@
     "exportFailed": "Failed",
     "exportRetry": "Retry",
     "exportDownload": "Download",
-    "exportGenerating": "Generating..."
+    "exportGenerating": "Generating...",
+    "sectionsImproved": "Sections Improved",
+    "customEdits": "Custom Edits",
+    "entriesRewritten": "Entries Rewritten",
+    "placeholdersLeft": "Placeholders Left",
+    "placeholderHint": "Fill in [BRACKET] placeholders in Rewrite Studio before exporting for best results",
+    "uploadCvToUnlock": "Upload your CV to unlock",
+    "addLinkedinToUnlock": "Add your LinkedIn profile to unlock",
+    "selectFeatureToUnlock": "Select the relevant feature in Step 2 to enable"
   },
   "progress": {
     "analyzing": "Analyzing your profile",

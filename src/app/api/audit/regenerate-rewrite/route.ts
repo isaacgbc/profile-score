@@ -95,6 +95,11 @@ export async function POST(request: Request) {
       objective_context: objectiveContext?.slice(0, 1_500) ?? "Professional growth",
     });
 
+    // HOTFIX-2: Explicit language instruction for non-English locales
+    const langInstruction = locale !== "en"
+      ? " ALL output text MUST be in Spanish."
+      : "";
+
     // LLM call with one retry
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -106,8 +111,8 @@ export async function POST(request: Request) {
               : systemPrompt + "\n\nIMPORTANT: Respond with ONLY valid JSON.",
           userMessage:
             attempt === 0
-              ? `Rewrite the ${sectionName} section incorporating the user's editing directives. Respond in JSON with key: rewritten.`
-              : "Your previous response was not valid JSON. Respond with ONLY valid JSON with key: rewritten.",
+              ? `Rewrite the ${sectionName} section incorporating the user's editing directives. Respond in JSON with key: rewritten.${langInstruction}`
+              : `Your previous response was not valid JSON. Respond with ONLY valid JSON with key: rewritten.${langInstruction}`,
           maxTokens: 4096,
         });
 

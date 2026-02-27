@@ -84,3 +84,18 @@ export function detectProfileLanguage(text: string): LanguageDetectionResult {
   // Ambiguous — neither language dominates
   return { language: "unknown", confidence: 0.3 };
 }
+
+/**
+ * Check if generated output text matches the expected target locale.
+ * Returns true if the text appears to be in the target language,
+ * or if the text is too short / inconclusive to determine.
+ */
+export function isOutputInTargetLocale(
+  text: string,
+  targetLocale: "en" | "es"
+): boolean {
+  if (!text || text.trim().length < 30) return true; // Too short to determine
+  const detection = detectProfileLanguage(text);
+  if (detection.language === "unknown" || detection.confidence < 0.5) return true; // Inconclusive
+  return detection.language === targetLocale;
+}

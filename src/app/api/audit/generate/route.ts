@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       return validation;
     }
 
-    const { parsed, effectiveIsAdmin } = validation;
+    const { parsed, effectiveIsAdmin, processedChars } = validation;
 
     // Sprint 2.2: Use client-provided requestId for poll-based progress tracking.
     // Client generates the ID up-front so it can start polling immediately.
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
           isPdfSource: parsed.isPdfSource,
         },
         parsed.locale as Locale,
+        (parsed.appLocale as Locale) ?? (parsed.locale as Locale),
         // Sprint 2.2: Wire onProgress callback to update the progress store
         requestId
           ? (progress) => {
@@ -82,6 +83,8 @@ export async function POST(request: Request) {
       return NextResponse.json({
         results: result.results,
         meta: result.meta,
+        // HOTFIX-2: Echo processedChars so client sees exact truncation used
+        processedChars,
         // Sprint 2.2: Include requestId so client can poll for progress
         ...(requestId ? { requestId } : {}),
       });
