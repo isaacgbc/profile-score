@@ -37,6 +37,26 @@ export function addPage(doc: PDFDocument) {
   return doc.addPage([595.28, 841.89]); // A4
 }
 
+/**
+ * Sanitize text for pdf-lib StandardFonts (WinAnsi encoding).
+ * Strips emojis, dingbats, variation selectors, and any character
+ * outside basic Latin + Latin-1 Supplement. Converts smart quotes,
+ * bullets, and dashes to WinAnsi-safe equivalents.
+ */
+export function sanitizeForPdf(text: string): string {
+  return text
+    .replace(/[\u{1F000}-\u{1FFFF}]/gu, "")      // emojis block
+    .replace(/[\u{2600}-\u{27BF}]/gu, "")         // misc symbols + dingbats
+    .replace(/[\u{FE00}-\u{FE0F}]/gu, "")         // variation selectors
+    .replace(/[\u{200B}-\u{200D}\u{FEFF}]/gu, "") // zero-width chars
+    .replace(/\u2022/g, "-")                        // bullet → hyphen
+    .replace(/\u2026/g, "...")                      // ellipsis → three dots
+    .replace(/[\u2018\u2019]/g, "'")                // smart single quotes → straight
+    .replace(/[\u201C\u201D]/g, '"')                // smart double quotes → straight
+    .replace(/[\u2013\u2014]/g, "-")                // en/em dash → hyphen
+    .replace(/[^\x20-\x7E\xA0-\xFF]/g, "");        // strip anything else non-WinAnsi
+}
+
 /** Wrap text to fit within a max width. Returns array of lines. */
 export function wrapText(
   text: string,

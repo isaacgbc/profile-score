@@ -1,9 +1,9 @@
 import type { ExportModuleId, ExportFormat, ProfileResult } from "@/lib/types";
 import { generateResultsSummaryPdf } from "./pdf/results-summary";
 import { generateUpdatedCvPdf } from "./pdf/updated-cv";
-import { generateFullAuditJson } from "./json/full-audit";
-import { generateLinkedinUpdatesJson } from "./json/linkedin-updates";
-import { generateCoverLetterJson } from "./json/cover-letter";
+import { generateFullAuditPdf } from "./pdf/full-audit";
+import { generateLinkedinUpdatesPdf } from "./pdf/linkedin-updates";
+import { generateCoverLetterPdf } from "./pdf/cover-letter";
 import { callLLM, LLM_MODEL_FAST } from "./llm-client";
 import { getActivePromptWithVersion, interpolatePrompt } from "./prompt-resolver";
 import { extractJson } from "@/lib/schemas/llm-output";
@@ -141,21 +141,21 @@ export async function generateExport(
     }
 
     case "full-audit": {
-      if (format !== "json") throw new Error("Full Audit only supports JSON format");
-      const bytes = generateFullAuditJson(polishedResults, language);
-      return { bytes, contentType: "application/json", ext: "json" };
+      if (format !== "pdf") throw new Error("Full Audit only supports PDF format");
+      const bytes = await generateFullAuditPdf(polishedResults, language);
+      return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     case "linkedin-updates": {
-      if (format !== "json") throw new Error("LinkedIn Updates only supports JSON format");
-      const bytes = await generateLinkedinUpdatesJson(polishedResults, language);
-      return { bytes, contentType: "application/json", ext: "json" };
+      if (format !== "pdf") throw new Error("LinkedIn Updates only supports PDF format");
+      const bytes = await generateLinkedinUpdatesPdf(polishedResults, language);
+      return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     case "cover-letter": {
-      if (format !== "json") throw new Error("Cover Letter only supports JSON format");
-      const bytes = await generateCoverLetterJson(polishedResults, language, userInput);
-      return { bytes, contentType: "application/json", ext: "json" };
+      if (format !== "pdf") throw new Error("Cover Letter only supports PDF format");
+      const bytes = await generateCoverLetterPdf(polishedResults, language, userInput);
+      return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     default:

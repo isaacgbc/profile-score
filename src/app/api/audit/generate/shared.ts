@@ -46,6 +46,8 @@ export const GenerateAuditInput = z.object({
   locale: z.enum(["en", "es"]).default("en"),
   forceFresh: z.boolean().default(false),
   isPdfSource: z.boolean().default(false),
+  /** Sprint 2.2: Client-generated requestId for poll-based progress tracking */
+  progressRequestId: z.string().max(40).optional(),
 });
 
 export type GenerateAuditInputType = z.infer<typeof GenerateAuditInput>;

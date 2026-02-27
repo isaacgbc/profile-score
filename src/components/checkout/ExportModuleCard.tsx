@@ -31,13 +31,13 @@ interface ExportModuleCardProps {
   animDelay: number;
 }
 
-// Which modules support which formats
+// Which modules support which formats — all PDF as of Export Sprint
 const MODULE_FORMATS: Record<ExportModuleId, ExportFormat[]> = {
   "results-summary": ["pdf"],
   "updated-cv": ["pdf"],
-  "full-audit": ["json"],
-  "linkedin-updates": ["json"],
-  "cover-letter": ["json"],
+  "full-audit": ["pdf"],
+  "linkedin-updates": ["pdf"],
+  "cover-letter": ["pdf"],
 };
 
 export default function ExportModuleCard({
