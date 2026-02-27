@@ -1524,11 +1524,20 @@ export async function generateAuditResults(
     const linkedinChars = Object.values(linkedinSections).reduce((sum, s) => sum + s.length, 0);
     const cvChars = Object.values(cvSections).reduce((sum, s) => sum + s.length, 0);
 
-    // HOTFIX-4: Skills count (split by newlines/commas for rough item count)
+    // HOTFIX-3B: Enhanced section-level counts
     const skillsText = linkedinSections["skills"] ?? "";
     const parsedSkillsCount = skillsText ? skillsText.split(/[\n,;·•]+/).filter((s) => s.trim().length > 1).length : 0;
+    const certsText = linkedinSections["certifications"] ?? "";
+    const parsedCertCount = certsText ? certsText.split(/[\n]+/).filter((s) => s.trim().length > 1).length : 0;
 
-    // HOTFIX-4: Identify dropped sections (present in SECTION_IDS but empty after parsing)
+    // HOTFIX-3B: Education entry counts (extracted = from raw text, parsed = from parser)
+    const liEduText = linkedinSections["education"] ?? "";
+    const parsedLiEduEntries = liEduText ? parseEntriesFromSection("education", liEduText).entries.length : 0;
+    const cvEduText = cvSections["education-section"] ?? "";
+    const parsedCvEduEntries = cvEduText ? parseEntriesFromSection("education-section", cvEduText).entries.length : 0;
+
+    // HOTFIX-3B: Identify dropped sections — only flag truly absent ones
+    // Use broader keyword matching but be more accurate
     const droppedLinkedin = hasLinkedinInput
       ? LINKEDIN_SECTION_IDS.filter((id) => !linkedinSections[id] && input.linkedinText.toLowerCase().includes(id))
       : [];
@@ -1543,8 +1552,10 @@ export async function generateAuditResults(
 
     console.log(
       `[diag] request=${requestId} | PARSE_DETAIL: ` +
-      `linkedin: extractedChars=${input.linkedinText.trim().length}, parsedChars=${linkedinChars}, sectionsKept=${parsedLinkedinIds.length}, parsedSkillsCount=${parsedSkillsCount} | ` +
-      `cv: extractedChars=${(input.cvText ?? "").trim().length}, parsedChars=${cvChars}, sectionsKept=${parsedCvIds.length} | ` +
+      `linkedin: extractedChars=${input.linkedinText.trim().length}, parsedChars=${linkedinChars}, sectionsKept=${parsedLinkedinIds.length}, ` +
+      `parsedSkillsCount=${parsedSkillsCount}, parsedCertCount=${parsedCertCount}, parsedEducationEntries=${parsedLiEduEntries} | ` +
+      `cv: extractedChars=${(input.cvText ?? "").trim().length}, parsedChars=${cvChars}, sectionsKept=${parsedCvIds.length}, ` +
+      `parsedCvEducationEntries=${parsedCvEduEntries} | ` +
       `droppedSections=[${droppedSections.join(",")}] | ` +
       `truncationApplied=${truncationApplied}, truncatedChars=${truncatedChars}`
     );

@@ -85,8 +85,6 @@ export default function StudioSectionEditor({
   const displayRewritten = sectionOptimized ?? userRewritten ?? rewrite.rewritten;
   const hasManualEdits = sectionOptimized !== undefined;
   const hasEntries = rewrite.entries && rewrite.entries.length > 0;
-  // HOTFIX-4: Education sections use unified workspace (non-collapsible entries)
-  const isEducation = rewrite.sectionId === "education" || rewrite.sectionId === "education-section";
 
   function handleRegenClick() {
     if (hasManualEdits) {
@@ -198,7 +196,6 @@ export default function StudioSectionEditor({
                   onOptimizedChange={onOptimizedChange}
                   onResetEntry={onResetEntry}
                   locked={locked}
-                  forceExpanded={isEducation}
                   entryScore={matchingScore}
                 />
               );

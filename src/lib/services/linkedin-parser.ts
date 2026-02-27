@@ -192,9 +192,15 @@ export async function parseLinkedinSectionsWithFallback(
   // Always try regex first (on cleaned text)
   const regexResult = parseLinkedinSections(cleaned);
 
+  // HOTFIX-3B: Merge sidebar-extracted metadata into parsed sections.
   // If sidebar skills were extracted but no skills section parsed, use them
   if (pdfMeta.sidebarSkills.length > 0 && !regexResult.skills) {
     regexResult.skills = pdfMeta.sidebarSkills.join("\n");
+  }
+
+  // HOTFIX-3B: If sidebar certifications were extracted but no certifications section parsed, use them
+  if (pdfMeta.certifications.length > 0 && !regexResult.certifications) {
+    regexResult.certifications = pdfMeta.certifications.join("\n");
   }
 
   // If regex found 2+ sections or text is short, regex is sufficient
@@ -352,6 +358,91 @@ const DATE_LINE_RE = new RegExp(
 const DURATION_SUFFIX_RE =
   /\s*·\s*(?:\d+\s*(?:yr|year|año|mes|mo|month)s?\s*)+/i;
 
+/** Year-only line pattern (e.g., "2020", "2018 - 2022", "Class of 2020") */
+const YEAR_ONLY_RE = /^\s*(?:Class\s+of\s+)?(?:19|20)\d{2}(?:\s*[-–—]\s*(?:(?:19|20)\d{2}|Present|Actual))?\s*$/i;
+
+/**
+ * HOTFIX-3B: Fallback education parser when no standard date range lines found.
+ * Splits on blank-line-separated blocks, treating each block as an entry.
+ * Also splits on year-only lines.
+ */
+function parseEducationFallback(lines: string[]): ParsedEntry[] {
+  // Strategy 1: Split on year-only lines
+  const yearLineIndices: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (YEAR_ONLY_RE.test(lines[i])) {
+      yearLineIndices.push(i);
+    }
+  }
+
+  if (yearLineIndices.length > 0) {
+    const entries: ParsedEntry[] = [];
+    for (let y = 0; y < yearLineIndices.length; y++) {
+      const yearIdx = yearLineIndices[y];
+      const dateRange = lines[yearIdx].trim();
+      const prevEnd = y > 0 ? yearLineIndices[y - 1] + 1 : 0;
+      const headerStart = Math.max(prevEnd, yearIdx - 3);
+
+      const headerLines: string[] = [];
+      for (let h = headerStart; h < yearIdx; h++) {
+        const hl = lines[h].trim();
+        if (hl.length > 0) headerLines.push(hl);
+      }
+
+      let title = "";
+      let organization = "";
+      if (headerLines.length >= 2) {
+        title = headerLines[headerLines.length - 2];
+        organization = headerLines[headerLines.length - 1];
+      } else if (headerLines.length === 1) {
+        title = headerLines[0];
+      }
+
+      const descStart = yearIdx + 1;
+      const descEnd = y + 1 < yearLineIndices.length
+        ? Math.max(descStart, yearLineIndices[y + 1] - 2)
+        : lines.length;
+      const description = lines.slice(descStart, descEnd).join("\n").trim();
+
+      if (title || organization) {
+        entries.push({ title, organization, dateRange, description });
+      }
+    }
+    if (entries.length > 0) return entries;
+  }
+
+  // Strategy 2: Split on blank-line groups (2+ consecutive blank lines)
+  const blocks: string[][] = [];
+  let currentBlock: string[] = [];
+  let consecutiveBlanks = 0;
+
+  for (const line of lines) {
+    if (line.trim() === "") {
+      consecutiveBlanks++;
+      if (consecutiveBlanks >= 2 && currentBlock.length > 0) {
+        blocks.push(currentBlock);
+        currentBlock = [];
+      }
+    } else {
+      consecutiveBlanks = 0;
+      currentBlock.push(line);
+    }
+  }
+  if (currentBlock.length > 0) blocks.push(currentBlock);
+
+  if (blocks.length >= 2) {
+    return blocks.map((block) => {
+      const nonEmpty = block.map((l) => l.trim()).filter(Boolean);
+      const title = nonEmpty[0] ?? "";
+      const organization = nonEmpty.length >= 2 ? nonEmpty[1] : "";
+      const description = nonEmpty.slice(2).join("\n").trim();
+      return { title, organization, dateRange: "", description };
+    });
+  }
+
+  return [];
+}
+
 /**
  * Parse a section (experience or education) into individual entries.
  * Returns entries with title, organization, dateRange, and description.
@@ -392,8 +483,17 @@ export function parseEntriesFromSection(
   }
 
   if (dateLineIndices.length === 0) {
-    // No date lines found — try splitting on date ranges within lines
-    // (some PDF extractions merge title + date on one line)
+    // HOTFIX-3B: Fallback for education sections without standard date lines.
+    // Split on blank-line-separated blocks or year-only lines.
+    const isEducationSection = ["education", "education-section"].includes(sectionId);
+    if (isEducationSection) {
+      const fallbackEntries = parseEducationFallback(lines);
+      if (fallbackEntries.length > 0) {
+        result.entries = fallbackEntries;
+        result.confidence = "low";
+        return result;
+      }
+    }
     return result; // confidence stays "low"
   }
 
