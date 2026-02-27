@@ -86,6 +86,15 @@ export default function StudioSectionEditor({
   const hasManualEdits = sectionOptimized !== undefined;
   const hasEntries = rewrite.entries && rewrite.entries.length > 0;
 
+  // HOTFIX-URGENT: Diagnostic log for education rendering path
+  if (rewrite.sectionId === "education" || rewrite.sectionId === "education-section") {
+    console.log(
+      `[diag] educationRenderer=experienceSharedRenderer sectionId=${rewrite.sectionId} ` +
+      `hasEntries=${hasEntries} entryCount=${rewrite.entries?.length ?? 0} ` +
+      `renderedEducationCount=${rewrite.entries?.length ?? 0}`
+    );
+  }
+
   function handleRegenClick() {
     if (hasManualEdits) {
       setShowRegenConfirm(true);

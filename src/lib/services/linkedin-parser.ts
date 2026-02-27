@@ -411,27 +411,36 @@ function parseEducationFallback(lines: string[]): ParsedEntry[] {
     if (entries.length > 0) return entries;
   }
 
-  // Strategy 2: Split on blank-line groups (2+ consecutive blank lines)
+  // Strategy 2: Split on blank-line groups (1+ blank line = entry separator for education)
   const blocks: string[][] = [];
   let currentBlock: string[] = [];
-  let consecutiveBlanks = 0;
 
   for (const line of lines) {
     if (line.trim() === "") {
-      consecutiveBlanks++;
-      if (consecutiveBlanks >= 2 && currentBlock.length > 0) {
+      if (currentBlock.length > 0) {
         blocks.push(currentBlock);
         currentBlock = [];
       }
     } else {
-      consecutiveBlanks = 0;
       currentBlock.push(line);
     }
   }
   if (currentBlock.length > 0) blocks.push(currentBlock);
 
-  if (blocks.length >= 2) {
-    return blocks.map((block) => {
+  // Merge very short blocks (1 line) with the next block — they're likely subheaders
+  const mergedBlocks: string[][] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].length === 1 && i + 1 < blocks.length && blocks[i + 1].length <= 3) {
+      // Single-line block followed by small block → merge
+      mergedBlocks.push([...blocks[i], ...blocks[i + 1]]);
+      i++; // skip next
+    } else {
+      mergedBlocks.push(blocks[i]);
+    }
+  }
+
+  if (mergedBlocks.length >= 2) {
+    return mergedBlocks.map((block) => {
       const nonEmpty = block.map((l) => l.trim()).filter(Boolean);
       const title = nonEmpty[0] ?? "";
       const organization = nonEmpty.length >= 2 ? nonEmpty[1] : "";
@@ -482,13 +491,14 @@ export function parseEntriesFromSection(
     }
   }
 
+  const isEducationSection = ["education", "education-section"].includes(sectionId);
+
   if (dateLineIndices.length === 0) {
-    // HOTFIX-3B: Fallback for education sections without standard date lines.
-    // Split on blank-line-separated blocks or year-only lines.
-    const isEducationSection = ["education", "education-section"].includes(sectionId);
+    // HOTFIX-URGENT: Fallback for sections without standard date lines.
     if (isEducationSection) {
       const fallbackEntries = parseEducationFallback(lines);
       if (fallbackEntries.length > 0) {
+        console.log(`[diag] educationParser: dateLines=0, fallback=${fallbackEntries.length} entries`);
         result.entries = fallbackEntries;
         result.confidence = "low";
         return result;
@@ -566,9 +576,26 @@ export function parseEntriesFromSection(
     }
   }
 
+  // HOTFIX-URGENT: For education sections, if date-based parsing found fewer entries
+  // than the fallback would, prefer the fallback (education PDFs often have inconsistent dates)
+  if (isEducationSection && entries.length <= 1) {
+    const fallbackEntries = parseEducationFallback(lines);
+    if (fallbackEntries.length > entries.length) {
+      console.log(
+        `[diag] educationParser: dateBasedEntries=${entries.length}, fallbackEntries=${fallbackEntries.length}, ` +
+        `preferring fallback for ${sectionId}`
+      );
+      result.entries = fallbackEntries;
+      result.confidence = "low";
+      return result;
+    }
+  }
+
   result.entries = entries;
   result.confidence =
     entries.length > 0 && sectionText.length > 200 ? "high" : "low";
+
+  console.log(`[diag] educationParser: sectionId=${sectionId}, dateLines=${dateLineIndices.length}, entries=${entries.length}`);
 
   return result;
 }

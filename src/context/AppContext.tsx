@@ -118,7 +118,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
   const [results, setResultsState] = useState<ProfileResult | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [exportLocale, setExportLocaleRaw] = useState<Locale>("en");
+  // HOTFIX-URGENT: Persist exportLocale across navigation/reload
+  const [exportLocale, setExportLocaleRaw] = useState<Locale>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("ps_exportLocale");
+      if (stored === "en" || stored === "es") {
+        console.log(`[diag] exportLocaleCarryover step1=init step2=init source=persisted value=${stored}`);
+        return stored;
+      }
+    }
+    return "en";
+  });
   const userManuallySetLocaleRef = useRef(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [showEmailCaptureModal, setShowEmailCaptureModal] = useState(false);
@@ -182,6 +192,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           meta.detectedLanguage !== "unknown" &&
           (meta.languageConfidence ?? 0) >= 0.7
         ) {
+          console.log(`[diag] exportLocaleCarryover source=auto value=${meta.detectedLanguage}`);
           setExportLocaleRaw(meta.detectedLanguage as "en" | "es");
         }
       }
@@ -266,6 +277,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           meta.detectedLanguage !== "unknown" &&
           (meta.languageConfidence ?? 0) >= 0.7
         ) {
+          console.log(`[diag] exportLocaleCarryover source=auto value=${meta.detectedLanguage}`);
           setExportLocaleRaw(meta.detectedLanguage as "en" | "es");
         }
       }
@@ -399,7 +411,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setExportLocale = useCallback((l: Locale) => {
     userManuallySetLocaleRef.current = true;
     setExportLocaleRaw(l);
+    // HOTFIX-URGENT: Persist to localStorage for cross-page carryover
+    if (typeof window !== "undefined") {
+      localStorage.setItem("ps_exportLocale", l);
+    }
+    console.log(`[diag] exportLocaleCarryover source=manual value=${l}`);
   }, []);
+
+  // HOTFIX-URGENT: Also persist auto-detected locale changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("ps_exportLocale", exportLocale);
+    }
+  }, [exportLocale]);
 
   const signOut = useCallback(async () => {
     await supabaseRef.current.auth.signOut();
@@ -729,6 +753,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           data.meta.detectedLanguage !== "unknown" &&
           data.meta.languageConfidence >= 0.7
         ) {
+          console.log(`[diag] exportLocaleCarryover source=auto value=${data.meta.detectedLanguage}`);
           setExportLocaleRaw(data.meta.detectedLanguage as "en" | "es");
         }
       } else {

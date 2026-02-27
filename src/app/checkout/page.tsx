@@ -96,6 +96,12 @@ export default function CheckoutPage() {
 
   const { getModuleState, createExport, downloadExport, retryExport } = useExport();
 
+  // HOTFIX-URGENT: Log exportLocale carryover on checkout mount
+  useEffect(() => {
+    const persisted = typeof window !== "undefined" ? localStorage.getItem("ps_exportLocale") : null;
+    console.log(`[diag] exportLocaleCarryover step1=input step2=checkout source=${persisted ? "persisted" : "context"} value=${exportLocale} persisted=${persisted}`);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Analytics: checkout_opened (deduped per browser session) ──
   useEffect(() => {
     if (!hasTrackedThisSession("checkout_opened")) {

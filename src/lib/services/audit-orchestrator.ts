@@ -1715,10 +1715,18 @@ export async function generateAuditResults(
         sectionId,
         linkedinSections[sectionId]
       );
+      // HOTFIX-URGENT: Accept ALL education entries regardless of confidence
       if (parsed.entries.length > 0 && (parsed.confidence === "high" || sectionId === "education")) {
         linkedinEntries[sectionId] = parsed.entries;
         console.log(
           `[parser] Parsed ${parsed.entries.length} entries from LinkedIn ${sectionId} (confidence=${parsed.confidence})`
+        );
+      } else if (sectionId === "education") {
+        // HOTFIX-URGENT: Diagnostic when education parsing fails
+        console.warn(
+          `[diag] EDUCATION_PARSE_FAIL: linkedin.education sectionChars=${linkedinSections[sectionId].length}, ` +
+          `parsedEntries=${parsed.entries.length}, confidence=${parsed.confidence}, ` +
+          `text_snippet="${linkedinSections[sectionId].slice(0, 200).replace(/\n/g, "\\n")}"`
         );
       }
     }
@@ -1728,6 +1736,7 @@ export async function generateAuditResults(
   for (const sectionId of ["work-experience", "education-section"]) {
     if (cvSections[sectionId]) {
       const parsed = parseEntriesFromSection(sectionId, cvSections[sectionId]);
+      // HOTFIX-URGENT: Accept ALL education entries regardless of confidence
       if (parsed.entries.length > 0 && (parsed.confidence === "high" || sectionId === "education-section")) {
         cvEntries[sectionId] = parsed.entries;
         console.log(
@@ -1736,6 +1745,15 @@ export async function generateAuditResults(
       }
     }
   }
+
+  // HOTFIX-URGENT: Hard diagnostics for education entry counts
+  const liEduEntryCount = linkedinEntries["education"]?.length ?? 0;
+  const cvEduEntryCount = cvEntries["education-section"]?.length ?? 0;
+  console.log(
+    `[diag] request=${requestId} | EDUCATION_ENTRIES: ` +
+    `linkedin: extractedEducationCount=${linkedinSections["education"] ? 1 : 0}, parsedEducationCount=${liEduEntryCount} | ` +
+    `cv: extractedEducationCount=${cvSections["education-section"] ? 1 : 0}, parsedEducationCount=${cvEduEntryCount}`
+  );
 
   stageTimer.end();
   stageTimer.start("generating_rewrites");
