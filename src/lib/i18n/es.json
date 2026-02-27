@@ -52,7 +52,12 @@
     "workExperience": "Experiencia Laboral",
     "skillsSection": "Habilidades",
     "educationSection": "Educación",
-    "certifications": "Certificaciones"
+    "certifications": "Certificaciones",
+    "featured": "Destacados",
+    "volunteer": "Experiencia Voluntaria",
+    "projects": "Proyectos",
+    "publications": "Publicaciones",
+    "honors": "Honores y Premios"
   },
   "landing": {
     "heroTitlePre": "Tu ",

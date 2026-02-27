@@ -120,6 +120,28 @@ export async function generateFullAuditPdf(
   });
   y -= 50;
 
+  // Overall descriptor (if present)
+  if (results.overallDescriptor) {
+    const descriptorLines = wrapText(
+      sanitizeForPdf(results.overallDescriptor),
+      fontRegular,
+      10,
+      contentWidth
+    );
+    for (const line of descriptorLines) {
+      ensureSpace(50);
+      page.drawText(line, {
+        x: margin,
+        y,
+        size: 10,
+        font: fontRegular,
+        color: COLORS.textMuted,
+      });
+      y -= 14;
+    }
+    y -= 10;
+  }
+
   // Divider
   page.drawLine({
     start: { x: margin, y },

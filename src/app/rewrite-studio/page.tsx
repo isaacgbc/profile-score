@@ -16,7 +16,26 @@ import StudioSectionEditor from "@/components/studio/StudioSectionEditor";
 import { useStudioPersistence } from "@/hooks/useStudioPersistence";
 import { getSectionLabel } from "@/lib/section-labels";
 import { SparklesIcon } from "@/components/ui/Icons";
-import type { SourceType } from "@/lib/types";
+import type { SourceType, RewritePreview } from "@/lib/types";
+
+// ── Canonical section display order ──
+const LINKEDIN_SECTION_ORDER = [
+  "headline", "summary", "experience", "education", "skills",
+  "certifications", "recommendations", "featured", "projects",
+  "volunteer", "honors", "publications",
+];
+const CV_SECTION_ORDER = [
+  "contact-info", "professional-summary", "work-experience",
+  "education-section", "skills-section", "certifications",
+];
+
+function sortRewrites(rewrites: RewritePreview[], order: string[]): RewritePreview[] {
+  return [...rewrites].sort((a, b) => {
+    const ai = order.indexOf(a.sectionId);
+    const bi = order.indexOf(b.sectionId);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
+}
 
 export default function RewriteStudioPage() {
   const { t } = useI18n();
@@ -266,10 +285,10 @@ export default function RewriteStudioPage() {
     );
   }
 
-  const rewrites =
-    activeSource === "linkedin"
-      ? results.linkedinRewrites
-      : results.cvRewrites;
+  const rewrites = sortRewrites(
+    activeSource === "linkedin" ? results.linkedinRewrites : results.cvRewrites,
+    activeSource === "linkedin" ? LINKEDIN_SECTION_ORDER : CV_SECTION_ORDER
+  );
 
   const hasLinkedin = results.linkedinRewrites.length > 0;
   const hasCv = results.cvRewrites.length > 0;

@@ -8,6 +8,7 @@ import { generateExport } from "@/lib/services/export-generator";
 import { uploadExport } from "@/lib/db/storage";
 import type { ExportModuleId, ExportFormat, ProfileResult } from "@/lib/types";
 import type { ExportUserInput } from "@/lib/services/export-generator";
+import { computeEntryStableId } from "@/lib/utils/entry-id";
 
 export async function POST(request: Request) {
   try {
@@ -76,17 +77,35 @@ export async function POST(request: Request) {
       const mergeRewrites = (
         rewrites: ProfileResult["linkedinRewrites"]
       ): ProfileResult["linkedinRewrites"] =>
-        rewrites.map((r) => ({
-          ...r,
-          improvements:
-            improvementsMap[r.sectionId] !== undefined
-              ? improvementsMap[r.sectionId]
-              : r.improvements,
-          rewritten:
-            optimizedMap[r.sectionId] ??
-            rewrittenMap[r.sectionId] ??
-            r.rewritten,
-        }));
+        rewrites.map((r) => {
+          // Section-level merge
+          const merged = {
+            ...r,
+            improvements:
+              improvementsMap[r.sectionId] !== undefined
+                ? improvementsMap[r.sectionId]
+                : r.improvements,
+            rewritten:
+              optimizedMap[r.sectionId] ??
+              rewrittenMap[r.sectionId] ??
+              r.rewritten,
+          };
+
+          // Entry-level merge (experience/education entries)
+          if (merged.entries && merged.entries.length > 0) {
+            merged.entries = merged.entries.map((entry) => {
+              const stableId = computeEntryStableId(entry.entryTitle, entry.original);
+              const entryKey = `${r.sectionId}:${stableId}`;
+              const entryOptimized = optimizedMap[entryKey];
+              if (entryOptimized !== undefined) {
+                return { ...entry, rewritten: entryOptimized };
+              }
+              return entry;
+            });
+          }
+
+          return merged;
+        });
 
       results = {
         ...results,

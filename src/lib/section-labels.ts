@@ -11,6 +11,11 @@ const SECTION_LABEL_MAP: Record<string, string> = {
   skills: "skills",
   education: "education",
   recommendations: "recommendations",
+  featured: "featured",
+  volunteer: "volunteer",
+  projects: "projects",
+  publications: "publications",
+  honors: "honors",
   // CV sections (kebab-case IDs → camelCase i18n keys)
   "contact-info": "contactInfo",
   "professional-summary": "professionalSummary",

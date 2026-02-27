@@ -33,6 +33,15 @@ export async function createBasePdf() {
   return { doc, fontRegular, fontBold };
 }
 
+/** Create a CV-specific PDF with Times New Roman fonts (matching professional CV templates). */
+export async function createCvBasePdf() {
+  const doc = await PDFDocument.create();
+  const fontRegular = await doc.embedFont(StandardFonts.TimesRoman);
+  const fontBold = await doc.embedFont(StandardFonts.TimesRomanBold);
+  const fontItalic = await doc.embedFont(StandardFonts.TimesRomanItalic);
+  return { doc, fontRegular, fontBold, fontItalic };
+}
+
 export function addPage(doc: PDFDocument) {
   return doc.addPage([595.28, 841.89]); // A4
 }

@@ -89,22 +89,32 @@ async function applyPolishPass(
     .filter(Boolean)
     .join(". ") || "Professional growth";
 
+  // Polish a single rewrite (section-level + entry-level)
+  async function polishRewrite(r: ProfileResult["linkedinRewrites"][number]) {
+    if (r.locked) return r;
+    const polished = await polishRewrittenContent(r.rewritten, objectiveContext, locale);
+
+    // Polish entries within each rewrite (experience/education)
+    const polishedEntries = r.entries
+      ? await Promise.all(
+          r.entries.map(async (entry) => ({
+            ...entry,
+            rewritten: await polishRewrittenContent(entry.rewritten, objectiveContext, locale),
+          }))
+        )
+      : r.entries;
+
+    return { ...r, rewritten: polished, entries: polishedEntries };
+  }
+
   // Polish unlocked LinkedIn rewrites (parallel)
   const polishedLinkedin = await Promise.all(
-    results.linkedinRewrites.map(async (r) => {
-      if (r.locked) return r;
-      const polished = await polishRewrittenContent(r.rewritten, objectiveContext, locale);
-      return { ...r, rewritten: polished };
-    })
+    results.linkedinRewrites.map(polishRewrite)
   );
 
   // Polish unlocked CV rewrites (parallel)
   const polishedCv = await Promise.all(
-    results.cvRewrites.map(async (r) => {
-      if (r.locked) return r;
-      const polished = await polishRewrittenContent(r.rewritten, objectiveContext, locale);
-      return { ...r, rewritten: polished };
-    })
+    results.cvRewrites.map(polishRewrite)
   );
 
   return {

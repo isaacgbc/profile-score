@@ -10,14 +10,18 @@ const i18nMap: Record<string, Record<string, string>> = {
   es: (es as Record<string, unknown>).sectionLabels as Record<string, string>,
 };
 
+// Ordered LinkedIn section IDs for display
+const LINKEDIN_SECTION_ORDER = [
+  "headline", "summary", "experience", "education", "skills",
+  "certifications", "recommendations", "featured", "projects",
+  "volunteer", "honors", "publications",
+];
+
 /**
- * Generate a LinkedIn Section Updates PDF.
+ * Generate a LinkedIn Optimized Sections PDF.
  *
- * For each LinkedIn rewrite (non-locked), shows:
- * - Section heading
- * - Original text
- * - Optimized/rewritten text
- * - Improvements summary
+ * Shows ONLY the optimized/rewritten content (no original, no improvements).
+ * For experience/education with entries, renders each entry item-by-item.
  */
 export async function generateLinkedinUpdatesPdf(
   results: ProfileResult,
@@ -32,11 +36,19 @@ export async function generateLinkedinUpdatesPdf(
   let page = addPage(doc);
   let y = page.getHeight() - margin;
 
+  // ── Helpers ──
+  function ensureSpace(needed: number) {
+    if (y < needed) {
+      page = addPage(doc);
+      y = page.getHeight() - margin;
+    }
+  }
+
   // ── Title ──
   const title =
     language === "es"
-      ? "Actualizaciones de Secciones LinkedIn"
-      : "LinkedIn Section Updates";
+      ? "LinkedIn - Secciones Optimizadas"
+      : "LinkedIn - Optimized Sections";
   page.drawText(sanitizeForPdf(title), {
     x: margin,
     y,
@@ -46,7 +58,7 @@ export async function generateLinkedinUpdatesPdf(
   });
   y -= 15;
 
-  // Subtitle / date
+  // Date
   const dateStr = new Date().toLocaleDateString(
     language === "es" ? "es-ES" : "en-US",
     { year: "numeric", month: "long", day: "numeric" }
@@ -60,20 +72,24 @@ export async function generateLinkedinUpdatesPdf(
   });
   y -= 30;
 
-  // ── Labels ──
-  const lOriginal = language === "es" ? "Original:" : "Original:";
-  const lOptimized = language === "es" ? "Optimizado:" : "Optimized:";
-  const lImprovements =
-    language === "es" ? "Mejoras realizadas:" : "Improvements made:";
+  // ── Order and filter rewrites ──
+  const rewrites = LINKEDIN_SECTION_ORDER
+    .map((id) => results.linkedinRewrites.find((r) => r.sectionId === id))
+    .filter(Boolean)
+    .filter((r) => !r!.locked);
 
-  // ── Sections ──
-  const rewrites = results.linkedinRewrites.filter((r) => !r.locked);
+  // Add any remaining rewrites not in the order list
+  const orderedIds = new Set(LINKEDIN_SECTION_ORDER);
+  const extraRewrites = results.linkedinRewrites.filter(
+    (r) => !orderedIds.has(r.sectionId) && !r.locked
+  );
+  const allRewrites = [...rewrites, ...extraRewrites];
 
-  if (rewrites.length === 0) {
+  if (allRewrites.length === 0) {
     const noContent =
       language === "es"
-        ? "No hay actualizaciones de secciones disponibles."
-        : "No section updates available.";
+        ? "No hay secciones optimizadas disponibles."
+        : "No optimized sections available.";
     page.drawText(sanitizeForPdf(noContent), {
       x: margin,
       y,
@@ -83,12 +99,10 @@ export async function generateLinkedinUpdatesPdf(
     });
   }
 
-  for (const rewrite of rewrites) {
-    // Page break check — need at least ~200pt for a section block
-    if (y < 200) {
-      page = addPage(doc);
-      y = page.getHeight() - margin;
-    }
+  for (const rewrite of allRewrites) {
+    if (!rewrite) continue;
+
+    ensureSpace(120);
 
     // ── Section heading ──
     const label = getSectionLabel(rewrite.sectionId, labels);
@@ -101,7 +115,7 @@ export async function generateLinkedinUpdatesPdf(
     });
     y -= 5;
 
-    // Divider
+    // Underline
     page.drawLine({
       start: { x: margin, y },
       end: { x: pageWidth - margin, y },
@@ -110,112 +124,70 @@ export async function generateLinkedinUpdatesPdf(
     });
     y -= 18;
 
-    // ── Original ──
-    page.drawText(sanitizeForPdf(lOriginal), {
-      x: margin,
-      y,
-      size: 10,
-      font: fontBold,
-      color: COLORS.textMuted,
-    });
-    y -= 14;
+    // ── Entry-level rendering (experience/education) ──
+    if (rewrite.entries && rewrite.entries.length > 0) {
+      for (const entry of rewrite.entries) {
+        ensureSpace(80);
 
-    const originalParagraphs = (rewrite.original || "").split("\n").filter(Boolean);
-    for (const para of originalParagraphs) {
-      const lines = wrapText(sanitizeForPdf(para), fontRegular, 9, contentWidth - 10);
-      for (const line of lines) {
-        if (y < 50) {
-          page = addPage(doc);
-          y = page.getHeight() - margin;
+        // Entry title (bold)
+        const titleLines = wrapText(
+          sanitizeForPdf(entry.entryTitle),
+          fontBold,
+          11,
+          contentWidth
+        );
+        for (const line of titleLines) {
+          ensureSpace(50);
+          page.drawText(line, {
+            x: margin + 5,
+            y,
+            size: 11,
+            font: fontBold,
+            color: COLORS.text,
+          });
+          y -= 15;
         }
-        page.drawText(line, {
-          x: margin + 10,
-          y,
-          size: 9,
-          font: fontRegular,
-          color: COLORS.textMuted,
-        });
-        y -= 12;
-      }
-      y -= 3;
-    }
-    y -= 8;
 
-    // ── Optimized ──
-    if (y < 80) {
-      page = addPage(doc);
-      y = page.getHeight() - margin;
-    }
-
-    page.drawText(sanitizeForPdf(lOptimized), {
-      x: margin,
-      y,
-      size: 10,
-      font: fontBold,
-      color: COLORS.success,
-    });
-    y -= 14;
-
-    const rewrittenParagraphs = (rewrite.rewritten || "").split("\n").filter(Boolean);
-    for (const para of rewrittenParagraphs) {
-      const lines = wrapText(sanitizeForPdf(para), fontRegular, 10, contentWidth - 10);
-      for (const line of lines) {
-        if (y < 50) {
-          page = addPage(doc);
-          y = page.getHeight() - margin;
+        // Entry rewritten content (bullets/paragraphs)
+        const paragraphs = entry.rewritten.split("\n").filter(Boolean);
+        for (const para of paragraphs) {
+          const lines = wrapText(sanitizeForPdf(para), fontRegular, 10, contentWidth - 15);
+          for (const line of lines) {
+            ensureSpace(50);
+            page.drawText(line, {
+              x: margin + 10,
+              y,
+              size: 10,
+              font: fontRegular,
+              color: COLORS.text,
+            });
+            y -= 13;
+          }
+          y -= 2;
         }
-        page.drawText(line, {
-          x: margin + 10,
-          y,
-          size: 10,
-          font: fontRegular,
-          color: COLORS.text,
-        });
-        y -= 14;
+        y -= 8; // spacing between entries
       }
-      y -= 3;
-    }
-    y -= 8;
-
-    // ── Improvements ──
-    if (rewrite.improvements && rewrite.improvements.trim()) {
-      if (y < 80) {
-        page = addPage(doc);
-        y = page.getHeight() - margin;
-      }
-
-      page.drawText(sanitizeForPdf(lImprovements), {
-        x: margin,
-        y,
-        size: 10,
-        font: fontBold,
-        color: COLORS.text,
-      });
-      y -= 14;
-
-      const improvementLines = wrapText(
-        sanitizeForPdf(rewrite.improvements),
-        fontRegular,
-        9,
-        contentWidth - 10
-      );
-      for (const line of improvementLines) {
-        if (y < 50) {
-          page = addPage(doc);
-          y = page.getHeight() - margin;
+    } else {
+      // ── Section-level rendering ──
+      const paragraphs = rewrite.rewritten.split("\n").filter(Boolean);
+      for (const para of paragraphs) {
+        const lines = wrapText(sanitizeForPdf(para), fontRegular, 10, contentWidth);
+        for (const line of lines) {
+          ensureSpace(50);
+          page.drawText(line, {
+            x: margin,
+            y,
+            size: 10,
+            font: fontRegular,
+            color: COLORS.text,
+          });
+          y -= 14;
         }
-        page.drawText(line, {
-          x: margin + 10,
-          y,
-          size: 9,
-          font: fontRegular,
-          color: COLORS.textMuted,
-        });
-        y -= 12;
+        y -= 4;
       }
     }
 
-    y -= 22; // spacing between sections
+    y -= 15; // spacing between sections
   }
 
   // ── Footer ──
