@@ -215,11 +215,11 @@ export default function StudioSectionEditor({
           </div>
         ) : isEntryBasedSection ? (
           /* HOTFIX-URGENT-2: Missing-section recovery card for entry-based sections (education/experience) */
-          <div className="mb-4 border-2 border-amber-200 bg-amber-50/30 rounded-xl p-4">
-            <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2">
+          <div className="mb-4 border-2 border-emerald-200 bg-emerald-50/30 rounded-xl p-4">
+            <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">
               {studioT.optimizedDraft ?? "Optimized Draft"}
             </p>
-            <p className="text-sm text-amber-700 mb-3">
+            <p className="text-sm text-emerald-700 mb-3">
               {studioT.missingEntries ?? "Individual entries could not be parsed. Edit the full section text below."}
             </p>
             <div className="relative">
@@ -244,7 +244,7 @@ export default function StudioSectionEditor({
                 onChange={(e) =>
                   onOptimizedChange(rewrite.sectionId, e.target.value)
                 }
-                className={`relative w-full min-h-[120px] text-sm border border-amber-100 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-amber-300/50 leading-relaxed ${
+                className={`relative w-full min-h-[120px] text-sm border border-emerald-100 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300/50 leading-relaxed ${
                   hasPlaceholders(displayRewritten)
                     ? "text-transparent caret-[var(--text-primary)] bg-transparent"
                     : "text-[var(--text-primary)] bg-white/60"

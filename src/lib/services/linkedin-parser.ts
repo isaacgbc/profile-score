@@ -350,7 +350,7 @@ const DATE_RANGE_RE = new RegExp(
 
 /** Matches a standalone date range line (most of the line is the date) */
 const DATE_LINE_RE = new RegExp(
-  `^\\s*(?:(?:${EN_MONTHS}|${ES_MONTHS})\\s+)?\\d{4}\\s*[-–—]\\s*(?:(?:${EN_MONTHS}|${ES_MONTHS})\\s+)?(?:\\d{4}|Present|Actual|Actualidad|Presente|Current)(?:\\s*·\\s*.*)?\\s*$`,
+  `^\\s*(?:(?:${EN_MONTHS}|${ES_MONTHS})\\s+(?:de\\s+)?)?\\d{4}\\s*[-–—]\\s*(?:(?:${EN_MONTHS}|${ES_MONTHS})\\s+(?:de\\s+)?)?(?:\\d{4}|Present|Actual|Actualidad|Presente|Current)(?:\\s*·\\s*.*)?\\s*$`,
   "i"
 );
 
