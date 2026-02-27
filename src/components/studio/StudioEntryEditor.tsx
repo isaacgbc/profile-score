@@ -100,7 +100,7 @@ export default function StudioEntryEditor({
               <div className="relative">
                 {hasPlaceholders(displayText) && (
                   <div
-                    className="absolute inset-0 p-2 text-sm leading-relaxed whitespace-pre-wrap break-words pointer-events-none overflow-hidden"
+                    className="absolute inset-0 p-2 text-sm text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words pointer-events-none overflow-hidden"
                     aria-hidden="true"
                     dangerouslySetInnerHTML={{
                       __html: displayText

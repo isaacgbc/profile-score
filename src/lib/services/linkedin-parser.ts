@@ -455,38 +455,76 @@ function parseEducationFallback(lines: string[]): ParsedEntry[] {
   }
   if (currentBlock.length > 0) blocks.push(currentBlock);
 
-  // Merge very short blocks (1 line) with the next block — they're likely subheaders
+  // HOTFIX-URGENT-3: Date-aware block merging.
+  // Identify which blocks contain inline dates, then pair each date-block
+  // with the previous non-date block (institution name).
   const mergedBlocks: string[][] = [];
   for (let i = 0; i < blocks.length; i++) {
-    if (blocks[i].length === 1 && i + 1 < blocks.length && blocks[i + 1].length <= 3) {
-      // Single-line block followed by small block → merge
+    const blockHasDate = blocks[i].some((l) => INLINE_DATE_PAREN_RE.test(l.trim()));
+    if (
+      !blockHasDate &&
+      blocks[i].length <= 2 &&
+      i + 1 < blocks.length &&
+      blocks[i + 1].some((l) => INLINE_DATE_PAREN_RE.test(l.trim()))
+    ) {
+      // Non-date block followed by date block → merge as one entry
       mergedBlocks.push([...blocks[i], ...blocks[i + 1]]);
       i++; // skip next
+    } else if (blockHasDate && mergedBlocks.length > 0) {
+      // Date block not preceded by a merge candidate — merge with previous
+      const prev = mergedBlocks[mergedBlocks.length - 1];
+      const prevHasDate = prev.some((l) => INLINE_DATE_PAREN_RE.test(l.trim()));
+      if (!prevHasDate) {
+        mergedBlocks[mergedBlocks.length - 1] = [...prev, ...blocks[i]];
+      } else {
+        mergedBlocks.push([...blocks[i]]);
+      }
     } else {
-      mergedBlocks.push(blocks[i]);
+      mergedBlocks.push([...blocks[i]]);
     }
   }
 
-  if (mergedBlocks.length >= 2) {
-    const blockEntries = mergedBlocks.map((block) => {
+  // Second pass: merge orphan short blocks (no date) with the next dated block.
+  // Handles wrapped lines where institution name is separated from degree+date.
+  const finalBlocks: string[][] = [];
+  for (let i = 0; i < mergedBlocks.length; i++) {
+    const hasDate = mergedBlocks[i].some((l) => INLINE_DATE_PAREN_RE.test(l.trim()));
+    if (
+      !hasDate &&
+      mergedBlocks[i].length <= 2 &&
+      i + 1 < mergedBlocks.length &&
+      mergedBlocks[i + 1].some((l) => INLINE_DATE_PAREN_RE.test(l.trim()))
+    ) {
+      finalBlocks.push([...mergedBlocks[i], ...mergedBlocks[i + 1]]);
+      i++;
+    } else {
+      finalBlocks.push(mergedBlocks[i]);
+    }
+  }
+
+  if (finalBlocks.length >= 2) {
+    const blockEntries = finalBlocks.map((block) => {
       const nonEmpty = block.map((l) => l.trim()).filter(Boolean);
       const rawTitle = nonEmpty[0] ?? "";
       const rawOrg = nonEmpty.length >= 2 ? nonEmpty[1] : "";
       const rawDesc = nonEmpty.slice(2).join("\n").trim();
 
-      // Extract inline dates from org or description (e.g., "Economía · (2019 - 2023)")
+      // Extract inline dates from title, org, or description
+      const titleExtracted = extractInlineDate(rawTitle);
       const orgExtracted = extractInlineDate(rawOrg);
       const descExtracted = rawDesc ? extractInlineDate(rawDesc) : { cleanText: "", dateRange: "" };
-      const dateRange = orgExtracted.dateRange || descExtracted.dateRange;
+      const dateRange = titleExtracted.dateRange || orgExtracted.dateRange || descExtracted.dateRange;
 
       return {
-        title: rawTitle,
+        title: titleExtracted.cleanText || rawTitle,
         organization: orgExtracted.cleanText || rawOrg,
         dateRange,
         description: descExtracted.cleanText || rawDesc,
       };
     });
-    if (blockEntries.length > 0) return blockEntries;
+    // Filter out entries that are just noise (no title and no org)
+    const validEntries = blockEntries.filter((e) => e.title.length > 0 || e.organization.length > 0);
+    if (validEntries.length > 0) return validEntries;
   }
 
   // Strategy 3: Single-line entries with inline dates in parens
