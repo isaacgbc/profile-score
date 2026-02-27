@@ -1746,13 +1746,15 @@ export async function generateAuditResults(
     }
   }
 
-  // HOTFIX-URGENT: Hard diagnostics for education entry counts
+  // HOTFIX-URGENT-2: Hard diagnostics for education entry counts
   const liEduEntryCount = linkedinEntries["education"]?.length ?? 0;
   const cvEduEntryCount = cvEntries["education-section"]?.length ?? 0;
+  const liEduCharCount = (linkedinSections["education"] ?? "").length;
+  const cvEduCharCount = (cvSections["education-section"] ?? "").length;
   console.log(
     `[diag] request=${requestId} | EDUCATION_ENTRIES: ` +
-    `linkedin: extractedEducationCount=${linkedinSections["education"] ? 1 : 0}, parsedEducationCount=${liEduEntryCount} | ` +
-    `cv: extractedEducationCount=${cvSections["education-section"] ? 1 : 0}, parsedEducationCount=${cvEduEntryCount}`
+    `linkedin: extractedEducationChars=${liEduCharCount}, parsedEducationCount=${liEduEntryCount} | ` +
+    `cv: extractedEducationChars=${cvEduCharCount}, parsedEducationCount=${cvEduEntryCount}`
   );
 
   stageTimer.end();

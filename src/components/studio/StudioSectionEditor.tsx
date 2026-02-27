@@ -85,13 +85,16 @@ export default function StudioSectionEditor({
   const displayRewritten = sectionOptimized ?? userRewritten ?? rewrite.rewritten;
   const hasManualEdits = sectionOptimized !== undefined;
   const hasEntries = rewrite.entries && rewrite.entries.length > 0;
+  // HOTFIX-URGENT-2: Identify entry-based sections that should show recovery card if empty
+  const isEntryBasedSection = ["experience", "education", "work-experience", "education-section"].includes(rewrite.sectionId);
 
-  // HOTFIX-URGENT: Diagnostic log for education rendering path
+  // HOTFIX-URGENT-2: Diagnostic log for education rendering path
   if (rewrite.sectionId === "education" || rewrite.sectionId === "education-section") {
     console.log(
-      `[diag] educationRenderer=experienceSharedRenderer sectionId=${rewrite.sectionId} ` +
+      `[diag] educationRenderer sectionId=${rewrite.sectionId} ` +
       `hasEntries=${hasEntries} entryCount=${rewrite.entries?.length ?? 0} ` +
-      `renderedEducationCount=${rewrite.entries?.length ?? 0}`
+      `renderedEducationCount=${rewrite.entries?.length ?? 0} ` +
+      `rendererPath=${hasEntries ? "sharedEntryCards" : (isEntryBasedSection ? "missingRecovery" : "sectionTextarea")}`
     );
   }
 
@@ -209,6 +212,55 @@ export default function StudioSectionEditor({
                 />
               );
             })}
+          </div>
+        ) : isEntryBasedSection ? (
+          /* HOTFIX-URGENT-2: Missing-section recovery card for entry-based sections (education/experience) */
+          <div className="mb-4 border-2 border-amber-200 bg-amber-50/30 rounded-xl p-4">
+            <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2">
+              {studioT.optimizedDraft ?? "Optimized Draft"}
+            </p>
+            <p className="text-sm text-amber-700 mb-3">
+              {studioT.missingEntries ?? "Individual entries could not be parsed. Edit the full section text below."}
+            </p>
+            <div className="relative">
+              {hasPlaceholders(displayRewritten) && (
+                <div
+                  className="absolute inset-0 p-3 text-sm leading-relaxed whitespace-pre-wrap break-words pointer-events-none overflow-hidden"
+                  aria-hidden="true"
+                  dangerouslySetInnerHTML={{
+                    __html: displayRewritten
+                      .replace(/&/g, "&amp;")
+                      .replace(/</g, "&lt;")
+                      .replace(/>/g, "&gt;")
+                      .replace(
+                        /\[[A-Z][A-Z0-9_ /'-]*\]/g,
+                        (match) => `<mark class="bg-amber-200/70 text-amber-900 rounded px-0.5">${match}</mark>`
+                      ),
+                  }}
+                />
+              )}
+              <textarea
+                value={displayRewritten}
+                onChange={(e) =>
+                  onOptimizedChange(rewrite.sectionId, e.target.value)
+                }
+                className={`relative w-full min-h-[120px] text-sm border border-amber-100 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-amber-300/50 leading-relaxed ${
+                  hasPlaceholders(displayRewritten)
+                    ? "text-transparent caret-[var(--text-primary)] bg-transparent"
+                    : "text-[var(--text-primary)] bg-white/60"
+                }`}
+                style={hasPlaceholders(displayRewritten)
+                  ? { fieldSizing: "content", WebkitTextFillColor: "transparent" } as React.CSSProperties
+                  : { fieldSizing: "content" } as React.CSSProperties
+                }
+              />
+            </div>
+            {hasPlaceholders(displayRewritten) && (
+              <p className="mt-1.5 text-xs text-amber-700 font-medium flex items-center gap-1.5">
+                <span className="inline-block w-4 h-4 rounded bg-amber-200 border border-amber-400 text-center text-[9px] font-bold leading-[16px]">!</span>
+                Items in [BRACKETS] need your input before final use
+              </p>
+            )}
           </div>
         ) : (
           /* Section-level optimized draft with HOTFIX-3 inline placeholder highlighting */

@@ -358,8 +358,36 @@ const DATE_LINE_RE = new RegExp(
 const DURATION_SUFFIX_RE =
   /\s*·\s*(?:\d+\s*(?:yr|year|año|mes|mo|month)s?\s*)+/i;
 
-/** Year-only line pattern (e.g., "2020", "2018 - 2022", "Class of 2020") */
-const YEAR_ONLY_RE = /^\s*(?:Class\s+of\s+)?(?:19|20)\d{2}(?:\s*[-–—]\s*(?:(?:19|20)\d{2}|Present|Actual))?\s*$/i;
+/** Year-only line pattern (e.g., "2020", "2018 - 2022", "Class of 2020", "Completed 2024") */
+const YEAR_ONLY_RE = /^\s*(?:Class\s+of\s+|Completed\s+)?(?:19|20)\d{2}(?:\s*[-–—]\s*(?:(?:19|20)\d{2}|Present|Actual))?\s*$/i;
+
+/** Inline date in parentheses at end of line: (2013–2015), (2020), (junio de 2024 - octubre de 2024) */
+const INLINE_DATE_PAREN_RE = new RegExp(
+  `\\(\\s*(?:(?:${EN_MONTHS}|${ES_MONTHS})(?:\\s+(?:de\\s+))?)?` +
+  `(?:19|20)\\d{2}` +
+  `(?:\\s*[-–—]\\s*(?:(?:${EN_MONTHS}|${ES_MONTHS})(?:\\s+(?:de\\s+))?)?` +
+  `(?:(?:19|20)\\d{2}|Present|Actual|Actualidad|Presente|in\\s+progress|Expected\\s+\\w+\\s+\\d{4}))?` +
+  `\\s*\\)\\s*$`,
+  "i"
+);
+
+/**
+ * HOTFIX-URGENT-2: Extract inline date from org/description strings.
+ * Handles patterns like "Economía · (2019 - 2023)" or "Computer Science (2013–2015)"
+ * Returns { cleanText, dateRange } where dateRange is the extracted date or "".
+ */
+function extractInlineDate(text: string): { cleanText: string; dateRange: string } {
+  // Pattern: "· (date range)" or just "(date range)" at end of string
+  const inlineDateMatch = text.match(
+    /\s*·?\s*\(\s*((?:(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:de\s+)?)?(?:19|20)\d{2}(?:\s*[-–—]\s*(?:(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:de\s+)?)?(?:(?:19|20)\d{2}|Present|Actual|Actualidad|Presente))?)\s*\)\s*$/i
+  );
+  if (inlineDateMatch) {
+    const dateRange = inlineDateMatch[1].trim();
+    const cleanText = text.slice(0, text.indexOf(inlineDateMatch[0])).trim();
+    return { cleanText, dateRange };
+  }
+  return { cleanText: text, dateRange: "" };
+}
 
 /**
  * HOTFIX-3B: Fallback education parser when no standard date range lines found.
@@ -440,14 +468,61 @@ function parseEducationFallback(lines: string[]): ParsedEntry[] {
   }
 
   if (mergedBlocks.length >= 2) {
-    return mergedBlocks.map((block) => {
+    const blockEntries = mergedBlocks.map((block) => {
       const nonEmpty = block.map((l) => l.trim()).filter(Boolean);
-      const title = nonEmpty[0] ?? "";
-      const organization = nonEmpty.length >= 2 ? nonEmpty[1] : "";
-      const description = nonEmpty.slice(2).join("\n").trim();
-      return { title, organization, dateRange: "", description };
+      const rawTitle = nonEmpty[0] ?? "";
+      const rawOrg = nonEmpty.length >= 2 ? nonEmpty[1] : "";
+      const rawDesc = nonEmpty.slice(2).join("\n").trim();
+
+      // Extract inline dates from org or description (e.g., "Economía · (2019 - 2023)")
+      const orgExtracted = extractInlineDate(rawOrg);
+      const descExtracted = rawDesc ? extractInlineDate(rawDesc) : { cleanText: "", dateRange: "" };
+      const dateRange = orgExtracted.dateRange || descExtracted.dateRange;
+
+      return {
+        title: rawTitle,
+        organization: orgExtracted.cleanText || rawOrg,
+        dateRange,
+        description: descExtracted.cleanText || rawDesc,
+      };
     });
+    if (blockEntries.length > 0) return blockEntries;
   }
+
+  // Strategy 3: Single-line entries with inline dates in parens
+  // e.g. "Stanford University — M.S. Computer Science (2013–2015)"
+  const inlineDateEntries: ParsedEntry[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    if (INLINE_DATE_PAREN_RE.test(trimmed)) {
+      // Extract the date from parens
+      const parenMatch = trimmed.match(/\(([^)]+)\)\s*$/);
+      const dateRange = parenMatch ? parenMatch[1].trim() : "";
+      const beforeParen = trimmed.replace(/\s*\([^)]+\)\s*$/, "").trim();
+
+      // Split on " — " or " - " or " – " for title/org
+      const dashSplit = beforeParen.split(/\s*[—–]\s*/);
+      let title = "";
+      let organization = "";
+      if (dashSplit.length >= 2) {
+        title = dashSplit[0].trim();
+        organization = dashSplit.slice(1).join(" — ").trim();
+      } else {
+        title = beforeParen;
+      }
+
+      inlineDateEntries.push({ title, organization, dateRange, description: "" });
+    } else if (trimmed.length > 5) {
+      // Non-date line that's not empty — could be an entry without date
+      // Only include if we haven't found inline-date entries (avoid mixing)
+      if (inlineDateEntries.length === 0) {
+        // Collect as potential dateless entries — but don't return them
+        // unless there are 2+ (otherwise we'd just have noise)
+      }
+    }
+  }
+  if (inlineDateEntries.length > 0) return inlineDateEntries;
 
   return [];
 }
@@ -576,16 +651,21 @@ export function parseEntriesFromSection(
     }
   }
 
-  // HOTFIX-URGENT: For education sections, if date-based parsing found fewer entries
-  // than the fallback would, prefer the fallback (education PDFs often have inconsistent dates)
-  if (isEducationSection && entries.length <= 1) {
+  // HOTFIX-URGENT-2: For education sections, always check if fallback finds more entries.
+  // Fallback entries must pass quality filter (real titles, not noise like "GPA: 3.9").
+  if (isEducationSection) {
     const fallbackEntries = parseEducationFallback(lines);
-    if (fallbackEntries.length > entries.length) {
+    // Quality filter: only count fallback entries that have real titles (not noise)
+    const qualityFallback = fallbackEntries.filter(
+      (e) => e.title.length >= 2 && !YEAR_ONLY_RE.test(e.title) && !DATE_LINE_RE.test(e.title)
+    );
+    if (qualityFallback.length > entries.length) {
+      const droppedCount = qualityFallback.length - entries.length;
       console.log(
-        `[diag] educationParser: dateBasedEntries=${entries.length}, fallbackEntries=${fallbackEntries.length}, ` +
-        `preferring fallback for ${sectionId}`
+        `[diag] educationParser: dateBasedEntries=${entries.length}, fallbackEntries=${qualityFallback.length}, ` +
+        `preferring=fallback for ${sectionId}, droppedEducationBlocks=${droppedCount}`
       );
-      result.entries = fallbackEntries;
+      result.entries = qualityFallback;
       result.confidence = "low";
       return result;
     }
@@ -595,7 +675,10 @@ export function parseEntriesFromSection(
   result.confidence =
     entries.length > 0 && sectionText.length > 200 ? "high" : "low";
 
-  console.log(`[diag] educationParser: sectionId=${sectionId}, dateLines=${dateLineIndices.length}, entries=${entries.length}`);
+  console.log(
+    `[diag] educationParser: sectionId=${sectionId}, dateLines=${dateLineIndices.length}, ` +
+    `entries=${entries.length}, preferring=dateBased`
+  );
 
   return result;
 }
