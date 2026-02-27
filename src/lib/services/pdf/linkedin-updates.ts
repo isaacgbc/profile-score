@@ -126,8 +126,20 @@ export async function generateLinkedinUpdatesPdf(
 
     // ── Entry-level rendering (experience/education) ──
     if (rewrite.entries && rewrite.entries.length > 0) {
-      for (const entry of rewrite.entries) {
+      for (let entryIndex = 0; entryIndex < rewrite.entries.length; entryIndex++) {
+        const entry = rewrite.entries[entryIndex];
         ensureSpace(80);
+
+        // Light separator line between entries (not before first)
+        if (entryIndex > 0) {
+          page.drawLine({
+            start: { x: margin + 10, y: y + 4 },
+            end: { x: pageWidth - margin - 10, y: y + 4 },
+            thickness: 0.3,
+            color: COLORS.border,
+          });
+          y -= 6;
+        }
 
         // Entry title (bold)
         const titleLines = wrapText(
@@ -145,7 +157,7 @@ export async function generateLinkedinUpdatesPdf(
             font: fontBold,
             color: COLORS.text,
           });
-          y -= 15;
+          y -= 16; // increased from 15 for better spacing
         }
 
         // Entry rewritten content (bullets/paragraphs)
@@ -165,7 +177,7 @@ export async function generateLinkedinUpdatesPdf(
           }
           y -= 2;
         }
-        y -= 8; // spacing between entries
+        y -= 12; // increased from 8 for clearer visual blocks
       }
     } else {
       // ── Section-level rendering ──

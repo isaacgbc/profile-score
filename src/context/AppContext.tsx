@@ -111,7 +111,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
   const [results, setResultsState] = useState<ProfileResult | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [exportLocale, setExportLocale] = useState<Locale>("en");
+  const [exportLocale, setExportLocaleRaw] = useState<Locale>("en");
+  const userManuallySetLocaleRef = useRef(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [showEmailCaptureModal, setShowEmailCaptureModal] = useState(false);
   const [userEmail, setUserEmail] = useState("");
@@ -161,13 +162,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           languageConfidence: meta.languageConfidence,
         });
 
-        // Auto-set export locale from detected language
+        // Auto-set export locale from detected language (unless user manually chose)
         if (
+          !userManuallySetLocaleRef.current &&
           meta.detectedLanguage &&
           meta.detectedLanguage !== "unknown" &&
           (meta.languageConfidence ?? 0) >= 0.7
         ) {
-          setExportLocale(meta.detectedLanguage as "en" | "es");
+          setExportLocaleRaw(meta.detectedLanguage as "en" | "es");
         }
       }
 
@@ -244,13 +246,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           languageConfidence: meta.languageConfidence,
         });
 
-        // Auto-set export locale from detected language
+        // Auto-set export locale from detected language (unless user manually chose)
         if (
+          !userManuallySetLocaleRef.current &&
           meta.detectedLanguage &&
           meta.detectedLanguage !== "unknown" &&
           (meta.languageConfidence ?? 0) >= 0.7
         ) {
-          setExportLocale(meta.detectedLanguage as "en" | "es");
+          setExportLocaleRaw(meta.detectedLanguage as "en" | "es");
         }
       }
 
@@ -378,6 +381,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {});
   }, [authUser]);
+
+  /** User-facing locale setter: tracks manual override to prevent auto-detect clobber */
+  const setExportLocale = useCallback((l: Locale) => {
+    userManuallySetLocaleRef.current = true;
+    setExportLocaleRaw(l);
+  }, []);
 
   const signOut = useCallback(async () => {
     await supabaseRef.current.auth.signOut();
@@ -623,6 +632,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const generateResults = useCallback(async (options?: { forceFresh?: boolean }) => {
+    // Skip regeneration if results already exist and no force-fresh requested
+    if (results && !options?.forceFresh) {
+      console.log("[generateResults] skipping — results already in state");
+      return;
+    }
     setIsGenerating(true);
     setGenerationError(null);
 
@@ -688,13 +702,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           languageConfidence: data.meta.languageConfidence,
         });
 
-        // Auto-set export locale from detected language (confidence >= 0.7)
+        // Auto-set export locale from detected language (unless user manually chose)
         if (
+          !userManuallySetLocaleRef.current &&
           data.meta.detectedLanguage &&
           data.meta.detectedLanguage !== "unknown" &&
           data.meta.languageConfidence >= 0.7
         ) {
-          setExportLocale(data.meta.detectedLanguage as "en" | "es");
+          setExportLocaleRaw(data.meta.detectedLanguage as "en" | "es");
         }
       } else {
         setGenerationMeta(null);
@@ -744,7 +759,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsGenerating(false);
     }
-  }, [userInput, selectedPlan, isAdmin, exportLocale, startStream, startPollGeneration]);
+  }, [results, userInput, selectedPlan, isAdmin, exportLocale, startStream, startPollGeneration]);
 
   return (
     <AppContext.Provider

@@ -42,7 +42,7 @@
   },
   "sectionLabels": {
     "headline": "Titular",
-    "summary": "Resumen / Acerca de",
+    "summary": "Acerca de",
     "experience": "Experiencia",
     "skills": "Habilidades y Avales",
     "education": "Educación",
@@ -52,7 +52,7 @@
     "workExperience": "Experiencia Laboral",
     "skillsSection": "Habilidades",
     "educationSection": "Educación",
-    "certifications": "Certificaciones",
+    "certifications": "Licencias y Certificaciones",
     "featured": "Destacados",
     "volunteer": "Experiencia Voluntaria",
     "projects": "Proyectos",
@@ -288,7 +288,7 @@
     "tierGood": "Bueno",
     "tierExcellent": "Excelente",
     "headline": "Titular",
-    "summary": "Resumen / Acerca de",
+    "summary": "Acerca de",
     "experience": "Experiencia",
     "skills": "Habilidades y Avales",
     "education": "Educación",
@@ -298,7 +298,7 @@
     "workExperience": "Experiencia Laboral",
     "skillsSection": "Habilidades",
     "educationSection": "Educación",
-    "certifications": "Certificaciones",
+    "certifications": "Licencias y Certificaciones",
     "exportingIn": "Exportando en",
     "auditToggleLinkedin": "LinkedIn",
     "auditToggleCv": "CV / Currículum",
@@ -368,7 +368,8 @@
     "directionsPlaceholder": "Dile a la IA qué cambiar...",
     "regenerateConfirm": "Esto reemplazará tu borrador actual.",
     "regenerateFromDirections": "Desde instrucciones",
-    "regenerateFromDraft": "Usando borrador actual"
+    "regenerateFromDraft": "Usando borrador actual",
+    "othersLabel": "Otros"
   },
   "checkout": {
     "title": "Exporta Tu Perfil Optimizado",

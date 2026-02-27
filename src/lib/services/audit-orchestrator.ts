@@ -1580,7 +1580,7 @@ export async function generateAuditResults(
         sectionId,
         linkedinSections[sectionId]
       );
-      if (parsed.entries.length > 0 && parsed.confidence === "high") {
+      if (parsed.entries.length > 0 && (parsed.confidence === "high" || sectionId === "education")) {
         linkedinEntries[sectionId] = parsed.entries;
         console.log(
           `[parser] Parsed ${parsed.entries.length} entries from LinkedIn ${sectionId} (confidence=${parsed.confidence})`
@@ -1593,7 +1593,7 @@ export async function generateAuditResults(
   for (const sectionId of ["work-experience", "education-section"]) {
     if (cvSections[sectionId]) {
       const parsed = parseEntriesFromSection(sectionId, cvSections[sectionId]);
-      if (parsed.entries.length > 0 && parsed.confidence === "high") {
+      if (parsed.entries.length > 0 && (parsed.confidence === "high" || sectionId === "education-section")) {
         cvEntries[sectionId] = parsed.entries;
         console.log(
           `[parser] Parsed ${parsed.entries.length} entries from CV ${sectionId} (confidence=${parsed.confidence})`

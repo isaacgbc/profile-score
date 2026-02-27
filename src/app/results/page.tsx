@@ -79,6 +79,11 @@ export default function ResultsPage() {
   const isPaid = !!selectedPlan || isAdmin;
 
   useEffect(() => {
+    // Skip regeneration if results already exist in state (back-navigation guard)
+    if (results) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     async function run() {
       await generateResults();

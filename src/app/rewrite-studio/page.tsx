@@ -29,6 +29,10 @@ const CV_SECTION_ORDER = [
   "education-section", "skills-section", "certifications",
 ];
 
+// Core sections shown before the "Others" divider
+const CORE_LINKEDIN = new Set(["headline", "summary", "experience", "education", "skills"]);
+const CORE_CV = new Set(["contact-info", "professional-summary", "work-experience", "education-section", "skills-section"]);
+
 function sortRewrites(rewrites: RewritePreview[], order: string[]): RewritePreview[] {
   return [...rewrites].sort((a, b) => {
     const ai = order.indexOf(a.sectionId);
@@ -290,6 +294,10 @@ export default function RewriteStudioPage() {
     activeSource === "linkedin" ? LINKEDIN_SECTION_ORDER : CV_SECTION_ORDER
   );
 
+  const coreSet = activeSource === "linkedin" ? CORE_LINKEDIN : CORE_CV;
+  const coreSections = rewrites.filter((r) => coreSet.has(r.sectionId));
+  const otherSections = rewrites.filter((r) => !coreSet.has(r.sectionId));
+
   const hasLinkedin = results.linkedinRewrites.length > 0;
   const hasCv = results.cvRewrites.length > 0;
   const sectionLabels = t.sectionLabels as Record<string, string>;
@@ -402,8 +410,7 @@ export default function RewriteStudioPage() {
             {/* Section editors */}
             {rewrites.length > 0 ? (
               <div className="space-y-6">
-                {rewrites.map((rewrite) => {
-                  // Find matching section's entry scores from results
+                {coreSections.map((rewrite) => {
                   const matchingSection = [
                     ...(results?.linkedinSections ?? []),
                     ...(results?.cvSections ?? []),
@@ -431,6 +438,47 @@ export default function RewriteStudioPage() {
                     />
                   );
                 })}
+
+                {/* Others divider */}
+                {otherSections.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-3 pt-4 pb-1">
+                      <div className="flex-1 h-px bg-[var(--border-light)]" />
+                      <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+                        {(t.rewriteStudio as Record<string, string>).othersLabel ?? "Others"}
+                      </span>
+                      <div className="flex-1 h-px bg-[var(--border-light)]" />
+                    </div>
+                    {otherSections.map((rewrite) => {
+                      const matchingSection = [
+                        ...(results?.linkedinSections ?? []),
+                        ...(results?.cvSections ?? []),
+                      ].find((s) => s.id === rewrite.sectionId);
+                      const entryScores = matchingSection?.entryScores;
+
+                      return (
+                        <StudioSectionEditor
+                          key={rewrite.sectionId}
+                          rewrite={rewrite}
+                          userImprovement={userImprovements[rewrite.sectionId]}
+                          userOptimized={userOptimized}
+                          userRewritten={userRewritten[rewrite.sectionId]}
+                          onImprovementChange={handleImprovementChange}
+                          onOptimizedChange={handleOptimizedChange}
+                          onRegenerate={(intent) =>
+                            handleRegenerate(rewrite.sectionId, intent)
+                          }
+                          onReset={handleResetSection}
+                          onResetEntry={handleResetEntry}
+                          isRegenerating={regeneratingSection === rewrite.sectionId}
+                          locked={rewrite.locked && !isAdmin}
+                          onUpgradeClick={() => setShowPricingModal(true)}
+                          entryScores={entryScores}
+                        />
+                      );
+                    })}
+                  </>
+                )}
               </div>
             ) : (
               <Card variant="default" padding="lg" className="text-center">

@@ -11,7 +11,7 @@ export const CreateExportInput = z.object({
     "cover-letter",
     "linkedin-updates",
   ]),
-  format: z.enum(["pdf", "json"]),
+  format: z.enum(["pdf"]),
   language: z.enum(["en", "es"]),
   planId: z
     .enum(["starter", "recommended", "pro", "coach"])

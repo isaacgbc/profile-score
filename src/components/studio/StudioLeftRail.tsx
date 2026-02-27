@@ -5,6 +5,10 @@ import { getSectionLabel } from "@/lib/section-labels";
 import type { SourceType, RewritePreview } from "@/lib/types";
 import { SearchIcon, FileTextIcon } from "@/components/ui/Icons";
 
+// Core sections shown before the "Others" divider
+const CORE_LINKEDIN = new Set(["headline", "summary", "experience", "education", "skills"]);
+const CORE_CV = new Set(["contact-info", "professional-summary", "work-experience", "education-section", "skills-section"]);
+
 interface StudioLeftRailProps {
   source: SourceType;
   onSourceChange: (source: SourceType) => void;
@@ -13,6 +17,37 @@ interface StudioLeftRailProps {
   onSectionClick: (sectionId: string) => void;
   hasLinkedin: boolean;
   hasCv: boolean;
+}
+
+function SectionButton({
+  s,
+  activeSectionId,
+  onSectionClick,
+  sectionLabels,
+}: {
+  s: RewritePreview;
+  activeSectionId: string | null;
+  onSectionClick: (id: string) => void;
+  sectionLabels: Record<string, string>;
+}) {
+  return (
+    <button
+      key={s.sectionId}
+      onClick={() => onSectionClick(s.sectionId)}
+      className={`text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+        activeSectionId === s.sectionId
+          ? "bg-emerald-50 text-emerald-700 font-medium"
+          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]"
+      }`}
+    >
+      {getSectionLabel(s.sectionId, sectionLabels)}
+      {s.locked && (
+        <span className="ml-1.5 text-[10px] text-[var(--text-muted)]">
+          🔒
+        </span>
+      )}
+    </button>
+  );
 }
 
 export default function StudioLeftRail({
@@ -26,6 +61,9 @@ export default function StudioLeftRail({
 }: StudioLeftRailProps) {
   const { t } = useI18n();
   const sectionLabels = t.sectionLabels as Record<string, string>;
+  const coreSet = source === "linkedin" ? CORE_LINKEDIN : CORE_CV;
+  const coreSections = sections.filter((s) => coreSet.has(s.sectionId));
+  const otherSections = sections.filter((s) => !coreSet.has(s.sectionId));
 
   return (
     <aside className="hidden lg:block w-56 shrink-0 sticky top-20 h-[calc(100vh-5rem)] overflow-y-auto pr-4 border-r border-[var(--border-light)]">
@@ -68,24 +106,31 @@ export default function StudioLeftRail({
           Sections
         </p>
         <nav className="flex flex-col gap-0.5">
-          {sections.map((s) => (
-            <button
+          {coreSections.map((s) => (
+            <SectionButton
               key={s.sectionId}
-              onClick={() => onSectionClick(s.sectionId)}
-              className={`text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                activeSectionId === s.sectionId
-                  ? "bg-emerald-50 text-emerald-700 font-medium"
-                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]"
-              }`}
-            >
-              {getSectionLabel(s.sectionId, sectionLabels)}
-              {s.locked && (
-                <span className="ml-1.5 text-[10px] text-[var(--text-muted)]">
-                  🔒
-                </span>
-              )}
-            </button>
+              s={s}
+              activeSectionId={activeSectionId}
+              onSectionClick={onSectionClick}
+              sectionLabels={sectionLabels}
+            />
           ))}
+          {otherSections.length > 0 && (
+            <>
+              <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mt-4 mb-1 px-3">
+                {(t.rewriteStudio as Record<string, string>).othersLabel ?? "Others"}
+              </p>
+              {otherSections.map((s) => (
+                <SectionButton
+                  key={s.sectionId}
+                  s={s}
+                  activeSectionId={activeSectionId}
+                  onSectionClick={onSectionClick}
+                  sectionLabels={sectionLabels}
+                />
+              ))}
+            </>
+          )}
         </nav>
       </div>
     </aside>

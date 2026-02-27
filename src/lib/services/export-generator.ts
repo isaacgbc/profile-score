@@ -63,6 +63,11 @@ async function polishRewrittenContent(
     const jsonStr = extractJson(result.text);
     const parsed = JSON.parse(jsonStr);
     if (parsed.polished && typeof parsed.polished === "string" && parsed.polished.length > 10) {
+      // Guard against LLM returning JSON-like content as polished text
+      const trimmed = parsed.polished.trimStart();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        return stripNonFlagEmojis(rewritten);
+      }
       return stripNonFlagEmojis(parsed.polished);
     }
   } catch (err) {

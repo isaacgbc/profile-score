@@ -42,7 +42,7 @@
   },
   "sectionLabels": {
     "headline": "Headline",
-    "summary": "Summary / About",
+    "summary": "About",
     "experience": "Experience",
     "skills": "Skills & Endorsements",
     "education": "Education",
@@ -52,7 +52,7 @@
     "workExperience": "Work Experience",
     "skillsSection": "Skills",
     "educationSection": "Education",
-    "certifications": "Certifications",
+    "certifications": "Licenses & Certifications",
     "featured": "Featured",
     "volunteer": "Volunteer Experience",
     "projects": "Projects",
@@ -288,7 +288,7 @@
     "tierGood": "Good",
     "tierExcellent": "Excellent",
     "headline": "Headline",
-    "summary": "Summary / About",
+    "summary": "About",
     "experience": "Experience",
     "skills": "Skills & Endorsements",
     "education": "Education",
@@ -298,7 +298,7 @@
     "workExperience": "Work Experience",
     "skillsSection": "Skills",
     "educationSection": "Education",
-    "certifications": "Certifications",
+    "certifications": "Licenses & Certifications",
     "exportingIn": "Exporting in",
     "auditToggleLinkedin": "LinkedIn",
     "auditToggleCv": "CV / Resume",
@@ -368,7 +368,8 @@
     "directionsPlaceholder": "Tell the AI what to change...",
     "regenerateConfirm": "This will replace your current draft.",
     "regenerateFromDirections": "From directions",
-    "regenerateFromDraft": "Using current draft"
+    "regenerateFromDraft": "Using current draft",
+    "othersLabel": "Others"
   },
   "checkout": {
     "title": "Export Your Optimized Profile",

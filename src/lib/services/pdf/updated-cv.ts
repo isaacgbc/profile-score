@@ -25,6 +25,16 @@ const CV_BLACK = COLORS.text;
 const CV_MUTED = COLORS.textMuted;
 
 /**
+ * Parse entry title for "Position at Company" pattern.
+ * Returns company (line 1, bold) and position (line 2, italic) if parseable.
+ */
+function parseEntryTitle(title: string): { company: string; position: string } | null {
+  const atMatch = title.match(/^(.+?)\s+(?:at|@|en)\s+(.+)$/i);
+  if (atMatch) return { position: atMatch[1], company: atMatch[2] };
+  return null;
+}
+
+/**
  * Generate an Updated CV PDF matching professional CV template style.
  *
  * Layout:
@@ -135,23 +145,64 @@ export async function generateUpdatedCvPdf(
       for (const entry of rewrite.entries) {
         ensureSpace(60);
 
-        // Entry title (bold)
-        const titleLines = wrapText(
-          sanitizeForPdf(entry.entryTitle),
-          fontBold,
-          10,
-          contentWidth
-        );
-        for (const line of titleLines) {
-          ensureSpace(40);
-          page.drawText(line, {
-            x: margin,
-            y,
-            size: 10,
-            font: fontBold,
-            color: CV_BLACK,
-          });
-          y -= 12;
+        // Parse entry title for company/position split
+        const parsed = parseEntryTitle(entry.entryTitle);
+        if (parsed) {
+          // Line 1: Company/Organization (bold)
+          const companyLines = wrapText(
+            sanitizeForPdf(parsed.company),
+            fontBold,
+            10,
+            contentWidth
+          );
+          for (const line of companyLines) {
+            ensureSpace(40);
+            page.drawText(line, {
+              x: margin,
+              y,
+              size: 10,
+              font: fontBold,
+              color: CV_BLACK,
+            });
+            y -= 12;
+          }
+          // Line 2: Position (italic)
+          const positionLines = wrapText(
+            sanitizeForPdf(parsed.position),
+            fontItalic,
+            10,
+            contentWidth
+          );
+          for (const line of positionLines) {
+            ensureSpace(40);
+            page.drawText(line, {
+              x: margin,
+              y,
+              size: 10,
+              font: fontItalic,
+              color: CV_BLACK,
+            });
+            y -= 12;
+          }
+        } else {
+          // Fallback: single bold title line
+          const titleLines = wrapText(
+            sanitizeForPdf(entry.entryTitle),
+            fontBold,
+            10,
+            contentWidth
+          );
+          for (const line of titleLines) {
+            ensureSpace(40);
+            page.drawText(line, {
+              x: margin,
+              y,
+              size: 10,
+              font: fontBold,
+              color: CV_BLACK,
+            });
+            y -= 12;
+          }
         }
 
         // Entry content as bullet points
@@ -196,20 +247,55 @@ export async function generateUpdatedCvPdf(
       }
     } else {
       // ── Section-level content ──
-      // Skills section: render as "Skills: ..." format
+      // Skills section: render with bold "Skills:" prefix
       if (rewrite.sectionId === "skills-section") {
+        const skillsLabel = language === "es" ? "Habilidades:" : "Skills:";
+        const boldWidth = fontBold.widthOfTextAtSize(sanitizeForPdf(skillsLabel), 10);
         const skillsText = sanitizeForPdf(rewrite.rewritten);
-        const wrappedLines = wrapText(skillsText, fontRegular, 10, contentWidth);
-        for (const line of wrappedLines) {
+        const firstLineWidth = contentWidth - boldWidth - 4;
+
+        // Wrap skills text for the first line (after bold prefix) and subsequent lines
+        const allSkillsLines = wrapText(skillsText, fontRegular, 10, contentWidth);
+        // Re-wrap accounting for bold prefix on first line
+        const prefixLines = wrapText(skillsText, fontRegular, 10, firstLineWidth);
+
+        if (prefixLines.length > 0) {
           ensureSpace(40);
-          page.drawText(line, {
+          // Draw bold "Skills:" prefix
+          page.drawText(sanitizeForPdf(skillsLabel), {
             x: margin,
+            y,
+            size: 10,
+            font: fontBold,
+            color: CV_BLACK,
+          });
+          // Draw first line of skills after prefix
+          page.drawText(prefixLines[0], {
+            x: margin + boldWidth + 4,
             y,
             size: 10,
             font: fontRegular,
             color: CV_BLACK,
           });
           y -= 12;
+        }
+
+        // If first-line wrap consumed less text, re-wrap remainder at full width
+        const firstLineText = prefixLines[0] ?? "";
+        const remainder = skillsText.slice(firstLineText.length).trimStart();
+        if (remainder.length > 0) {
+          const remainderLines = wrapText(remainder, fontRegular, 10, contentWidth);
+          for (const line of remainderLines) {
+            ensureSpace(40);
+            page.drawText(line, {
+              x: margin,
+              y,
+              size: 10,
+              font: fontRegular,
+              color: CV_BLACK,
+            });
+            y -= 12;
+          }
         }
       } else {
         // General sections: wrapped paragraphs
