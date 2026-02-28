@@ -156,3 +156,102 @@ export async function structureCvWorkExperience(
 ): Promise<ParsedEntry[] | null> {
   return structureWorkExperience(rawText, "cv");
 }
+
+// ──────────────────────────────────────────────────────────────────
+// HOTFIX-5B: Lightweight pre-normalization for LinkedIn Experience
+// ──────────────────────────────────────────────────────────────────
+
+const PRENORM_TIMEOUT_MS = 10_000;
+const PRENORM_MAX_TOKENS = 2_048;
+
+const PRENORM_SYSTEM = `You are a text formatter. You receive raw LinkedIn experience text that may be messy (bullet fragments as separate entries, merged positions, missing labels).
+
+Your task: reformat into clean labeled blocks. One block per real job position.
+
+FORMAT (exactly this, no JSON):
+---
+Title: <job title>
+Organization: <company name>
+Date Range: <date range>
+Description:
+<all bullet points and body text for this job, preserving original wording>
+---
+
+RULES:
+- One block per real job/position — never split bullets into separate blocks
+- Bullet points belong under the SAME job they describe
+- Keep original text INTACT — do NOT summarize, paraphrase, or invent content
+- If title or organization is unclear, leave blank after the colon
+- Maximum 10 blocks
+- Preserve source order
+- Use "---" as block separator`;
+
+/**
+ * HOTFIX-5B: Pre-normalize messy LinkedIn Experience text into clean labeled blocks.
+ *
+ * This is a LIGHTWEIGHT pass that reformats raw text into a deterministic format
+ * that the heuristic parser can reliably parse. Unlike structureWorkExperience()
+ * which returns JSON, this returns plain text with labeled blocks.
+ *
+ * Constraints:
+ * - Single fast LLM call (Haiku)
+ * - 10s timeout (faster than full structurer)
+ * - Input capped at 6,000 chars
+ * - Returns null on failure (caller uses raw text as-is)
+ * - Does NOT invent content — only reformats
+ */
+export async function preNormalizeLinkedinExperience(
+  rawText: string
+): Promise<string | null> {
+  if (!rawText || rawText.trim().length < 80) return null;
+
+  const truncated = rawText.slice(0, MAX_INPUT_CHARS);
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PRENORM_TIMEOUT_MS);
+
+    try {
+      const result = await callLLM({
+        model: LLM_MODEL_FAST,
+        systemPrompt: PRENORM_SYSTEM,
+        userMessage: `Reformat this LinkedIn experience text into clean labeled blocks. One block per real job position. Keep original text intact:\n\n${truncated}`,
+        maxTokens: PRENORM_MAX_TOKENS,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      const normalized = result.text?.trim();
+      if (!normalized || normalized.length < 30) {
+        console.warn(`[preNormalize] Output too short (${normalized?.length ?? 0} chars), skipping`);
+        return null;
+      }
+
+      // Sanity check: must contain at least one labeled block
+      const hasLabels =
+        /Title:/i.test(normalized) ||
+        /Organization:/i.test(normalized) ||
+        /Date Range:/i.test(normalized);
+
+      if (!hasLabels) {
+        console.warn(`[preNormalize] No labeled blocks found in output, skipping`);
+        return null;
+      }
+
+      // Count blocks (--- separators or Title: labels)
+      const blockCount = (normalized.match(/^Title:/gim) || []).length;
+      console.log(
+        `[preNormalize] Success: inputChars=${truncated.length}, outputChars=${normalized.length}, blocks=${blockCount}`
+      );
+
+      return normalized;
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[preNormalize] Failed: ${msg.slice(0, 100)}`);
+    return null;
+  }
+}

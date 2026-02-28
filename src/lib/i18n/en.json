@@ -448,7 +448,8 @@
     "uploadCvToUnlock": "Upload your CV to unlock",
     "addLinkedinToUnlock": "Add your LinkedIn profile to unlock",
     "selectFeatureToUnlock": "Select the relevant feature in Step 2 to enable",
-    "missingSectionsHint": "Critical sections are missing — add them in Rewrite Studio to unlock exports"
+    "missingSectionsHint": "Critical sections are missing — add them in Rewrite Studio to unlock exports",
+    "exportBypass": "Export anyway (clean placeholders)"
   },
   "progress": {
     "analyzing": "Analyzing your profile",

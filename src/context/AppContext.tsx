@@ -151,9 +151,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [generationMeta, setGenerationMeta] = useState<GenerationMetaClient | null>(null);
 
   // HOTFIX-3: Manual section recovery state
-  const [manualSections, setManualSections] = useState<Record<string, string>>({});
+  // HOTFIX-5B: Persist to localStorage so contact info survives reload
+  const [manualSections, setManualSections] = useState<Record<string, string>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("ps_manualSections");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && typeof parsed === "object") {
+            console.log(`[diag] manualSections restored from localStorage: ${Object.keys(parsed).join(", ")}`);
+            return parsed as Record<string, string>;
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    return {};
+  });
   const setManualSection = useCallback((sectionId: string, content: string) => {
-    setManualSections((prev) => ({ ...prev, [sectionId]: content }));
+    setManualSections((prev) => {
+      const next = { ...prev, [sectionId]: content };
+      // HOTFIX-5B: Persist to localStorage
+      try {
+        localStorage.setItem("ps_manualSections", JSON.stringify(next));
+      } catch {
+        // localStorage full or unavailable — fail silently
+      }
+      return next;
+    });
   }, []);
 
   // HOTFIX-URGENT-4: Inject synthesized entries into results for export flow

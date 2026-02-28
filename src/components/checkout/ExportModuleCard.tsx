@@ -32,6 +32,9 @@ interface ExportModuleCardProps {
   /** HOTFIX-3: Disable generation while placeholders remain */
   disabled?: boolean;
   disabledReason?: string;
+  /** HOTFIX-5B: Allow bypass export (clean placeholders) — only for placeholder blocks, NOT missing sections */
+  canBypass?: boolean;
+  onBypassExport?: (format: ExportFormat) => void;
 }
 
 // Which modules support which formats
@@ -59,8 +62,11 @@ export default function ExportModuleCard({
   animDelay,
   disabled,
   disabledReason,
+  canBypass,
+  onBypassExport,
 }: ExportModuleCardProps) {
   const { t } = useI18n();
+  const checkoutT = t.checkout as Record<string, string>;
   const formats = MODULE_FORMATS[moduleId];
   const { status, exportId } = moduleState;
 
@@ -119,9 +125,20 @@ export default function ExportModuleCard({
         {unlocked ? (
           <div className="flex flex-col items-end gap-1 shrink-0">
             {disabled && disabledReason ? (
-              <span className="text-xs text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded max-w-[200px] text-right">
-                {disabledReason}
-              </span>
+              <div className="flex flex-col items-end gap-1.5">
+                <span className="text-xs text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded max-w-[200px] text-right">
+                  {disabledReason}
+                </span>
+                {/* HOTFIX-5B: Bypass button — only when blocked by placeholders, not missing sections */}
+                {canBypass && onBypassExport && (
+                  <button
+                    onClick={() => onBypassExport(formats[0])}
+                    className="text-[10px] text-slate-500 hover:text-slate-700 underline underline-offset-2 transition-colors"
+                  >
+                    {checkoutT.exportBypass ?? "Export anyway (clean placeholders)"}
+                  </button>
+                )}
+              </div>
             ) : status === "processing" ? (
               <Button variant="primary" size="sm" disabled>
                 <LoaderIcon size={14} className="animate-spin mr-1" />

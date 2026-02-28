@@ -423,6 +423,10 @@ export default function CheckoutPage() {
                   ? `Resolve ${valueSummary!.placeholderCount} placeholder${valueSummary!.placeholderCount > 1 ? "s" : ""} before export`
                   : undefined;
 
+              // HOTFIX-5B: Allow bypass when only placeholders block (not missing sections)
+              // sanitizeTemplateOutput already strips placeholders in the export pipeline
+              const canBypass = hasUnresolvedPlaceholders && !hasMissingSections;
+
               return (
                 <ExportModuleCard
                   key={mod.id}
@@ -440,6 +444,18 @@ export default function CheckoutPage() {
                   animDelay={idx * 60}
                   disabled={isBlocked}
                   disabledReason={blockReason}
+                  canBypass={canBypass}
+                  onBypassExport={(fmt) => {
+                    trackEvent("export_bypass_used", {
+                      auditId: auditId ?? undefined,
+                      metadata: {
+                        moduleId: mod.id,
+                        format: fmt,
+                        placeholdersBefore: valueSummary?.placeholderCount ?? 0,
+                      },
+                    });
+                    handleGenerate(mod.id, fmt);
+                  }}
                 />
               );
             })}

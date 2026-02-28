@@ -1797,44 +1797,84 @@ export async function generateAuditResults(
   const linkedinEntries: Record<string, ParsedEntry[]> = {};
   let linkedinExpAiStructured = false;
   let linkedinExpStructurerSkipped = false;
+  let linkedinExpPreNormalized = false;
   let linkedinExpParserConfidence: "high" | "low" = "low";
   let linkedinExpRawCount = 0;
   let linkedinExpCoverage = 0;
 
   for (const sectionId of ["experience", "education"]) {
     if (linkedinSections[sectionId]) {
-      const parsed = parseEntriesFromSection(
-        sectionId,
-        linkedinSections[sectionId]
-      );
+      // ── HOTFIX-5B: Pre-normalization pass for LinkedIn Experience ──
+      let textToParse = linkedinSections[sectionId];
 
-      // ── HOTFIX-5: AI structuring only when necessary ──
       if (sectionId === "experience") {
-        linkedinExpParserConfidence = parsed.confidence;
-        linkedinExpRawCount = parsed.entries.length;
-        linkedinExpCoverage = parsed.totalLineCount
-          ? Math.round(((parsed.coveredLineCount ?? 0) / parsed.totalLineCount) * 100)
+        // First try heuristic parse on raw text to check confidence
+        const rawParsed = parseEntriesFromSection(sectionId, textToParse);
+        linkedinExpParserConfidence = rawParsed.confidence;
+        linkedinExpRawCount = rawParsed.entries.length;
+        linkedinExpCoverage = rawParsed.totalLineCount
+          ? Math.round(((rawParsed.coveredLineCount ?? 0) / rawParsed.totalLineCount) * 100)
           : 100;
 
-        // D.7: Skip expensive AI structuring when deterministic parser is confident
-        if (parsed.confidence === "high" && parsed.entries.length > 0) {
+        // D.7: Skip AI when heuristic parser is confident
+        if (rawParsed.confidence === "high" && rawParsed.entries.length > 0) {
           linkedinExpStructurerSkipped = true;
+          linkedinEntries[sectionId] = rawParsed.entries;
           console.log(
-            `[perf] request=${requestId} | linkedinExp: structurer SKIPPED (confidence=high, entries=${parsed.entries.length}, coverage=${linkedinExpCoverage}%)`
+            `[perf] request=${requestId} | linkedinExp: structurer SKIPPED (confidence=high, entries=${rawParsed.entries.length}, coverage=${linkedinExpCoverage}%)`
           );
-        } else if (parsed.confidence === "low" && linkedinSections[sectionId].length > 100) {
+          continue;
+        }
+
+        // HOTFIX-5B: Try lightweight pre-normalization before full AI structuring
+        if (rawParsed.confidence === "low" && textToParse.length > 100) {
           console.log(
-            `[diag] request=${requestId} | linkedinExp: low confidence (entries=${parsed.entries.length}), trying AI structuring`
+            `[diag] request=${requestId} | linkedinExp: low confidence (entries=${rawParsed.entries.length}), trying pre-normalization`
+          );
+          try {
+            const { preNormalizeLinkedinExperience } = await import("./cv-work-exp-structurer");
+            const normalized = await preNormalizeLinkedinExperience(textToParse);
+            if (normalized) {
+              // Re-parse the normalized text
+              const normalizedParsed = parseEntriesFromSection(sectionId, normalized);
+              if (normalizedParsed.entries.length > rawParsed.entries.length ||
+                  normalizedParsed.confidence === "high") {
+                textToParse = normalized;
+                linkedinExpPreNormalized = true;
+                linkedinExpParserConfidence = normalizedParsed.confidence;
+                linkedinExpRawCount = normalizedParsed.entries.length;
+                linkedinExpCoverage = normalizedParsed.totalLineCount
+                  ? Math.round(((normalizedParsed.coveredLineCount ?? 0) / normalizedParsed.totalLineCount) * 100)
+                  : 100;
+                linkedinEntries[sectionId] = normalizedParsed.entries;
+                console.log(
+                  `[parser] Pre-normalized LinkedIn experience: ${normalizedParsed.entries.length} entries ` +
+                  `(was ${rawParsed.entries.length} before normalization, confidence=${normalizedParsed.confidence})`
+                );
+                continue; // Skip to next section
+              }
+            }
+          } catch (err) {
+            console.warn(
+              `[diag] linkedinExp pre-normalization failed: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            );
+          }
+
+          // Pre-normalization didn't help — fall back to full AI structuring
+          console.log(
+            `[diag] request=${requestId} | linkedinExp: pre-normalization didn't improve, trying full AI structuring`
           );
           try {
             const { structureWorkExperience } = await import("./cv-work-exp-structurer");
-            const aiEntries = await structureWorkExperience(linkedinSections[sectionId], "linkedin");
+            const aiEntries = await structureWorkExperience(textToParse, "linkedin");
             if (aiEntries && aiEntries.length > 0) {
               linkedinEntries[sectionId] = aiEntries;
               linkedinExpAiStructured = true;
               console.log(
                 `[parser] AI-structured ${aiEntries.length} entries from LinkedIn experience ` +
-                `(replaced ${parsed.entries.length} heuristic entries)`
+                `(replaced ${rawParsed.entries.length} heuristic entries)`
               );
               continue; // Skip normal acceptance logic
             }
@@ -1846,7 +1886,19 @@ export async function generateAuditResults(
             );
           }
         }
+
+        // Fall through: use raw heuristic entries
+        if (rawParsed.entries.length > 0) {
+          linkedinEntries[sectionId] = rawParsed.entries;
+          console.log(
+            `[parser] Parsed ${rawParsed.entries.length} entries from LinkedIn ${sectionId} (confidence=${rawParsed.confidence})`
+          );
+        }
+        continue; // Already handled experience
       }
+
+      // Non-experience sections (education): normal parse
+      const parsed = parseEntriesFromSection(sectionId, textToParse);
 
       // HOTFIX-4C: Accept ALL entries regardless of confidence (merge guard already ran)
       if (parsed.entries.length > 0) {
@@ -1865,11 +1917,12 @@ export async function generateAuditResults(
     }
   }
 
-  // HOTFIX-5: Diagnostics for LinkedIn experience parsing
+  // HOTFIX-5B: Diagnostics for LinkedIn experience parsing
   console.log(
     `[diag] request=${requestId} | LINKEDIN_EXP: ` +
     `parserConfidence=${linkedinExpParserConfidence}, ` +
     `parsedCount=${linkedinExpRawCount}, ` +
+    `preNormalized=${linkedinExpPreNormalized}, ` +
     `aiStructured=${linkedinExpAiStructured}, ` +
     `structurerSkipped=${linkedinExpStructurerSkipped}, ` +
     `coverage=${linkedinExpCoverage}%, ` +
