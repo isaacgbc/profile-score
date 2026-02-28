@@ -96,3 +96,41 @@ export function stripPlaceholders(text: string): string {
     .replace(/^\s*\n/, "") // remove leading blank line
     .trim();
 }
+
+/**
+ * HOTFIX-5 E.12: Sanitize template output for export.
+ * Removes:
+ * - Orphan labels (e.g. "Phone:" with empty value, "Email:" with no address)
+ * - Dangling punctuation/separators (trailing |, -, :, ;, , at line ends)
+ * - Unresolved placeholder tokens (via stripPlaceholders)
+ * - Empty lines left after cleanup
+ *
+ * Apply to both PDF and DOCX export output.
+ */
+export function sanitizeTemplateOutput(text: string): string {
+  if (!text) return text;
+
+  let result = stripPlaceholders(text);
+
+  // Remove orphan labels: lines that are just "Label:" or "Label: " with nothing after
+  // Use [A-Za-z ] instead of [A-Za-z\s] to avoid matching across newlines
+  result = result.replace(/^[A-Za-z ]+:\s*$/gm, "");
+
+  // Remove lines with only separators/punctuation (e.g. "|", " | ", "- ", ", ")
+  result = result.replace(/^\s*[|,;\-–—•·]+\s*$/gm, "");
+
+  // Strip dangling trailing separators from non-empty lines
+  result = result.replace(/\s*[|,;\-–—]\s*$/gm, "");
+
+  // Strip trailing colons from lines where the label has no value
+  // (but preserve colons that are part of content like "Skills: Python, JS")
+  result = result.replace(/^([^:\n]+):\s*$/gm, "$1");
+
+  // Collapse resulting multi-blank lines and trim
+  result = result
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\s*\n/, "")
+    .trim();
+
+  return result;
+}

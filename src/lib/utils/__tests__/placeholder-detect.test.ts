@@ -8,6 +8,7 @@ import {
   hasPlaceholders,
   countSectionPlaceholders,
   stripPlaceholders,
+  sanitizeTemplateOutput,
 } from "../placeholder-detect";
 
 let passed = 0;
@@ -128,6 +129,70 @@ console.log("\nTest 8: Internal spaces handled");
 assertEqual(countPlaceholders("[ ADD_METRIC ]"), 1, "counts [ ADD_METRIC ] with spaces");
 assertEqual(countPlaceholders("[ NEEDS_VERIFICATION ]"), 1, "counts [ NEEDS_VERIFICATION ] with spaces");
 assertEqual(countPlaceholders("[ ADD_METRIC : revenue growth ]"), 1, "counts [ ADD_METRIC : payload ] with spaces");
+
+// ── Test 9: sanitizeTemplateOutput removes orphan labels ──
+console.log("\nTest 9: sanitizeTemplateOutput — orphan labels");
+{
+  const input = "John Doe\nEmail:\nPhone:\nNew York, NY";
+  const result = sanitizeTemplateOutput(input);
+  assert(!result.includes("Email:"), "removes orphan Email: label");
+  assert(!result.includes("Phone:"), "removes orphan Phone: label");
+  assert(result.includes("John Doe"), "keeps name");
+  assert(result.includes("New York"), "keeps location");
+}
+
+// ── Test 10: sanitizeTemplateOutput removes dangling separators ──
+console.log("\nTest 10: sanitizeTemplateOutput — dangling separators");
+{
+  const input = "john@example.com | \nSkills: Python, JS\nSome text |";
+  const result = sanitizeTemplateOutput(input);
+  assert(!result.includes("| "), "removes trailing pipe with space");
+  assert(!result.endsWith("|"), "removes trailing pipe");
+  assert(result.includes("Skills: Python, JS"), "keeps Skills line with content");
+}
+
+// ── Test 11: sanitizeTemplateOutput combines with placeholder removal ──
+console.log("\nTest 11: sanitizeTemplateOutput — combined placeholder + orphan cleanup");
+{
+  const input = "Grew revenue by [ADD_METRIC: percentage].\nPhone:\n[NEEDS_VERIFICATION]\nReal content here.";
+  const result = sanitizeTemplateOutput(input);
+  assert(!result.includes("[ADD_METRIC"), "removes placeholder");
+  assert(!result.includes("Phone:"), "removes orphan label");
+  assert(!result.includes("[NEEDS_VERIFICATION]"), "removes verification placeholder");
+  assert(result.includes("Real content here"), "keeps real content");
+}
+
+// ── Test 12: sanitizeTemplateOutput handles empty/null ──
+console.log("\nTest 12: sanitizeTemplateOutput — edge cases");
+{
+  assertEqual(sanitizeTemplateOutput(""), "", "empty string returns empty");
+  assertEqual(sanitizeTemplateOutput("Clean text"), "Clean text", "clean text unchanged");
+  // Line with only separators
+  const sepOnly = "First line\n | \nThird line";
+  const result = sanitizeTemplateOutput(sepOnly);
+  assert(!result.includes(" | "), "removes separator-only line");
+  assert(result.includes("First line"), "keeps first line");
+  assert(result.includes("Third line"), "keeps third line");
+}
+
+// ── Test 13: Placeholders removed in export output ──
+console.log("\nTest 13: Placeholders completely removed in export output");
+{
+  const exportText = "Led team of [ADD_METRIC: team size] engineers.\nDelivered [ADD_METRIC: project count] projects on time.\n[NEEDS_VERIFICATION]\nProven track record.";
+  const cleaned = sanitizeTemplateOutput(exportText);
+  assertEqual(countPlaceholders(cleaned), 0, "zero placeholders after sanitize");
+  assert(cleaned.includes("Led team of"), "keeps surrounding content");
+  assert(cleaned.includes("Proven track record"), "keeps non-placeholder content");
+}
+
+// ── Test 14: Non-placeholder tokens NOT counted (extended) ──
+console.log("\nTest 14: Non-placeholder tokens untouched by sanitize");
+{
+  const text = "Technologies: [React, Node.js, Python]\nFramework [INTERNAL] discussion";
+  const cleaned = sanitizeTemplateOutput(text);
+  assert(cleaned.includes("[React, Node.js, Python]"), "keeps tech stack brackets");
+  assert(cleaned.includes("[INTERNAL]"), "keeps non-placeholder brackets");
+}
 
 // ── Summary ──
 console.log(`\n${"=".repeat(50)}`);

@@ -44,6 +44,7 @@ import {
   detectBuzzwords,
   countMetricTags,
   checkCvDocumentWordCount,
+  computeInputOverlap,
 } from "./generation-guards";
 import { mockResults } from "@/lib/mock/results";
 import { trackServerEvent } from "@/lib/analytics/server-tracker";
@@ -144,6 +145,12 @@ function categorizeError(err: unknown): FailureReason {
 // Prevents long-tail latency from unbounded retries on a single section.
 const SECTION_BUDGET_FAST_MS = 25_000;   // scoring (Haiku)
 const SECTION_BUDGET_QUALITY_MS = 50_000; // rewriting (Sonnet)
+
+// HOTFIX-5: Per-rewrite hard timeout (20s) — prevents individual LLM calls from stalling
+const REWRITE_CALL_TIMEOUT_MS = 20_000;
+
+// HOTFIX-5: First-pass entry cap for experience sections — show fast partial results
+const MAX_ENTRIES_FIRST_PASS = 4;
 
 // ── Feature flags ──
 const ENABLE_STRUCTURING_PASS = process.env.ENABLE_STRUCTURING_PASS === "true";
@@ -729,12 +736,21 @@ async function rewriteSection(
           ? `Rewrite this section. Respond in JSON format with keys: original, improvements, missingSuggestions, rewritten.${langInstruction}`
           : `Your previous response was not valid JSON. Please respond with ONLY a valid JSON object with keys: original, improvements, missingSuggestions, rewritten.${langInstruction}`;
 
-      const result = await callLLM({
-        model: LLM_MODEL_QUALITY,
-        systemPrompt: attempt === 0 ? systemPrompt : systemPrompt + "\n\nIMPORTANT: Respond with ONLY valid JSON, no other text.",
-        userMessage,
-        maxTokens: 4096,
-      });
+      // HOTFIX-5 D.9: Per-rewrite 20s hard timeout
+      const rewriteController = new AbortController();
+      const rewriteTimeout = setTimeout(() => rewriteController.abort(), REWRITE_CALL_TIMEOUT_MS);
+      let result;
+      try {
+        result = await callLLM({
+          model: LLM_MODEL_QUALITY,
+          systemPrompt: attempt === 0 ? systemPrompt : systemPrompt + "\n\nIMPORTANT: Respond with ONLY valid JSON, no other text.",
+          userMessage,
+          maxTokens: 4096,
+          signal: rewriteController.signal,
+        });
+      } finally {
+        clearTimeout(rewriteTimeout);
+      }
 
       // Empty output check
       if (!result.text || result.text.trim().length < 5) {
@@ -844,14 +860,22 @@ async function rewriteSectionWithEntries(
   sectionDiagnostics: SectionDiagnostic[],
   retryAttemptsByReason: Record<string, number>
 ): Promise<{ rewrite: RewritePreview; modelUsed: string } | null> {
-  // Cost cap: limit entries and per-entry length
-  const cappedEntries = entries.slice(0, MAX_ENTRIES_PER_SECTION).map((e, i) => ({
+  // HOTFIX-5 D.8: First-pass entry cap for fast initial results
+  // Cap to MAX_ENTRIES_FIRST_PASS for initial response speed; remaining entries
+  // are available for on-demand regeneration.
+  const firstPassCap = Math.min(MAX_ENTRIES_FIRST_PASS, MAX_ENTRIES_PER_SECTION);
+  const cappedEntries = entries.slice(0, firstPassCap).map((e, i) => ({
     index: i,
     title: e.title.slice(0, 200),
     organization: e.organization.slice(0, 200),
     dateRange: e.dateRange.slice(0, 100),
     description: e.description.slice(0, MAX_CHARS_PER_ENTRY),
   }));
+  if (entries.length > firstPassCap) {
+    console.log(
+      `[perf] First-pass cap: ${sectionId} has ${entries.length} entries, processing first ${firstPassCap}`
+    );
+  }
 
   const entriesJson = JSON.stringify(cappedEntries, null, 2);
 
@@ -901,15 +925,24 @@ async function rewriteSectionWithEntries(
           ? `Rewrite this ${SECTION_DISPLAY_NAMES[sectionId] ?? sectionId} section. Provide BOTH a section-level summary AND per-entry rewrites. Respond in JSON with keys: original, improvements, missingSuggestions, rewritten, entries (array of {entryTitle, original, improvements, missingSuggestions, rewritten}).${langInstruction}`
           : `Your previous response was not valid JSON. Please respond with ONLY valid JSON.${langInstruction}`;
 
-      const result = await callLLM({
-        model: LLM_MODEL_QUALITY,
-        systemPrompt:
-          attempt === 0
-            ? systemPrompt
-            : systemPrompt + "\n\nIMPORTANT: Respond with ONLY valid JSON.",
-        userMessage,
-        maxTokens: 4096,
-      });
+      // HOTFIX-5 D.9: Per-rewrite 20s hard timeout via AbortController
+      const rewriteController = new AbortController();
+      const rewriteTimeout = setTimeout(() => rewriteController.abort(), REWRITE_CALL_TIMEOUT_MS);
+      let result;
+      try {
+        result = await callLLM({
+          model: LLM_MODEL_QUALITY,
+          systemPrompt:
+            attempt === 0
+              ? systemPrompt
+              : systemPrompt + "\n\nIMPORTANT: Respond with ONLY valid JSON.",
+          userMessage,
+          maxTokens: 4096,
+          signal: rewriteController.signal,
+        });
+      } finally {
+        clearTimeout(rewriteTimeout);
+      }
 
       const jsonStr = extractJson(result.text);
       let rawEntryParsed: unknown;
@@ -923,20 +956,69 @@ async function rewriteSectionWithEntries(
       const parsed = RewriteSectionWithEntriesOutput.safeParse(rawEntryParsed);
 
       if (parsed.success) {
+        // HOTFIX-5 B.4: Attachment integrity check — verify each rewritten entry
+        // corresponds to the right original entry (prevents cross-contamination)
+        let wrongAttachmentCount = 0;
+        let attachmentSimilaritySum = 0;
+        let attachmentFallbackApplied = 0;
+
         const rewriteEntries: RewriteEntry[] = (parsed.data.entries ?? []).map(
-          (e, i) => ({
-            entryIndex: i,
-            entryTitle: e.entryTitle,
-            // Carry forward structured fields from original parsed entries
-            organization: cappedEntries[i]?.organization || undefined,
-            title: cappedEntries[i]?.title || undefined,
-            dateRange: cappedEntries[i]?.dateRange || undefined,
-            original: e.original,
-            improvements: e.improvements,
-            missingSuggestions: e.missingSuggestions,
-            rewritten: stripNonFlagEmojis(e.rewritten),
-          })
+          (e, i) => {
+            const originalEntry = cappedEntries[i];
+            const originalText = originalEntry
+              ? [originalEntry.title, originalEntry.organization, originalEntry.description].join(" ")
+              : "";
+
+            // Compute similarity between rewritten text and original entry text
+            const similarity = originalText.length > 20
+              ? computeInputOverlap(originalText, e.rewritten)
+              : 1; // Skip check for very short entries
+            attachmentSimilaritySum += similarity;
+
+            let rewrittenText = stripNonFlagEmojis(e.rewritten);
+
+            // If similarity is suspiciously low, the rewrite may be attached to wrong entry
+            if (similarity < 0.15 && originalText.length > 50) {
+              wrongAttachmentCount++;
+              // Fallback: use original description instead of potentially contaminated rewrite
+              if (originalEntry?.description) {
+                rewrittenText = originalEntry.description;
+                attachmentFallbackApplied++;
+                console.warn(
+                  `[guard] Attachment mismatch: section=${sectionId}, entry=${i}, ` +
+                  `similarity=${similarity.toFixed(2)}, falling back to original`
+                );
+              }
+            }
+
+            return {
+              entryIndex: i,
+              entryTitle: e.entryTitle,
+              // Carry forward structured fields from original parsed entries
+              organization: originalEntry?.organization || undefined,
+              title: originalEntry?.title || undefined,
+              dateRange: originalEntry?.dateRange || undefined,
+              original: e.original,
+              improvements: e.improvements,
+              missingSuggestions: e.missingSuggestions,
+              rewritten: rewrittenText,
+            };
+          }
         );
+
+        const entryCount = rewriteEntries.length;
+        const attachmentSimilarityAvg = entryCount > 0
+          ? attachmentSimilaritySum / entryCount
+          : 1;
+
+        if (wrongAttachmentCount > 0 || attachmentSimilarityAvg < 0.4) {
+          console.warn(
+            `[diag] ATTACHMENT_INTEGRITY: section=${sectionId}, ` +
+            `wrongAttachmentCount=${wrongAttachmentCount}, ` +
+            `attachmentSimilarityAvg=${attachmentSimilarityAvg.toFixed(2)}, ` +
+            `attachmentFallbackApplied=${attachmentFallbackApplied}`
+          );
+        }
 
         const rewrite: RewritePreview = {
           sectionId,
@@ -1714,8 +1796,10 @@ export async function generateAuditResults(
   // ─── 4c. Parse per-entry structure for experience/education ──
   const linkedinEntries: Record<string, ParsedEntry[]> = {};
   let linkedinExpAiStructured = false;
+  let linkedinExpStructurerSkipped = false;
   let linkedinExpParserConfidence: "high" | "low" = "low";
   let linkedinExpRawCount = 0;
+  let linkedinExpCoverage = 0;
 
   for (const sectionId of ["experience", "education"]) {
     if (linkedinSections[sectionId]) {
@@ -1724,12 +1808,21 @@ export async function generateAuditResults(
         linkedinSections[sectionId]
       );
 
-      // ── HOTFIX-4C: AI structuring pass for LinkedIn experience with low confidence ──
+      // ── HOTFIX-5: AI structuring only when necessary ──
       if (sectionId === "experience") {
         linkedinExpParserConfidence = parsed.confidence;
         linkedinExpRawCount = parsed.entries.length;
+        linkedinExpCoverage = parsed.totalLineCount
+          ? Math.round(((parsed.coveredLineCount ?? 0) / parsed.totalLineCount) * 100)
+          : 100;
 
-        if (parsed.confidence === "low" && linkedinSections[sectionId].length > 100) {
+        // D.7: Skip expensive AI structuring when deterministic parser is confident
+        if (parsed.confidence === "high" && parsed.entries.length > 0) {
+          linkedinExpStructurerSkipped = true;
+          console.log(
+            `[perf] request=${requestId} | linkedinExp: structurer SKIPPED (confidence=high, entries=${parsed.entries.length}, coverage=${linkedinExpCoverage}%)`
+          );
+        } else if (parsed.confidence === "low" && linkedinSections[sectionId].length > 100) {
           console.log(
             `[diag] request=${requestId} | linkedinExp: low confidence (entries=${parsed.entries.length}), trying AI structuring`
           );
@@ -1772,32 +1865,45 @@ export async function generateAuditResults(
     }
   }
 
-  // HOTFIX-4C: Diagnostics for LinkedIn experience parsing
+  // HOTFIX-5: Diagnostics for LinkedIn experience parsing
   console.log(
     `[diag] request=${requestId} | LINKEDIN_EXP: ` +
     `parserConfidence=${linkedinExpParserConfidence}, ` +
     `parsedCount=${linkedinExpRawCount}, ` +
     `aiStructured=${linkedinExpAiStructured}, ` +
+    `structurerSkipped=${linkedinExpStructurerSkipped}, ` +
+    `coverage=${linkedinExpCoverage}%, ` +
     `finalCount=${linkedinEntries["experience"]?.length ?? 0}`
   );
 
   const cvEntries: Record<string, ParsedEntry[]> = {};
   let cvWorkExpAiStructured = false;
+  let cvWorkExpStructurerSkipped = false;
   let cvWorkExpParserConfidence: "high" | "low" = "low";
   let cvWorkExpRawCount = 0;
   let cvWorkExpMergedCount = 0;
+  let cvWorkExpCoverage = 0;
 
   for (const sectionId of ["work-experience", "education-section"]) {
     if (cvSections[sectionId]) {
       const parsed = parseEntriesFromSection(sectionId, cvSections[sectionId]);
 
-      // ── HOTFIX-CV: AI structuring pass for work-experience with low confidence ──
+      // ── HOTFIX-5: AI structuring for work-experience — skip when confident ──
       if (sectionId === "work-experience") {
         cvWorkExpParserConfidence = parsed.confidence;
         cvWorkExpRawCount = parsed.entries.length;
         cvWorkExpMergedCount = parsed.entries.length;
+        cvWorkExpCoverage = parsed.totalLineCount
+          ? Math.round(((parsed.coveredLineCount ?? 0) / parsed.totalLineCount) * 100)
+          : 100;
 
-        if (parsed.confidence === "low" && cvSections[sectionId].length > 100) {
+        // D.7: Skip AI structuring when confidence is high
+        if (parsed.confidence === "high" && parsed.entries.length > 0) {
+          cvWorkExpStructurerSkipped = true;
+          console.log(
+            `[perf] request=${requestId} | cvWorkExp: structurer SKIPPED (confidence=high, entries=${parsed.entries.length}, coverage=${cvWorkExpCoverage}%)`
+          );
+        } else if (parsed.confidence === "low" && cvSections[sectionId].length > 100) {
           console.log(
             `[diag] request=${requestId} | cvWorkExp: low confidence (entries=${parsed.entries.length}), trying AI structuring`
           );
@@ -1824,14 +1930,8 @@ export async function generateAuditResults(
         }
       }
 
-      // HOTFIX-URGENT: Accept ALL education entries regardless of confidence
-      // HOTFIX-CV: Also accept work-experience entries (merge guard already ran)
-      if (
-        parsed.entries.length > 0 &&
-        (parsed.confidence === "high" ||
-          sectionId === "education-section" ||
-          sectionId === "work-experience")
-      ) {
+      // Accept ALL entries regardless of confidence (merge guard already ran)
+      if (parsed.entries.length > 0) {
         cvEntries[sectionId] = parsed.entries;
         console.log(
           `[parser] Parsed ${parsed.entries.length} entries from CV ${sectionId} (confidence=${parsed.confidence})`
@@ -1840,13 +1940,15 @@ export async function generateAuditResults(
     }
   }
 
-  // HOTFIX-CV: Diagnostics for CV work experience parsing
+  // HOTFIX-5: Diagnostics for CV work experience parsing
   console.log(
     `[diag] request=${requestId} | CV_WORK_EXP: ` +
     `cvWorkExpParserConfidence=${cvWorkExpParserConfidence}, ` +
     `cvWorkExpParsedCount=${cvWorkExpRawCount}, ` +
     `cvWorkExpMergedCount=${cvWorkExpMergedCount}, ` +
     `cvWorkExpAiStructured=${cvWorkExpAiStructured}, ` +
+    `cvWorkExpStructurerSkipped=${cvWorkExpStructurerSkipped}, ` +
+    `coverage=${cvWorkExpCoverage}%, ` +
     `cvWorkExpFinalCount=${cvEntries["work-experience"]?.length ?? 0}`
   );
 

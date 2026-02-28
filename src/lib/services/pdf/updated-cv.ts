@@ -1,7 +1,7 @@
 import type { ProfileResult, RewritePreview } from "@/lib/types";
 import { getSectionLabel } from "@/lib/section-labels";
 import { createCvBasePdf, addPage, wrapText, sanitizeForPdf, COLORS } from "./shared";
-import { stripPlaceholders } from "@/lib/utils/placeholder-detect";
+import { stripPlaceholders, sanitizeTemplateOutput } from "@/lib/utils/placeholder-detect";
 
 import en from "@/lib/i18n/en.json";
 import es from "@/lib/i18n/es.json";
@@ -120,7 +120,7 @@ export async function generateUpdatedCvPdf(
   const contactRewrite = allRewrites.find((r) => r.sectionId === "contact-info");
 
   if (contactRewrite) {
-    const cleanedContact = stripPlaceholders(contactRewrite.rewritten);
+    const cleanedContact = sanitizeTemplateOutput(contactRewrite.rewritten);
     const contactLines = cleanedContact.split("\n").filter(Boolean);
     // First line = name (fallback to "Candidate" if missing)
     const nameText = contactLines.length > 0 && contactLines[0].trim().length > 0
@@ -289,7 +289,7 @@ export async function generateUpdatedCvPdf(
         // Entry content as bullet points
         // HOTFIX-4: Strip potential duplicated entry title from rewritten text
         // HOTFIX-4C: Strip unresolved placeholder tokens before export
-        const cleanedEntryContent = stripPlaceholders(
+        const cleanedEntryContent = sanitizeTemplateOutput(
           stripLeadingSectionTitle(entry.rewritten, entry.entryTitle)
         );
         const lines = cleanedEntryContent.split("\n").filter(Boolean);
@@ -335,7 +335,7 @@ export async function generateUpdatedCvPdf(
       // ── Section-level content ──
       // HOTFIX-4: Strip LLM-duplicated section titles from rewritten text
       // HOTFIX-4C: Strip unresolved placeholder tokens before export
-      const cleanedRewritten = stripPlaceholders(
+      const cleanedRewritten = sanitizeTemplateOutput(
         stripLeadingSectionTitle(rewrite.rewritten, label)
       );
 

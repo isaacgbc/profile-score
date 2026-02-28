@@ -325,12 +325,20 @@ export interface ParsedEntry {
   dateRange: string;
   /** Description/bullets for this entry */
   description: string;
+  /** HOTFIX-5: Source line start (0-based index within section text) */
+  sourceLineStart?: number;
+  /** HOTFIX-5: Source line end (exclusive, 0-based index within section text) */
+  sourceLineEnd?: number;
 }
 
 export interface ParsedSectionWithEntries {
   rawText: string;
   entries: ParsedEntry[];
   confidence: "high" | "low";
+  /** HOTFIX-5: Number of source lines covered by parsed entries */
+  coveredLineCount?: number;
+  /** HOTFIX-5: Total source lines in the section */
+  totalLineCount?: number;
 }
 
 // EN month names
@@ -685,7 +693,11 @@ export function parseEntriesFromSection(
     const description = descLines.join("\n").trim();
 
     if (title || dateRange) {
-      entries.push({ title, organization, dateRange, description });
+      entries.push({
+        title, organization, dateRange, description,
+        sourceLineStart: headerStart,
+        sourceLineEnd: descEnd,
+      });
     }
   }
 
@@ -740,12 +752,38 @@ export function parseEntriesFromSection(
     result.confidence = "low";
   }
 
+  // HOTFIX-5: Coverage invariant — compute how many source lines are covered by entries
+  const nonEmptyLineCount = lines.filter((l) => l.trim().length > 0).length;
+  const coveredLines = new Set<number>();
+  for (const e of mergedEntries) {
+    if (e.sourceLineStart != null && e.sourceLineEnd != null) {
+      for (let i = e.sourceLineStart; i < e.sourceLineEnd; i++) {
+        if (lines[i]?.trim().length > 0) coveredLines.add(i);
+      }
+    }
+  }
+  result.coveredLineCount = coveredLines.size;
+  result.totalLineCount = nonEmptyLineCount;
+
+  const coveragePct = nonEmptyLineCount > 0
+    ? Math.round((coveredLines.size / nonEmptyLineCount) * 100)
+    : 100;
+
   console.log(
     `[diag] entryParser: sectionId=${sectionId}, dateLines=${dateLineIndices.length}, ` +
     `rawEntries=${entries.length}, mergedEntries=${mergedEntries.length}, ` +
     `triadCount=${triadCount}, bulletOnlyCount=${bulletOnlyCount}, ` +
-    `tinyEntryCount=${tinyEntryCount}, confidence=${result.confidence}`
+    `tinyEntryCount=${tinyEntryCount}, confidence=${result.confidence}, ` +
+    `coverage=${coveragePct}% (${coveredLines.size}/${nonEmptyLineCount} lines)`
   );
+
+  // HOTFIX-5: If coverage is low, log warning (never silently drop content)
+  if (coveragePct < 70 && nonEmptyLineCount > 5) {
+    console.warn(
+      `[diag] LOW_COVERAGE: sectionId=${sectionId}, coverage=${coveragePct}%, ` +
+      `uncoveredLines=${nonEmptyLineCount - coveredLines.size}`
+    );
+  }
 
   return result;
 }

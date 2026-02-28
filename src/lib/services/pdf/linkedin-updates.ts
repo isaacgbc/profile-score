@@ -1,7 +1,7 @@
 import type { ProfileResult } from "@/lib/types";
 import { getSectionLabel } from "@/lib/section-labels";
 import { createBasePdf, addPage, wrapText, sanitizeForPdf, COLORS } from "./shared";
-import { stripPlaceholders } from "@/lib/utils/placeholder-detect";
+import { stripPlaceholders, sanitizeTemplateOutput } from "@/lib/utils/placeholder-detect";
 
 import en from "@/lib/i18n/en.json";
 import es from "@/lib/i18n/es.json";
@@ -261,7 +261,7 @@ export async function generateLinkedinUpdatesPdf(
 
         // Entry rewritten content (bullets/paragraphs)
         // HOTFIX-4C: Strip unresolved placeholder tokens before export
-        const cleanedEntryRewritten = stripPlaceholders(entry.rewritten);
+        const cleanedEntryRewritten = sanitizeTemplateOutput(entry.rewritten);
         const paragraphs = cleanedEntryRewritten.split("\n").filter(Boolean);
         for (const para of paragraphs) {
           const lines = wrapText(sanitizeForPdf(para), fontRegular, 10, contentWidth - 15);
@@ -283,7 +283,7 @@ export async function generateLinkedinUpdatesPdf(
     } else {
       // ── Section-level rendering ──
       // HOTFIX-4C: Strip unresolved placeholder tokens before export
-      const cleanedSectionRewritten = stripPlaceholders(rewrite.rewritten);
+      const cleanedSectionRewritten = sanitizeTemplateOutput(rewrite.rewritten);
       const paragraphs = cleanedSectionRewritten.split("\n").filter(Boolean);
       for (const para of paragraphs) {
         const lines = wrapText(sanitizeForPdf(para), fontRegular, 10, contentWidth);
