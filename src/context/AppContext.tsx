@@ -89,6 +89,8 @@ interface AppContextValue extends AppState {
   injectEntries: (sectionId: string, entries: import("@/lib/types").RewriteEntry[]) => void;
   /** Delete a single entry from results + clear its userOptimized key */
   deleteEntry: (sectionId: string, entryStableId: string) => void;
+  /** HOTFIX-4C: Update entry header fields (organization/title) */
+  updateEntryHeader: (sectionId: string, entryStableId: string, field: "organization" | "title", value: string) => void;
   triggerUnlockAnimation: () => void;
   isFeatureUnlocked: (featureId: FeatureId) => boolean;
   isSectionLocked: (sectionId: string) => boolean;
@@ -203,6 +205,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
     });
   }, []);
+
+  // HOTFIX-4C: Update entry header fields (organization/title) in results
+  const updateEntryHeader = useCallback(
+    (sectionId: string, entryStableId: string, field: "organization" | "title", value: string) => {
+      setResultsState((prev) => {
+        if (!prev) return prev;
+        const updateRewrites = (rwArr: ProfileResult["linkedinRewrites"]) =>
+          rwArr.map((r) => {
+            if (r.sectionId !== sectionId || !r.entries) return r;
+            return {
+              ...r,
+              entries: r.entries.map((e) => {
+                const eStableId = computeEntryStableId(e.entryTitle, e.original);
+                if (eStableId !== entryStableId) return e;
+                return { ...e, [field]: value };
+              }),
+            };
+          });
+        return {
+          ...prev,
+          linkedinRewrites: updateRewrites(prev.linkedinRewrites),
+          cvRewrites: updateRewrites(prev.cvRewrites),
+        };
+      });
+    },
+    []
+  );
 
   // Sprint 2: Progressive generation stream (SSE — works on Pro/Enterprise)
   const {
@@ -906,6 +935,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setManualSection,
         injectEntries,
         deleteEntry,
+        updateEntryHeader,
         triggerUnlockAnimation,
         isFeatureUnlocked,
         isSectionLocked,

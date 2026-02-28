@@ -40,6 +40,8 @@ function formatContactFields(fields: ContactFields): string {
  *
  * HOTFIX-4: When sectionId is "contact-info", renders structured fields
  * (Name, Email, Phone, LinkedIn, Location) instead of a free-text textarea.
+ *
+ * HOTFIX-4C: Softer neutral design — blue-gray instead of aggressive amber.
  */
 export default function MissingSectionCard({
   sectionId,
@@ -79,28 +81,34 @@ export default function MissingSectionCard({
     setContactFields((prev) => ({ ...prev, [field]: value }));
   }
 
+  // ─── Shared styles ───
+  const inputClass =
+    "w-full text-sm text-[var(--text-primary)] bg-white border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300/50 placeholder:text-slate-300";
+  const labelClass =
+    "block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1";
+
   // HOTFIX-4: Structured contact info variant
   if (isContactInfo) {
     const nameRequired = contactFields.name.trim().length === 0;
 
     return (
-      <Card variant="default" padding="md" className="border-amber-200 bg-amber-50/30">
+      <Card variant="default" padding="md" className="border-slate-200 bg-slate-50/40">
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
-            <span className="text-amber-600 text-sm font-bold">?</span>
+          <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center shrink-0 mt-0.5">
+            <span className="text-blue-400 text-xs font-bold">+</span>
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-amber-800 mb-1">
-              {label} — {studioT.missingSectionCardTitle ?? "Not found in source"}
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-0.5">
+              {label}
             </h3>
-            <p className="text-xs text-amber-700 mb-3">
+            <p className="text-xs text-[var(--text-muted)] mb-3">
               {studioT.contactInfoDesc ?? "Add your contact details. Name is required for CV export."}
             </p>
 
             <div className="space-y-2">
               {/* Name (required) */}
               <div>
-                <label className="block text-[10px] font-semibold text-amber-700 uppercase tracking-wider mb-1">
+                <label className={labelClass}>
                   {studioT.contactInfoName ?? "Full Name"} *
                 </label>
                 <input
@@ -108,10 +116,10 @@ export default function MissingSectionCard({
                   value={contactFields.name}
                   onChange={(e) => updateContactField("name", e.target.value)}
                   placeholder="John Doe"
-                  className={`w-full text-sm bg-white border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-300/50 placeholder:text-amber-300 ${
+                  className={`${inputClass} ${
                     nameRequired && contactFields.name.length > 0
-                      ? "border-red-300 text-red-700"
-                      : "border-amber-200 text-[var(--text-primary)]"
+                      ? "!border-red-300 text-red-700"
+                      : ""
                   }`}
                 />
                 {nameRequired && contactFields.name.length > 0 && (
@@ -123,7 +131,7 @@ export default function MissingSectionCard({
 
               {/* Email */}
               <div>
-                <label className="block text-[10px] font-semibold text-amber-700 uppercase tracking-wider mb-1">
+                <label className={labelClass}>
                   {studioT.contactInfoEmail ?? "Email"}
                 </label>
                 <input
@@ -131,14 +139,14 @@ export default function MissingSectionCard({
                   value={contactFields.email}
                   onChange={(e) => updateContactField("email", e.target.value)}
                   placeholder="john@example.com"
-                  className="w-full text-sm text-[var(--text-primary)] bg-white border border-amber-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-300/50 placeholder:text-amber-300"
+                  className={inputClass}
                 />
               </div>
 
               {/* Phone + Location (side by side) */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] font-semibold text-amber-700 uppercase tracking-wider mb-1">
+                  <label className={labelClass}>
                     {studioT.contactInfoPhone ?? "Phone"}
                   </label>
                   <input
@@ -146,11 +154,11 @@ export default function MissingSectionCard({
                     value={contactFields.phone}
                     onChange={(e) => updateContactField("phone", e.target.value)}
                     placeholder="+1 555 123 4567"
-                    className="w-full text-sm text-[var(--text-primary)] bg-white border border-amber-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-300/50 placeholder:text-amber-300"
+                    className={inputClass}
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-semibold text-amber-700 uppercase tracking-wider mb-1">
+                  <label className={labelClass}>
                     {studioT.contactInfoLocation ?? "Location"}
                   </label>
                   <input
@@ -158,14 +166,14 @@ export default function MissingSectionCard({
                     value={contactFields.location}
                     onChange={(e) => updateContactField("location", e.target.value)}
                     placeholder="New York, NY"
-                    className="w-full text-sm text-[var(--text-primary)] bg-white border border-amber-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-300/50 placeholder:text-amber-300"
+                    className={inputClass}
                   />
                 </div>
               </div>
 
               {/* LinkedIn URL */}
               <div>
-                <label className="block text-[10px] font-semibold text-amber-700 uppercase tracking-wider mb-1">
+                <label className={labelClass}>
                   {studioT.contactInfoLinkedin ?? "LinkedIn URL"}
                 </label>
                 <input
@@ -173,7 +181,7 @@ export default function MissingSectionCard({
                   value={contactFields.linkedin}
                   onChange={(e) => updateContactField("linkedin", e.target.value)}
                   placeholder="https://linkedin.com/in/johndoe"
-                  className="w-full text-sm text-[var(--text-primary)] bg-white border border-amber-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-300/50 placeholder:text-amber-300"
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -184,7 +192,6 @@ export default function MissingSectionCard({
                 size="sm"
                 onClick={handleSubmit}
                 disabled={!canSubmit || isRegenerating}
-                className="!bg-amber-600 hover:!bg-amber-700"
               >
                 <span className="flex items-center gap-1.5">
                   <SparklesIcon size={14} />
@@ -202,16 +209,16 @@ export default function MissingSectionCard({
 
   // Default: free-text textarea for other sections
   return (
-    <Card variant="default" padding="md" className="border-amber-200 bg-amber-50/30">
+    <Card variant="default" padding="md" className="border-slate-200 bg-slate-50/40">
       <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
-          <span className="text-amber-600 text-sm font-bold">?</span>
+        <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center shrink-0 mt-0.5">
+          <span className="text-blue-400 text-xs font-bold">+</span>
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-amber-800 mb-1">
-            {label} — {studioT.missingSectionCardTitle ?? "Not found in source"}
+          <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-0.5">
+            {label}
           </h3>
-          <p className="text-xs text-amber-700 mb-3">
+          <p className="text-xs text-[var(--text-muted)] mb-3">
             {studioT.missingSectionCardDesc ?? "This section was not detected in your uploaded profile. Paste your content below and click regenerate to include it in your analysis."}
           </p>
           <textarea
@@ -219,10 +226,10 @@ export default function MissingSectionCard({
             onChange={(e) => setContent(e.target.value)}
             placeholder={studioT.missingSectionCardPlaceholder ?? `Paste your ${label.toLowerCase()} content here...`}
             rows={4}
-            className="w-full text-sm text-[var(--text-primary)] bg-white border border-amber-200 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-amber-300/50 leading-relaxed placeholder:text-amber-300"
+            className="w-full text-sm text-[var(--text-primary)] bg-white border border-slate-200 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300/50 leading-relaxed placeholder:text-slate-300"
           />
           <div className="flex items-center justify-between mt-2">
-            <span className="text-[10px] text-amber-500">
+            <span className="text-[10px] text-[var(--text-muted)]">
               {content.length > 0 ? `${content.length} chars` : ""}
             </span>
             <Button
@@ -230,7 +237,6 @@ export default function MissingSectionCard({
               size="sm"
               onClick={handleSubmit}
               disabled={!canSubmit || isRegenerating}
-              className="!bg-amber-600 hover:!bg-amber-700"
             >
               <span className="flex items-center gap-1.5">
                 <SparklesIcon size={14} />

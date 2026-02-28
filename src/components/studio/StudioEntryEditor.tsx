@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useI18n } from "@/context/I18nContext";
 import type { RewriteEntry, EntryScore } from "@/lib/types";
 import { computeEntryStableId } from "@/lib/utils/entry-id";
-import { hasPlaceholders } from "@/lib/utils/placeholder-detect";
+import { hasPlaceholders, PLACEHOLDER_HIGHLIGHT_RE } from "@/lib/utils/placeholder-detect";
 
 // Re-export for backward compatibility
 export { computeEntryStableId };
@@ -17,6 +17,7 @@ interface StudioEntryEditorProps {
   onOptimizedChange: (key: string, text: string) => void;
   onResetEntry: (sectionId: string, entryStableId: string) => void;
   onDeleteEntry?: (sectionId: string, entryStableId: string) => void;
+  onUpdateHeader?: (sectionId: string, entryStableId: string, field: "organization" | "title", value: string) => void;
   locked: boolean;
   /** Optional entry score context from v2 entry scoring */
   entryScore?: EntryScore;
@@ -29,12 +30,16 @@ export default function StudioEntryEditor({
   onOptimizedChange,
   onResetEntry,
   onDeleteEntry,
+  onUpdateHeader,
   locked,
   entryScore,
 }: StudioEntryEditorProps) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // HOTFIX-4C: Inline editing state for header fields
+  const [editingField, setEditingField] = useState<"organization" | "title" | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const stableId = computeEntryStableId(entry.entryTitle, entry.original);
   const stateKey = `${sectionId}:${stableId}`;
@@ -54,6 +59,25 @@ export default function StudioEntryEditor({
   const dateDisplay = entry.dateRange || null;
   const hasSeparateFields = orgDisplay || titleDisplay;
 
+  function startEditing(field: "organization" | "title") {
+    if (locked || !onUpdateHeader) return;
+    setEditingField(field);
+    setEditValue(entry[field] || "");
+  }
+
+  function commitEdit() {
+    if (editingField && onUpdateHeader) {
+      onUpdateHeader(sectionId, stableId, editingField, editValue.trim());
+    }
+    setEditingField(null);
+    setEditValue("");
+  }
+
+  function cancelEdit() {
+    setEditingField(null);
+    setEditValue("");
+  }
+
   return (
     <div className="border border-[var(--border-light)] rounded-xl overflow-hidden">
       {/* Collapsible header — structured: Organization > Title > Date */}
@@ -64,17 +88,77 @@ export default function StudioEntryEditor({
         <div className="flex-1 min-w-0">
           {hasSeparateFields ? (
             <>
-              {/* Line 1: Organization (bold) */}
+              {/* Line 1: Organization (bold) — editable on click */}
               {orgDisplay && (
-                <p className="text-sm font-semibold text-[var(--text-primary)] leading-snug truncate">
-                  {orgDisplay}
-                </p>
+                editingField === "organization" ? (
+                  <input
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitEdit();
+                      if (e.key === "Escape") cancelEdit();
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    autoFocus
+                    className="text-sm font-semibold text-[var(--text-primary)] leading-snug w-full bg-white border border-emerald-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  />
+                ) : (
+                  <p
+                    className="text-sm font-semibold text-[var(--text-primary)] leading-snug truncate group/org"
+                    onClick={(e) => {
+                      if (!locked && onUpdateHeader) {
+                        e.stopPropagation();
+                        startEditing("organization");
+                      }
+                    }}
+                    title={!locked && onUpdateHeader ? "Click to edit" : undefined}
+                  >
+                    {orgDisplay}
+                    {!locked && onUpdateHeader && (
+                      <span className="ml-1 text-[9px] text-[var(--text-muted)] opacity-0 group-hover/org:opacity-100 transition-opacity">
+                        (edit)
+                      </span>
+                    )}
+                  </p>
+                )
               )}
-              {/* Line 2: Title/Role/Degree (regular) */}
+              {/* Line 2: Title/Role/Degree (regular) — editable on click */}
               {titleDisplay && (
-                <p className="text-xs text-[var(--text-secondary)] leading-snug mt-0.5 line-clamp-2">
-                  {titleDisplay}
-                </p>
+                editingField === "title" ? (
+                  <input
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitEdit();
+                      if (e.key === "Escape") cancelEdit();
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    autoFocus
+                    className="text-xs text-[var(--text-secondary)] leading-snug w-full bg-white border border-emerald-300 rounded px-1 py-0.5 mt-0.5 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  />
+                ) : (
+                  <p
+                    className="text-xs text-[var(--text-secondary)] leading-snug mt-0.5 line-clamp-2 group/title"
+                    onClick={(e) => {
+                      if (!locked && onUpdateHeader) {
+                        e.stopPropagation();
+                        startEditing("title");
+                      }
+                    }}
+                    title={!locked && onUpdateHeader ? "Click to edit" : undefined}
+                  >
+                    {titleDisplay}
+                    {!locked && onUpdateHeader && (
+                      <span className="ml-1 text-[9px] text-[var(--text-muted)] opacity-0 group-hover/title:opacity-100 transition-opacity">
+                        (edit)
+                      </span>
+                    )}
+                  </p>
+                )
               )}
               {/* Line 3: Date range (muted) */}
               {dateDisplay && (
@@ -183,7 +267,7 @@ export default function StudioEntryEditor({
                         .replace(/</g, "&lt;")
                         .replace(/>/g, "&gt;")
                         .replace(
-                          /\[[A-Z][A-Z0-9_ /'-]*\]/g,
+                          PLACEHOLDER_HIGHLIGHT_RE,
                           (match) => `<mark class="bg-amber-200/70 text-amber-900 rounded px-0.5">${match}</mark>`
                         ),
                     }}

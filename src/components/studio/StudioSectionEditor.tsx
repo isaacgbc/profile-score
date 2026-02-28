@@ -7,7 +7,7 @@ import Button from "@/components/ui/Button";
 import { getSectionLabel } from "@/lib/section-labels";
 import { LockIcon, SparklesIcon } from "@/components/ui/Icons";
 import StudioEntryEditor, { computeEntryStableId } from "./StudioEntryEditor";
-import { hasPlaceholders } from "@/lib/utils/placeholder-detect";
+import { hasPlaceholders, PLACEHOLDER_HIGHLIGHT_RE } from "@/lib/utils/placeholder-detect";
 import { synthesizeEntries, createBlankEntry } from "@/lib/utils/entry-synthesizer";
 import type { RewritePreview, EntryScore, RewriteEntry } from "@/lib/types";
 
@@ -22,6 +22,8 @@ interface StudioSectionEditorProps {
   onReset: (sectionId: string) => void;
   onResetEntry: (sectionId: string, entryStableId: string) => void;
   onDeleteEntry?: (sectionId: string, entryStableId: string) => void;
+  /** HOTFIX-4C: Update entry header fields (organization/title) */
+  onUpdateEntryHeader?: (sectionId: string, entryStableId: string, field: "organization" | "title", value: string) => void;
   isRegenerating: boolean;
   locked: boolean;
   onUpgradeClick?: () => void;
@@ -72,6 +74,7 @@ export default function StudioSectionEditor({
   onReset,
   onResetEntry,
   onDeleteEntry,
+  onUpdateEntryHeader,
   isRegenerating,
   locked,
   onUpgradeClick,
@@ -279,6 +282,7 @@ export default function StudioSectionEditor({
                   onOptimizedChange={onOptimizedChange}
                   onResetEntry={onResetEntry}
                   onDeleteEntry={handleDeleteEntry}
+                  onUpdateHeader={onUpdateEntryHeader}
                   locked={locked}
                   entryScore={matchingScore}
                 />
@@ -319,7 +323,7 @@ export default function StudioSectionEditor({
                       .replace(/</g, "&lt;")
                       .replace(/>/g, "&gt;")
                       .replace(
-                        /\[[A-Z][A-Z0-9_ /'-]*\]/g,
+                        PLACEHOLDER_HIGHLIGHT_RE,
                         (match) => `<mark class="bg-amber-200/70 text-amber-900 rounded px-0.5">${match}</mark>`
                       ),
                   }}

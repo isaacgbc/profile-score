@@ -1713,14 +1713,50 @@ export async function generateAuditResults(
 
   // ─── 4c. Parse per-entry structure for experience/education ──
   const linkedinEntries: Record<string, ParsedEntry[]> = {};
+  let linkedinExpAiStructured = false;
+  let linkedinExpParserConfidence: "high" | "low" = "low";
+  let linkedinExpRawCount = 0;
+
   for (const sectionId of ["experience", "education"]) {
     if (linkedinSections[sectionId]) {
       const parsed = parseEntriesFromSection(
         sectionId,
         linkedinSections[sectionId]
       );
-      // HOTFIX-URGENT: Accept ALL education entries regardless of confidence
-      if (parsed.entries.length > 0 && (parsed.confidence === "high" || sectionId === "education")) {
+
+      // ── HOTFIX-4C: AI structuring pass for LinkedIn experience with low confidence ──
+      if (sectionId === "experience") {
+        linkedinExpParserConfidence = parsed.confidence;
+        linkedinExpRawCount = parsed.entries.length;
+
+        if (parsed.confidence === "low" && linkedinSections[sectionId].length > 100) {
+          console.log(
+            `[diag] request=${requestId} | linkedinExp: low confidence (entries=${parsed.entries.length}), trying AI structuring`
+          );
+          try {
+            const { structureWorkExperience } = await import("./cv-work-exp-structurer");
+            const aiEntries = await structureWorkExperience(linkedinSections[sectionId], "linkedin");
+            if (aiEntries && aiEntries.length > 0) {
+              linkedinEntries[sectionId] = aiEntries;
+              linkedinExpAiStructured = true;
+              console.log(
+                `[parser] AI-structured ${aiEntries.length} entries from LinkedIn experience ` +
+                `(replaced ${parsed.entries.length} heuristic entries)`
+              );
+              continue; // Skip normal acceptance logic
+            }
+          } catch (err) {
+            console.warn(
+              `[diag] linkedinExp AI structuring failed, using heuristic output: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            );
+          }
+        }
+      }
+
+      // HOTFIX-4C: Accept ALL entries regardless of confidence (merge guard already ran)
+      if (parsed.entries.length > 0) {
         linkedinEntries[sectionId] = parsed.entries;
         console.log(
           `[parser] Parsed ${parsed.entries.length} entries from LinkedIn ${sectionId} (confidence=${parsed.confidence})`
@@ -1735,6 +1771,15 @@ export async function generateAuditResults(
       }
     }
   }
+
+  // HOTFIX-4C: Diagnostics for LinkedIn experience parsing
+  console.log(
+    `[diag] request=${requestId} | LINKEDIN_EXP: ` +
+    `parserConfidence=${linkedinExpParserConfidence}, ` +
+    `parsedCount=${linkedinExpRawCount}, ` +
+    `aiStructured=${linkedinExpAiStructured}, ` +
+    `finalCount=${linkedinEntries["experience"]?.length ?? 0}`
+  );
 
   const cvEntries: Record<string, ParsedEntry[]> = {};
   let cvWorkExpAiStructured = false;
@@ -1757,8 +1802,8 @@ export async function generateAuditResults(
             `[diag] request=${requestId} | cvWorkExp: low confidence (entries=${parsed.entries.length}), trying AI structuring`
           );
           try {
-            const { structureCvWorkExperience } = await import("./cv-work-exp-structurer");
-            const aiEntries = await structureCvWorkExperience(cvSections[sectionId]);
+            const { structureWorkExperience } = await import("./cv-work-exp-structurer");
+            const aiEntries = await structureWorkExperience(cvSections[sectionId], "cv");
             if (aiEntries && aiEntries.length > 0) {
               cvEntries[sectionId] = aiEntries;
               cvWorkExpAiStructured = true;

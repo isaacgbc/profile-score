@@ -1,6 +1,7 @@
 import type { ProfileResult, RewritePreview } from "@/lib/types";
 import { getSectionLabel } from "@/lib/section-labels";
 import { createCvBasePdf, addPage, wrapText, sanitizeForPdf, COLORS } from "./shared";
+import { stripPlaceholders } from "@/lib/utils/placeholder-detect";
 
 import en from "@/lib/i18n/en.json";
 import es from "@/lib/i18n/es.json";
@@ -119,18 +120,24 @@ export async function generateUpdatedCvPdf(
   const contactRewrite = allRewrites.find((r) => r.sectionId === "contact-info");
 
   if (contactRewrite) {
-    const contactLines = contactRewrite.rewritten.split("\n").filter(Boolean);
-    // First line = name
-    if (contactLines.length > 0) {
-      drawCentered(contactLines[0], 24, fontBold);
-      y -= 28;
-    }
+    const cleanedContact = stripPlaceholders(contactRewrite.rewritten);
+    const contactLines = cleanedContact.split("\n").filter(Boolean);
+    // First line = name (fallback to "Candidate" if missing)
+    const nameText = contactLines.length > 0 && contactLines[0].trim().length > 0
+      ? contactLines[0]
+      : "Candidate";
+    drawCentered(nameText, 24, fontBold);
+    y -= 28;
     // Remaining lines = contact info (pipe-separated on one line)
     if (contactLines.length > 1) {
       const contactText = contactLines.slice(1).join(" | ");
       drawCentered(contactText, 10, fontRegular);
       y -= 16;
     }
+  } else {
+    // No contact-info section at all — use fallback name
+    drawCentered("Candidate", 24, fontBold);
+    y -= 28;
   }
 
   // ── Sections ──
@@ -281,7 +288,10 @@ export async function generateUpdatedCvPdf(
 
         // Entry content as bullet points
         // HOTFIX-4: Strip potential duplicated entry title from rewritten text
-        const cleanedEntryContent = stripLeadingSectionTitle(entry.rewritten, entry.entryTitle);
+        // HOTFIX-4C: Strip unresolved placeholder tokens before export
+        const cleanedEntryContent = stripPlaceholders(
+          stripLeadingSectionTitle(entry.rewritten, entry.entryTitle)
+        );
         const lines = cleanedEntryContent.split("\n").filter(Boolean);
         for (const rawLine of lines) {
           const isBullet = rawLine.trimStart().startsWith("-") || rawLine.trimStart().startsWith("*");
@@ -324,7 +334,10 @@ export async function generateUpdatedCvPdf(
     } else {
       // ── Section-level content ──
       // HOTFIX-4: Strip LLM-duplicated section titles from rewritten text
-      const cleanedRewritten = stripLeadingSectionTitle(rewrite.rewritten, label);
+      // HOTFIX-4C: Strip unresolved placeholder tokens before export
+      const cleanedRewritten = stripPlaceholders(
+        stripLeadingSectionTitle(rewrite.rewritten, label)
+      );
 
       // Skills section: render with bold "Skills:" prefix
       if (rewrite.sectionId === "skills-section") {

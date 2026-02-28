@@ -1,9 +1,11 @@
 /**
- * HOTFIX-CV-EXPERIENCE-PARSING: AI-assisted structuring for CV work experience.
+ * AI-assisted structuring for work experience entries.
  *
  * When heuristic confidence is low (bullets split as separate entries, etc.),
  * this module calls a fast LLM to re-structure the raw work experience text
  * into proper job entries.
+ *
+ * Works for both CV and LinkedIn experience sections.
  *
  * Constraints:
  * - Single Haiku call (cost-efficient)
@@ -20,7 +22,7 @@ const MAX_INPUT_CHARS = 6_000;
 const MAX_TOKENS = 2_048;
 const TIMEOUT_MS = 15_000;
 
-const SYSTEM_PROMPT = `You are a CV parser. You receive raw work experience text extracted from a CV/resume and must structure it into clean JSON.
+const SYSTEM_PROMPT = `You are a CV/profile parser. You receive raw work experience text extracted from a CV/resume or LinkedIn profile and must structure it into clean JSON.
 
 RULES:
 - Each array element = ONE real job/position. Never split bullet points into separate jobs.
@@ -51,15 +53,21 @@ interface StructuredWorkExpEntry {
 }
 
 /**
- * Structure raw CV work experience text into proper entries using AI.
+ * Structure raw work experience text into proper entries using AI.
+ * Works for both CV and LinkedIn experience sections.
  * Returns null on any failure — caller falls back to heuristic parser.
+ *
+ * @param rawText - The raw section text to structure
+ * @param source - "cv" or "linkedin" (used for diagnostics)
  */
-export async function structureCvWorkExperience(
-  rawText: string
+export async function structureWorkExperience(
+  rawText: string,
+  source: "cv" | "linkedin" = "cv"
 ): Promise<ParsedEntry[] | null> {
   if (!rawText || rawText.trim().length < 50) return null;
 
   const truncated = rawText.slice(0, MAX_INPUT_CHARS);
+  const logPrefix = source === "cv" ? "[cvWorkExpStructurer]" : "[linkedinExpStructurer]";
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -76,7 +84,7 @@ export async function structureCvWorkExperience(
         const result = await callLLM({
           model: LLM_MODEL_FAST,
           systemPrompt,
-          userMessage: `Structure this CV work experience text into clean JSON entries. Each real job = one entry. Bullets stay under their job:\n\n${truncated}`,
+          userMessage: `Structure this ${source === "linkedin" ? "LinkedIn profile" : "CV"} work experience text into clean JSON entries. Each real job = one entry. Bullets stay under their job:\n\n${truncated}`,
           maxTokens: MAX_TOKENS,
           signal: controller.signal,
         });
@@ -107,14 +115,14 @@ export async function structureCvWorkExperience(
 
           if (entries.length > 0) {
             console.log(
-              `[cvWorkExpStructurer] Success: attempt=${attempt + 1}, entries=${entries.length}`
+              `${logPrefix} Success: attempt=${attempt + 1}, entries=${entries.length}`
             );
             return entries;
           }
         }
 
         console.warn(
-          `[cvWorkExpStructurer] Invalid structure: attempt=${attempt + 1}, ` +
+          `${logPrefix} Invalid structure: attempt=${attempt + 1}, ` +
             `hasEntries=${!!parsed?.entries}, length=${parsed?.entries?.length ?? 0}`
         );
       } finally {
@@ -123,7 +131,7 @@ export async function structureCvWorkExperience(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[cvWorkExpStructurer] Error: attempt=${attempt + 1}, error=${msg.slice(0, 100)}`
+        `${logPrefix} Error: attempt=${attempt + 1}, error=${msg.slice(0, 100)}`
       );
       // Only retry on JSON parse errors
       if (
@@ -137,4 +145,14 @@ export async function structureCvWorkExperience(
   }
 
   return null; // Soft fail → caller uses heuristic output
+}
+
+/**
+ * Backward-compatible alias for CV work experience structuring.
+ * @deprecated Use structureWorkExperience(rawText, "cv") instead.
+ */
+export async function structureCvWorkExperience(
+  rawText: string
+): Promise<ParsedEntry[] | null> {
+  return structureWorkExperience(rawText, "cv");
 }

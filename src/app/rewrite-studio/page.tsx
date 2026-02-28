@@ -74,6 +74,7 @@ export default function RewriteStudioPage() {
     setManualSection,
     injectEntries,
     deleteEntry,
+    updateEntryHeader,
   } = useApp();
   const router = useRouter();
 
@@ -246,6 +247,14 @@ export default function RewriteStudioPage() {
       persistence.clearPersistedEntry(sectionId, entryStableId);
     },
     [deleteEntry, persistence]
+  );
+
+  // HOTFIX-4C: Update entry header fields (organization/title)
+  const handleUpdateEntryHeader = useCallback(
+    (sectionId: string, entryStableId: string, field: "organization" | "title", value: string) => {
+      updateEntryHeader(sectionId, entryStableId, field, value);
+    },
+    [updateEntryHeader]
   );
 
   const handleRegenerate = useCallback(
@@ -469,6 +478,7 @@ export default function RewriteStudioPage() {
                       onReset={handleResetSection}
                       onResetEntry={handleResetEntry}
                       onDeleteEntry={handleDeleteEntry}
+                      onUpdateEntryHeader={handleUpdateEntryHeader}
                       isRegenerating={regeneratingSection === rewrite.sectionId}
                       locked={rewrite.locked && !isAdmin}
                       onUpgradeClick={() => setShowPricingModal(true)}

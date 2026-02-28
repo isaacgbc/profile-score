@@ -1,20 +1,33 @@
 /**
- * Detect [BRACKET_PLACEHOLDERS] in text for highlighting and counting.
+ * Detect [ADD_METRIC: ...] and [NEEDS_VERIFICATION] placeholders in text.
  *
- * Matches patterns like [ADD YOUR METRIC HERE], [COMPANY NAME], [NEEDS_VERIFICATION].
- * Requires uppercase first char and at least 2 chars inside brackets.
+ * Robust regex: case-insensitive, allows internal spaces, optional colon payload.
+ * Single source of truth — used by:
+ * - Studio warnings (StudioEntryEditor, StudioSectionEditor)
+ * - Checkout value summary (placeholder count)
+ * - Export gating/cleanup logic
  */
 
-const PLACEHOLDER_RE = /\[[A-Z][A-Z0-9_ /'-]*\]/g;
+/**
+ * Global version for .match() counting.
+ * Matches: [ADD_METRIC], [ADD_METRIC: dates], [add_metric], [NEEDS_VERIFICATION], etc.
+ */
+const PLACEHOLDER_RE = /\[\s*(ADD_METRIC|NEEDS_VERIFICATION)(?:\s*:[^\]]+)?\s*\]/gi;
 
 /**
  * Non-global version for .test() — avoids the stateful lastIndex bug
  * where a global regex with .test() returns alternating true/false.
  */
-const PLACEHOLDER_RE_TEST = /\[[A-Z][A-Z0-9_ /'-]*\]/;
+const PLACEHOLDER_RE_TEST = /\[\s*(ADD_METRIC|NEEDS_VERIFICATION)(?:\s*:[^\]]+)?\s*\]/i;
 
 /**
- * Count the number of bracket placeholders in text.
+ * Highlighting regex exported for UI overlay rendering.
+ * Same pattern as PLACEHOLDER_RE but exported for use in dangerouslySetInnerHTML.
+ */
+export const PLACEHOLDER_HIGHLIGHT_RE = /\[\s*(?:ADD_METRIC|NEEDS_VERIFICATION)(?:\s*:[^\]]+)?\s*\]/gi;
+
+/**
+ * Count the number of placeholders in text.
  */
 export function countPlaceholders(text: string): number {
   if (!text) return 0;
@@ -23,10 +36,63 @@ export function countPlaceholders(text: string): number {
 }
 
 /**
- * Check whether text contains any bracket placeholders.
+ * Check whether text contains any placeholders.
  * Uses a non-global regex to avoid the stateful .test() + /g bug.
  */
 export function hasPlaceholders(text: string): boolean {
   if (!text) return false;
   return PLACEHOLDER_RE_TEST.test(text);
+}
+
+/**
+ * Count placeholders from the correct source of truth for a single section.
+ * Priority: userOptimized > userRewritten > rewrite.rewritten
+ * Includes both section-level and entry-level text.
+ *
+ * @param computeStableId - function to compute entry stable IDs (from entry-id.ts)
+ */
+export function countSectionPlaceholders(
+  rewrite: {
+    sectionId: string;
+    rewritten: string;
+    entries?: Array<{ entryTitle: string; original: string; rewritten: string }>;
+  },
+  userOptimized: Record<string, string>,
+  userRewritten?: Record<string, string>,
+  computeStableId?: (title: string, original: string) => string
+): { sectionCount: number; entryCount: number; total: number } {
+  // Section-level: userOptimized > userRewritten > rewrite.rewritten
+  const sectionText =
+    userOptimized[rewrite.sectionId] ??
+    userRewritten?.[rewrite.sectionId] ??
+    rewrite.rewritten;
+  const sectionCount = countPlaceholders(sectionText);
+
+  // Entry-level
+  let entryCount = 0;
+  if (rewrite.entries) {
+    for (const entry of rewrite.entries) {
+      const stableId = computeStableId
+        ? computeStableId(entry.entryTitle, entry.original)
+        : String(entry.entryTitle);
+      const entryKey = `${rewrite.sectionId}:${stableId}`;
+      const entryText = userOptimized[entryKey] ?? entry.rewritten;
+      entryCount += countPlaceholders(entryText);
+    }
+  }
+
+  return { sectionCount, entryCount, total: sectionCount + entryCount };
+}
+
+/**
+ * Strip all placeholder tokens from text for export cleanup.
+ * Removes the bracket tokens entirely and collapses resulting blank lines.
+ */
+export function stripPlaceholders(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(PLACEHOLDER_RE, "")
+    .replace(/\n{3,}/g, "\n\n") // collapse triple+ newlines
+    .replace(/^\s*\n/, "") // remove leading blank line
+    .trim();
 }

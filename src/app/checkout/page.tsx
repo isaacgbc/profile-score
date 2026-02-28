@@ -28,7 +28,8 @@ import { mockExportModules } from "@/lib/mock/export-modules";
 import type { PlanId, ExportModuleId, ExportFormat, FeatureId } from "@/lib/types";
 import { useEffect, useMemo } from "react";
 import { trackEvent, hasTrackedThisSession, markTrackedThisSession } from "@/lib/analytics/tracker";
-import { countPlaceholders } from "@/lib/utils/placeholder-detect";
+import { countSectionPlaceholders } from "@/lib/utils/placeholder-detect";
+import { computeEntryStableId } from "@/lib/utils/entry-id";
 
 const planNameKeys: Record<PlanId, string> = {
   starter: "starterName",
@@ -256,19 +257,28 @@ export default function CheckoutPage() {
     const totalSections = allRewrites.filter((r) => !r.locked).length;
     const editedSections = Object.keys(userOptimized).filter((k) => !k.includes(":")).length;
     const editedEntries = Object.keys(userOptimized).filter((k) => k.includes(":")).length;
-    let placeholderCount = 0;
+
+    // Placeholder counting: use unified countSectionPlaceholders with correct entry stableIds
+    let sectionPlaceholderCount = 0;
+    let entryPlaceholderCount = 0;
     for (const rw of allRewrites) {
       if (rw.locked) continue;
-      const text = userOptimized[rw.sectionId] ?? rw.rewritten;
-      placeholderCount += countPlaceholders(text);
-      if (rw.entries) {
-        for (const entry of rw.entries) {
-          const entryKey = `${rw.sectionId}:${entry.entryIndex}`;
-          const entryText = userOptimized[entryKey] ?? entry.rewritten;
-          placeholderCount += countPlaceholders(entryText);
-        }
-      }
+      const counts = countSectionPlaceholders(
+        rw,
+        userOptimized,
+        userRewritten,
+        computeEntryStableId
+      );
+      sectionPlaceholderCount += counts.sectionCount;
+      entryPlaceholderCount += counts.entryCount;
     }
+    const placeholderCount = sectionPlaceholderCount + entryPlaceholderCount;
+
+    // Diagnostics
+    console.log(
+      `[diag] checkout placeholders: sectionPlaceholderCount=${sectionPlaceholderCount}, ` +
+      `entryPlaceholderCount=${entryPlaceholderCount}, totalPlaceholderCount=${placeholderCount}`
+    );
 
     // HOTFIX-3: Count missing critical sections
     const CRITICAL_LINKEDIN = new Set(["headline", "summary", "experience", "education"]);
@@ -287,8 +297,8 @@ export default function CheckoutPage() {
       }
     }
 
-    return { totalSections, editedSections, editedEntries, placeholderCount, missingSections };
-  }, [results, userOptimized, inputMethod, manualSections]);
+    return { totalSections, editedSections, editedEntries, placeholderCount, sectionPlaceholderCount, entryPlaceholderCount, missingSections };
+  }, [results, userOptimized, userRewritten, inputMethod, manualSections]);
 
   return (
     <div className="animate-fade-in">
