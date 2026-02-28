@@ -211,6 +211,34 @@ body {
   border: none;
 }
 
+/* ─── Rewrite Studio: Gradient Regenerate Button ─── */
+.btn-regen-gradient {
+  background: linear-gradient(
+    120deg,
+    var(--accent) 0%,
+    #6366f1 25%,
+    var(--accent) 50%,
+    #6366f1 75%,
+    var(--accent) 100%
+  );
+  background-size: 200% auto;
+  color: white;
+  border: none;
+}
+.btn-regen-gradient:hover {
+  animation: shimmer 4s linear infinite;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  transform: scale(1.02);
+}
+.btn-regen-gradient:active {
+  transform: scale(0.98);
+}
+.btn-regen-gradient:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  animation: none;
+}
+
 /* ─── Landing Page: Marquee ──────────────────────── */
 @keyframes marquee {
   0% { transform: translateX(0); }

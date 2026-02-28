@@ -619,8 +619,10 @@ export function parseEntriesFromSection(
     if (isEducationSection) {
       const fallbackEntries = parseEducationFallback(lines);
       if (fallbackEntries.length > 0) {
-        console.log(`[diag] educationParser: dateLines=0, fallback=${fallbackEntries.length} entries`);
-        result.entries = fallbackEntries;
+        // HOTFIX-6D: Apply anti-over-split before early return
+        const mergedFallback = mergeEducationOverSplit(fallbackEntries, sectionText.length);
+        console.log(`[diag] educationParser: dateLines=0, fallback=${fallbackEntries.length} entries, afterMerge=${mergedFallback.length}`);
+        result.entries = mergedFallback;
         result.confidence = "low";
         return result;
       }
@@ -710,12 +712,13 @@ export function parseEntriesFromSection(
       (e) => e.title.length >= 2 && !YEAR_ONLY_RE.test(e.title) && !DATE_LINE_RE.test(e.title)
     );
     if (qualityFallback.length > entries.length) {
-      const droppedCount = qualityFallback.length - entries.length;
+      // HOTFIX-6D: Apply anti-over-split before early return
+      const mergedFallback = mergeEducationOverSplit(qualityFallback, sectionText.length);
       console.log(
         `[diag] educationParser: dateBasedEntries=${entries.length}, fallbackEntries=${qualityFallback.length}, ` +
-        `preferring=fallback for ${sectionId}, droppedEducationBlocks=${droppedCount}`
+        `afterMerge=${mergedFallback.length}, preferring=fallback for ${sectionId}`
       );
-      result.entries = qualityFallback;
+      result.entries = mergedFallback;
       result.confidence = "low";
       return result;
     }
@@ -944,6 +947,59 @@ function mergeEducationOverSplit(
   );
 
   return capped;
+}
+
+/**
+ * HOTFIX-6B: Heuristic count estimator for section entries.
+ * Estimates how many entries (jobs, degrees) exist in section text
+ * WITHOUT calling an LLM. Uses pattern-matching for:
+ *   - Date ranges (DATE_LINE_RE matches)
+ *   - Blank-line-separated blocks (÷2 for header+content pairs)
+ *   - Short heading-like lines (potential titles after blank lines)
+ *
+ * Returns a conservative estimate (max of the three signals).
+ */
+export function estimateSectionEntryCount(
+  sectionText: string,
+  sectionId: string
+): number {
+  if (!sectionText || sectionText.trim().length < 30) return 0;
+
+  const lines = sectionText.split("\n");
+
+  // Signal 1: Count date-range lines
+  const dateCount = lines.filter((l) => DATE_LINE_RE.test(l)).length;
+
+  // Signal 2: Count blank-line-separated blocks (÷2 for header+content pairs)
+  let blockCount = 0;
+  let inBlock = false;
+  for (const line of lines) {
+    if (line.trim().length === 0) {
+      inBlock = false;
+    } else if (!inBlock) {
+      blockCount++;
+      inBlock = true;
+    }
+  }
+
+  // Signal 3: Count heading-like lines (short, non-bullet, after blank line)
+  let headingCount = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const prev = lines[i - 1].trim();
+    const curr = lines[i].trim();
+    if (
+      prev === "" &&
+      curr.length > 2 &&
+      curr.length < 80 &&
+      !/^[-*•–]/.test(curr) &&
+      !DATE_LINE_RE.test(curr)
+    ) {
+      headingCount++;
+    }
+  }
+
+  // Use the maximum signal as the estimate
+  return Math.max(dateCount, Math.ceil(blockCount / 2), headingCount);
 }
 
 // ── LLM Structuring Pass ─────────────────────────────────

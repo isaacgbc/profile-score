@@ -368,8 +368,12 @@
     "unsavedChanges": "Cambios sin guardar",
     "collapseOriginal": "Ocultar original",
     "expandOriginal": "Mostrar original",
-    "directionsLabel": "Instrucciones de Edición",
+    "directionsLabel": "Instrucciones de IA",
     "directionsPlaceholder": "Dile a la IA qué cambiar...",
+    "aiSuggestionsLabel": "Sugerencias de IA",
+    "workflowStep1": "Reemplaza [CORCHETES] con tu info",
+    "workflowStep2": "Agrega instrucciones de IA abajo",
+    "workflowStep3": "Haz clic en Regenerar",
     "regenerateConfirm": "Esto reemplazará tu borrador actual.",
     "regenerateFromDirections": "Desde instrucciones",
     "regenerateFromDraft": "Usando borrador actual",
@@ -451,7 +455,12 @@
     "missingSectionsHint": "Faltan secciones críticas — agrégalas en el Estudio de Reescritura para desbloquear exportaciones",
     "exportBypass": "Exportar de todos modos (limpiar marcadores)",
     "exportPrimary": "Exportar",
-    "exportBypassPrimary": "Exportar (limpiar marcadores)"
+    "exportBypassPrimary": "Exportar (limpiar marcadores)",
+    "downloadUpdatedCv": "Descargar CV",
+    "downloadFullAudit": "Descargar Informe de Auditoría",
+    "downloadResultsSummary": "Descargar Resumen",
+    "downloadCoverLetter": "Descargar Carta de Presentación",
+    "downloadLinkedinUpdates": "Descargar Actualizaciones de LinkedIn"
   },
   "progress": {
     "analyzing": "Analizando tu perfil",

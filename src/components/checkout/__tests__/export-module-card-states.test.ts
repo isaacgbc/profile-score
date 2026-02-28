@@ -337,6 +337,42 @@ test("every unlocked state renders some kind of button", () => {
   }
 });
 
+// ── 8. Module-specific download labels (HOTFIX-6C) ───────────────────
+console.log("\n8. Module-specific download labels (HOTFIX-6C)");
+
+// Mirror the MODULE_DOWNLOAD_LABELS mapping from ExportModuleCard.tsx
+const MODULE_DOWNLOAD_LABELS: Record<string, string> = {
+  "results-summary": "downloadResultsSummary",
+  "updated-cv": "downloadUpdatedCv",
+  "full-audit": "downloadFullAudit",
+  "cover-letter": "downloadCoverLetter",
+  "linkedin-updates": "downloadLinkedinUpdates",
+};
+
+test("every module has a download label mapping", () => {
+  const moduleIds = ["results-summary", "updated-cv", "full-audit", "cover-letter", "linkedin-updates"];
+  for (const id of moduleIds) {
+    assert(MODULE_DOWNLOAD_LABELS[id], `Missing download label for ${id}`);
+    assert(MODULE_DOWNLOAD_LABELS[id].length > 0, `Empty download label for ${id}`);
+  }
+});
+
+test("download labels are distinct per module", () => {
+  const labels = Object.values(MODULE_DOWNLOAD_LABELS);
+  const unique = new Set(labels);
+  assertEqual(unique.size, labels.length, "All download labels should be unique");
+});
+
+test("download label resolves for updated-cv", () => {
+  const label = MODULE_DOWNLOAD_LABELS["updated-cv"];
+  assertEqual(label, "downloadUpdatedCv", "CV module should use downloadUpdatedCv key");
+});
+
+test("download label resolves for full-audit", () => {
+  const label = MODULE_DOWNLOAD_LABELS["full-audit"];
+  assertEqual(label, "downloadFullAudit", "Audit module should use downloadFullAudit key");
+});
+
 // ── Results ─────────────────────────────────────────────────────────
 console.log(`\n${"=".repeat(50)}`);
 console.log(`Results: ${passed} passed, ${failed} failed out of ${passed + failed}`);

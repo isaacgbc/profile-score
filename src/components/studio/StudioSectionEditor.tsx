@@ -355,25 +355,56 @@ export default function StudioSectionEditor({
           </div>
         )}
 
-        {/* Editing Directions (collapsible) */}
+        {/* AI Instructions + Suggestions (collapsible) — HOTFIX-6A */}
         <div className="mb-4">
           <button
             onClick={() => setShowDirections(!showDirections)}
-            className="flex items-center gap-1.5 text-xs font-medium text-amber-600 hover:text-amber-700 transition-colors mb-2"
+            className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors mb-2"
           >
             <span className={`transition-transform ${showDirections ? "rotate-90" : ""}`}>▸</span>
-            {studioT.directionsLabel ?? "Editing Directions"}
+            {studioT.directionsLabel ?? "AI Instructions"}
           </button>
           {showDirections && (
-            <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-3">
+            <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-3 space-y-3">
+              {/* Workflow guide — 3-step compact banner */}
+              <div className="flex items-center gap-3 text-[10px] font-medium text-indigo-500">
+                <span className="flex items-center gap-1">
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 text-[9px] font-bold">1</span>
+                  {studioT.workflowStep1 ?? "Replace [BRACKETS] with your info"}
+                </span>
+                <span className="text-indigo-300">→</span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 text-[9px] font-bold">2</span>
+                  {studioT.workflowStep2 ?? "Add AI instructions below"}
+                </span>
+                <span className="text-indigo-300">→</span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 text-[9px] font-bold">3</span>
+                  {studioT.workflowStep3 ?? "Click Regenerate"}
+                </span>
+              </div>
+
+              {/* AI Suggestions (read-only) */}
+              {rewrite.improvements && (
+                <div>
+                  <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1">
+                    {studioT.aiSuggestionsLabel ?? "AI Suggestions"}
+                  </p>
+                  <div className="text-xs text-indigo-700/70 bg-indigo-100/40 border border-indigo-100 rounded-lg p-2 leading-relaxed italic">
+                    {rewrite.improvements}
+                  </div>
+                </div>
+              )}
+
+              {/* User Instructions textarea */}
               <textarea
-                value={userImprovement ?? rewrite.improvements}
+                value={userImprovement ?? ""}
                 onChange={(e) =>
                   onImprovementChange(rewrite.sectionId, e.target.value)
                 }
                 placeholder={studioT.directionsPlaceholder ?? "Tell the AI what to change..."}
-                rows={4}
-                className="w-full text-sm text-amber-900 bg-white/50 border border-amber-100 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-amber-300/50 leading-relaxed placeholder:text-amber-300"
+                rows={3}
+                className="w-full text-sm text-indigo-900 bg-white/50 border border-indigo-100 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300/50 leading-relaxed placeholder:text-indigo-300"
               />
             </div>
           )}
@@ -410,13 +441,14 @@ export default function StudioSectionEditor({
 
           <div className="relative">
             <Button
-              variant="outline"
+              variant="primary"
               size="sm"
               onClick={handleRegenClick}
               disabled={isRegenerating}
+              className="btn-regen-gradient"
             >
               <span className="flex items-center gap-1.5">
-                <SparklesIcon size={14} />
+                <SparklesIcon size={14} className={isRegenerating ? "animate-spin" : ""} />
                 {isRegenerating
                   ? studioT.regenerating ?? "Regenerating..."
                   : studioT.regenerate ?? "Regenerate"}

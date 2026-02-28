@@ -47,6 +47,15 @@ const MODULE_FORMATS: Record<ExportModuleId, ExportFormat[]> = {
   "cover-letter": ["pdf"],
 };
 
+// HOTFIX-6C: Module-specific download labels (i18n keys)
+const MODULE_DOWNLOAD_LABELS: Record<ExportModuleId, string> = {
+  "results-summary": "downloadResultsSummary",
+  "updated-cv": "downloadUpdatedCv",
+  "full-audit": "downloadFullAudit",
+  "cover-letter": "downloadCoverLetter",
+  "linkedin-updates": "downloadLinkedinUpdates",
+};
+
 export default function ExportModuleCard({
   moduleId,
   name,
@@ -155,7 +164,7 @@ export default function ExportModuleCard({
                 size="sm"
                 onClick={() => onDownload(exportId)}
               >
-                {t.checkout.exportDownload}
+                {checkoutT[MODULE_DOWNLOAD_LABELS[moduleId]] ?? t.checkout.exportDownload}
               </Button>
             ) : status === "failed" ? (
               <Button

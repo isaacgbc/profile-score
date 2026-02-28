@@ -35,6 +35,7 @@ import {
   SECTION_DISPLAY_NAMES,
   MAX_ENTRIES_PER_SECTION,
   MAX_CHARS_PER_ENTRY,
+  estimateSectionEntryCount,
 } from "./linkedin-parser";
 import type { ParsedEntry } from "./linkedin-parser";
 import { parseLinkedinExperienceArchetype } from "./linkedin-experience-archetype";
@@ -2361,18 +2362,41 @@ export async function generateAuditResults(
     }
   }
 
-  // HOTFIX-5B: Diagnostics for LinkedIn experience parsing
-  console.log(
-    `[diag] request=${requestId} | LINKEDIN_EXP: ` +
-    `parserConfidence=${linkedinExpParserConfidence}, ` +
-    `parsedCount=${linkedinExpRawCount}, ` +
-    `archetypeUsed=${linkedinExpArchetypeUsed}, ` +
-    `preNormalized=${linkedinExpPreNormalized}, ` +
-    `aiStructured=${linkedinExpAiStructured}, ` +
-    `structurerSkipped=${linkedinExpStructurerSkipped}, ` +
-    `coverage=${linkedinExpCoverage}%, ` +
-    `finalCount=${linkedinEntries["experience"]?.length ?? 0}`
-  );
+  // HOTFIX-5B: Diagnostics for LinkedIn experience parsing (HOTFIX-6D: guard)
+  if (hasLinkedinInput) {
+    console.log(
+      `[diag] request=${requestId} | LINKEDIN_EXP: ` +
+      `parserConfidence=${linkedinExpParserConfidence}, ` +
+      `parsedCount=${linkedinExpRawCount}, ` +
+      `archetypeUsed=${linkedinExpArchetypeUsed}, ` +
+      `preNormalized=${linkedinExpPreNormalized}, ` +
+      `aiStructured=${linkedinExpAiStructured}, ` +
+      `structurerSkipped=${linkedinExpStructurerSkipped}, ` +
+      `coverage=${linkedinExpCoverage}%, ` +
+      `finalCount=${linkedinEntries["experience"]?.length ?? 0}`
+    );
+  }
+
+  // HOTFIX-6B: Heuristic count cross-check for LinkedIn entry-based sections
+  if (hasLinkedinInput) {
+    for (const sectionId of ["experience", "education"] as const) {
+      if (linkedinSections[sectionId]) {
+        const heuristicCount = estimateSectionEntryCount(linkedinSections[sectionId], sectionId);
+        const parsedCount = linkedinEntries[sectionId]?.length ?? 0;
+        const mismatch = heuristicCount > parsedCount * 1.5 && heuristicCount >= 2;
+        console.log(
+          `[diag] request=${requestId} | COUNT_CROSSCHECK linkedin.${sectionId}: ` +
+          `heuristicCount=${heuristicCount}, parsedCount=${parsedCount}, mismatch=${mismatch}`
+        );
+        if (mismatch && parsedCount > 0) {
+          console.warn(
+            `[diag] request=${requestId} | COUNT_MISMATCH linkedin.${sectionId}: ` +
+            `heuristic=${heuristicCount} >> parsed=${parsedCount}`
+          );
+        }
+      }
+    }
+  }
 
   const cvEntries: Record<string, ParsedEntry[]> = {};
   let cvWorkExpAiStructured = false;
@@ -2460,6 +2484,27 @@ export async function generateAuditResults(
     `linkedin: extractedEducationChars=${liEduCharCount}, parsedEducationCount=${liEduEntryCount} | ` +
     `cv: extractedEducationChars=${cvEduCharCount}, parsedEducationCount=${cvEduEntryCount}`
   );
+
+  // HOTFIX-6B: Heuristic count cross-check for CV entry-based sections
+  if (hasCvInput) {
+    for (const sectionId of ["work-experience", "education-section"] as const) {
+      if (cvSections[sectionId]) {
+        const heuristicCount = estimateSectionEntryCount(cvSections[sectionId], sectionId);
+        const parsedCount = cvEntries[sectionId]?.length ?? 0;
+        const mismatch = heuristicCount > parsedCount * 1.5 && heuristicCount >= 2;
+        console.log(
+          `[diag] request=${requestId} | COUNT_CROSSCHECK cv.${sectionId}: ` +
+          `heuristicCount=${heuristicCount}, parsedCount=${parsedCount}, mismatch=${mismatch}`
+        );
+        if (mismatch && parsedCount > 0) {
+          console.warn(
+            `[diag] request=${requestId} | COUNT_MISMATCH cv.${sectionId}: ` +
+            `heuristic=${heuristicCount} >> parsed=${parsedCount}`
+          );
+        }
+      }
+    }
+  }
 
   stageTimer.end();
   stageTimer.start("generating_rewrites");

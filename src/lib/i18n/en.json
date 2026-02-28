@@ -368,8 +368,12 @@
     "unsavedChanges": "Unsaved changes",
     "collapseOriginal": "Hide original",
     "expandOriginal": "Show original",
-    "directionsLabel": "Editing Directions",
+    "directionsLabel": "AI Instructions",
     "directionsPlaceholder": "Tell the AI what to change...",
+    "aiSuggestionsLabel": "AI Suggestions",
+    "workflowStep1": "Replace [BRACKETS] with your info",
+    "workflowStep2": "Add AI instructions below",
+    "workflowStep3": "Click Regenerate",
     "regenerateConfirm": "This will replace your current draft.",
     "regenerateFromDirections": "From directions",
     "regenerateFromDraft": "Using current draft",
@@ -451,7 +455,12 @@
     "missingSectionsHint": "Critical sections are missing — add them in Rewrite Studio to unlock exports",
     "exportBypass": "Export anyway (clean placeholders)",
     "exportPrimary": "Export",
-    "exportBypassPrimary": "Export (clean placeholders)"
+    "exportBypassPrimary": "Export (clean placeholders)",
+    "downloadUpdatedCv": "Download CV",
+    "downloadFullAudit": "Download Audit Report",
+    "downloadResultsSummary": "Download Summary",
+    "downloadCoverLetter": "Download Cover Letter",
+    "downloadLinkedinUpdates": "Download LinkedIn Updates"
   },
   "progress": {
     "analyzing": "Analyzing your profile",
