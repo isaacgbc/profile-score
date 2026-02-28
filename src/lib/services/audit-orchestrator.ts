@@ -288,6 +288,12 @@ export interface GenerationMeta {
   timeToFirstSectionMs?: number;
   llmCallCount?: number;
   sectionsSkipped?: number;
+  /** PERF-HOTFIX: Experience rewrite mode used */
+  experienceRewriteMode?: "full_sonnet" | "fast_section" | "passthrough";
+  /** PERF-HOTFIX: Reason experience rewrite was skipped or fell through */
+  experienceRewriteSkippedReason?: string;
+  /** PERF-HOTFIX: Number of entries deferred for on-demand Sonnet */
+  deferredExperienceEntries?: number;
 }
 
 export interface GenerationResult {
@@ -1088,6 +1094,182 @@ async function rewriteSectionWithEntries(
   );
 }
 
+// ── PERF-HOTFIX: Fast section-level rewrite (Haiku, 8s, single attempt) ──
+const FAST_REWRITE_TIMEOUT_MS = 8_000;
+
+async function fastSectionRewriteWithEntries(
+  sectionId: string,
+  entries: ParsedEntry[],
+  fullSectionContent: string,
+  promptKey: string,
+  targetRole: string,
+  jobObjective: string,
+  framing: ObjectiveFraming,
+  locale: Locale,
+  promptVersions: Record<string, number>,
+  failureReasons: FailureReason[],
+  sectionDiagnostics: SectionDiagnostic[],
+  retryAttemptsByReason: Record<string, number>
+): Promise<{ rewrite: RewritePreview; modelUsed: string; mode: "fast_section" | "passthrough" }> {
+  const sectionStart = Date.now();
+  const source = promptKey.includes("linkedin") ? "linkedin" : "cv";
+  const isCore = ["experience", "education", "headline", "about"].includes(sectionId);
+
+  // Cap entries same as normal path
+  const firstPassCap = Math.min(MAX_ENTRIES_FIRST_PASS, MAX_ENTRIES_PER_SECTION);
+  const cappedEntries = entries.slice(0, firstPassCap).map((e, i) => ({
+    index: i,
+    title: e.title.slice(0, 200),
+    organization: e.organization.slice(0, 200),
+    dateRange: e.dateRange.slice(0, 100),
+    description: e.description.slice(0, MAX_CHARS_PER_ENTRY),
+  }));
+
+  // Build passthrough entries for fallback
+  const buildPassthrough = (): RewriteEntry[] =>
+    cappedEntries.map((e, i) => ({
+      entryIndex: i,
+      entryTitle: [e.title, e.organization].filter(Boolean).join(" at ") || `Entry ${i + 1}`,
+      organization: e.organization || undefined,
+      title: e.title || undefined,
+      dateRange: e.dateRange || undefined,
+      original: e.description,
+      improvements: "",
+      missingSuggestions: [],
+      rewritten: e.description, // pass-through: original = rewritten
+    }));
+
+  // Build passthrough RewritePreview
+  const buildPassthroughPreview = (): RewritePreview => ({
+    sectionId,
+    source: source as "linkedin" | "cv",
+    original: fullSectionContent.slice(0, 2000),
+    improvements: "",
+    missingSuggestions: [],
+    rewritten: fullSectionContent.slice(0, 2000),
+    locked: false,
+    entries: buildPassthrough(),
+  });
+
+  // Try to get the prompt
+  const prompt = await getActivePromptWithVersion(promptKey, locale);
+  if (!prompt) {
+    console.warn(`[perf] fastRewrite: no prompt found for ${promptKey}, using passthrough`);
+    return { rewrite: buildPassthroughPreview(), modelUsed: "none", mode: "passthrough" };
+  }
+  promptVersions[promptKey] = prompt.version;
+
+  const entriesJson = JSON.stringify(cappedEntries, null, 2);
+  const systemPrompt = interpolatePrompt(prompt.content, {
+    section_name: SECTION_DISPLAY_NAMES[sectionId] ?? sectionId,
+    original_content: truncate(fullSectionContent, MAX_SECTION_CHARS, sectionId),
+    entries_json: entriesJson,
+    entry_count: String(cappedEntries.length),
+    target_role: targetRole,
+    job_objective: jobObjective,
+    objective_mode_label: framing.objective_mode_label,
+    objective_framing: framing.objective_framing,
+    objective_context: framing.objective_context,
+  });
+
+  // Single attempt, no retries
+  try {
+    const langInstruction = locale !== "en"
+      ? " ALL output text (original, improvements, missingSuggestions, rewritten, and all entry fields) MUST be in Spanish."
+      : "";
+
+    const userMessage =
+      `Rewrite this ${SECTION_DISPLAY_NAMES[sectionId] ?? sectionId} section. Provide BOTH a section-level summary AND per-entry rewrites. Respond in JSON with keys: original, improvements, missingSuggestions, rewritten, entries (array of {entryTitle, original, improvements, missingSuggestions, rewritten}).${langInstruction}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FAST_REWRITE_TIMEOUT_MS);
+    let result;
+    try {
+      result = await callLLM({
+        model: LLM_MODEL_FAST, // Haiku instead of Sonnet
+        systemPrompt,
+        userMessage,
+        maxTokens: 4096,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const jsonStr = extractJson(result.text);
+    let rawParsed: unknown;
+    try {
+      rawParsed = JSON.parse(jsonStr);
+    } catch {
+      console.warn(`[perf] fastRewrite: JSON parse failed, using passthrough`);
+      failureReasons.push("invalid_json");
+      return { rewrite: buildPassthroughPreview(), modelUsed: result.modelUsed, mode: "passthrough" };
+    }
+
+    const parsed = RewriteSectionWithEntriesOutput.safeParse(rawParsed);
+    if (!parsed.success) {
+      console.warn(`[perf] fastRewrite: schema validation failed, using passthrough`);
+      failureReasons.push("invalid_json");
+      return { rewrite: buildPassthroughPreview(), modelUsed: result.modelUsed, mode: "passthrough" };
+    }
+
+    // Build entries from LLM response — skip attachment integrity check (trust archetype)
+    const rewriteEntries: RewriteEntry[] = (parsed.data.entries ?? []).map((e, i) => {
+      const originalEntry = cappedEntries[i];
+      return {
+        entryIndex: i,
+        entryTitle: e.entryTitle,
+        organization: originalEntry?.organization || undefined,
+        title: originalEntry?.title || undefined,
+        dateRange: originalEntry?.dateRange || undefined,
+        original: e.original,
+        improvements: e.improvements,
+        missingSuggestions: e.missingSuggestions,
+        rewritten: stripNonFlagEmojis(e.rewritten),
+      };
+    });
+
+    const rewrite: RewritePreview = {
+      sectionId,
+      source: source as "linkedin" | "cv",
+      original: parsed.data.original,
+      improvements: parsed.data.improvements,
+      missingSuggestions: parsed.data.missingSuggestions,
+      rewritten: stripNonFlagEmojis(parsed.data.rewritten),
+      locked: false,
+      entries: rewriteEntries.length > 0 ? rewriteEntries : undefined,
+    };
+
+    console.log(
+      `[perf] fastRewrite: section=${sectionId}, entries=${rewriteEntries.length}/${cappedEntries.length}, ` +
+      `model=${result.modelUsed}, duration=${Date.now() - sectionStart}ms`
+    );
+
+    return { rewrite, modelUsed: result.modelUsed, mode: "fast_section" };
+  } catch (err) {
+    const { reason } = classifyError(err);
+    failureReasons.push(reason);
+    retryAttemptsByReason[reason] = (retryAttemptsByReason[reason] || 0) + 1;
+
+    const sectionReason: SectionFailureReason = reason === "timeout" ? "llm_timeout"
+      : reason === "rate_limit_429" ? "llm_rate_limited"
+      : "retry_exhausted";
+
+    console.warn(
+      `[perf] fastRewrite: error (${reason}), using passthrough. ` +
+      `section=${sectionId}, duration=${Date.now() - sectionStart}ms, ` +
+      `error=${err instanceof Error ? err.message : "Unknown"}`
+    );
+
+    sectionDiagnostics.push({
+      sectionId, module: "rewrite", source, isCore, reason: sectionReason,
+      attempts: 1, durationMs: Date.now() - sectionStart,
+    });
+
+    return { rewrite: buildPassthroughPreview(), modelUsed: LLM_MODEL_FAST, mode: "passthrough" };
+  }
+}
+
 // ── Generate cover letter via LLM ───────────────────────
 async function generateCoverLetter(
   targetRole: string,
@@ -1807,6 +1989,11 @@ export async function generateAuditResults(
   let linkedinExpRawCount = 0;
   let linkedinExpCoverage = 0;
 
+  // PERF-HOTFIX: Experience rewrite mode tracking
+  let experienceRewriteMode: "full_sonnet" | "fast_section" | "passthrough" = "full_sonnet";
+  let experienceRewriteSkippedReason: string | null = null;
+  let deferredExperienceEntries = 0;
+
   for (const sectionId of ["experience", "education"]) {
     if (linkedinSections[sectionId]) {
       // ── HOTFIX-5B: Pre-normalization pass for LinkedIn Experience ──
@@ -2103,7 +2290,43 @@ export async function generateAuditResults(
     const content = linkedinSections[section.id] ??
       `[This section was not found in the profile. The user has not included a ${SECTION_DISPLAY_NAMES[section.id] ?? section.id} section.]`;
 
-    // Use per-entry rewrite for sections with parsed entries
+    // PERF-HOTFIX: Fast path for experience when archetype is confident
+    if (
+      section.id === "experience" &&
+      linkedinExpArchetypeUsed &&
+      linkedinExpParserConfidence === "high" &&
+      linkedinEntries[section.id]?.length > 0
+    ) {
+      const fastPromise = fastSectionRewriteWithEntries(
+        section.id,
+        linkedinEntries[section.id],
+        content,
+        "rewrite.linkedin.section.entries",
+        targetRole,
+        jobObjective,
+        framing,
+        locale,
+        promptVersions,
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason
+      );
+
+      return fastPromise.then((fastResult) => {
+        experienceRewriteMode = fastResult.mode;
+        deferredExperienceEntries = linkedinEntries[section.id].length;
+        const wrappedResult = { rewrite: fastResult.rewrite, modelUsed: fastResult.modelUsed };
+        handleRewriteResult(section, wrappedResult);
+        return { id: section.id, result: wrappedResult };
+      }).catch((err) => {
+        experienceRewriteMode = "passthrough";
+        experienceRewriteSkippedReason = err instanceof Error ? err.message : "unknown";
+        handleRewriteResult(section, null);
+        throw err;
+      });
+    }
+
+    // Normal path: per-entry Sonnet rewrite or section-level rewrite
     const rewritePromise = (linkedinEntries[section.id] && linkedinEntries[section.id].length > 0)
       ? rewriteSectionWithEntries(
           section.id,
@@ -2198,6 +2421,14 @@ export async function generateAuditResults(
     `cv=${cvRewrites.length} rewrites (entries: ${cvRewrites.reduce((sum, r) => sum + (r.entries?.length ?? 0), 0)})`
   );
 
+  // PERF-HOTFIX: Experience rewrite mode diagnostics
+  console.log(
+    `[diag] request=${requestId} | EXP_REWRITE_PERF: ` +
+    `mode=${experienceRewriteMode}, ` +
+    `skippedReason=${experienceRewriteSkippedReason ?? "none"}, ` +
+    `deferredEntries=${deferredExperienceEntries}`
+  );
+
   // ─── 5b. Quality guard diagnostics (logging only) ─────
   let repetitiveEntryCount = 0;
   let hallucinatedMetricCount = 0;
@@ -2288,6 +2519,14 @@ export async function generateAuditResults(
         linkedinEntries[section.id] &&
         linkedinEntries[section.id].length >= 2
       ) {
+        // PERF-HOTFIX: Skip experience scoring when fast/passthrough mode
+        if (section.id === "experience" && experienceRewriteMode !== "full_sonnet") {
+          console.log(
+            `[perf] Skipping experience entry scoring (mode=${experienceRewriteMode})`
+          );
+          continue;
+        }
+
         entryScoreTargets.push({
           section,
           entries: linkedinEntries[section.id],
@@ -2692,6 +2931,10 @@ export async function generateAuditResults(
       timeToFirstSectionMs: ttfs >= 0 ? ttfs : undefined,
       llmCallCount,
       sectionsSkipped,
+      // PERF-HOTFIX: Experience rewrite perf tracking
+      experienceRewriteMode,
+      experienceRewriteSkippedReason: experienceRewriteSkippedReason ?? undefined,
+      deferredExperienceEntries,
     },
   };
 }
