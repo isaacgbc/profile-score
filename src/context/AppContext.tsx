@@ -82,6 +82,10 @@ interface AppContextValue extends AppState {
   regenerateSection: (sectionId: string, source: "linkedin" | "cv") => Promise<void>;
   /** Per-section regeneration loading state */
   regeneratingSection: string | null;
+  /** HOTFIX-7: Per-section regeneration counts, timestamps, no-diff flags */
+  regenerationCounts: Record<string, number>;
+  regenerationTimestamps: Record<string, number>;
+  lastRegenerateNoDiff: Record<string, boolean>;
   /** HOTFIX-3: Manually added section content (for missing critical sections) */
   manualSections: Record<string, string>;
   setManualSection: (sectionId: string, content: string) => void;
@@ -144,6 +148,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [userRewritten, setUserRewritten] = useState<Record<string, string>>({});
   const [userOptimized, setUserOptimizedState] = useState<Record<string, string>>({});
   const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
+  // HOTFIX-7: Regeneration tracking — cap, timestamps, no-diff detection
+  const [regenerationCounts, setRegenerationCounts] = useState<Record<string, number>>({});
+  const [regenerationTimestamps, setRegenerationTimestamps] = useState<Record<string, number>>({});
+  const [lastRegenerateNoDiff, setLastRegenerateNoDiff] = useState<Record<string, boolean>>({});
   const [unlockAnimationTriggered, setUnlockAnimationTriggered] = useState(false);
   const [auditId, setAuditId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -171,6 +179,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
   const setManualSection = useCallback((sectionId: string, content: string) => {
     setManualSections((prev) => {
+      // HOTFIX-7: Never overwrite non-empty contact info with empty/shorter content
+      if (sectionId === "contact-info" && prev["contact-info"]) {
+        const existing = prev["contact-info"].trim();
+        const incoming = content.trim();
+        if (existing.length > 0 && (incoming.length === 0 || incoming.length < existing.length * 0.5)) {
+          console.log(`[diag] HOTFIX-7 contactGuard: blocked overwrite of contact-info (existing=${existing.length}, incoming=${incoming.length})`);
+          return prev; // Block overwrite
+        }
+      }
       const next = { ...prev, [sectionId]: content };
       // HOTFIX-5B: Persist to localStorage
       try {
@@ -656,6 +673,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       delete next[sectionId];
       return next;
     });
+    // HOTFIX-7: Reset regeneration tracking on section reset
+    setRegenerationCounts((prev) => { const next = { ...prev }; delete next[sectionId]; return next; });
+    setRegenerationTimestamps((prev) => { const next = { ...prev }; delete next[sectionId]; return next; });
+    setLastRegenerateNoDiff((prev) => { const next = { ...prev }; delete next[sectionId]; return next; });
   }, []);
 
   const resetEntry = useCallback((sectionId: string, entryStableId: string) => {
@@ -670,6 +691,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const regenerateSection = useCallback(
     async (sectionId: string, source: "linkedin" | "cv") => {
       if (!results) return;
+
+      // HOTFIX-7: Cap at 3 regenerations per section
+      const currentCount = regenerationCounts[sectionId] ?? 0;
+      if (currentCount >= 3) {
+        console.warn(`[regenerate] Section ${sectionId} has reached max 3 regenerations`);
+        return;
+      }
+
       setRegeneratingSection(sectionId);
 
       try {
@@ -719,20 +748,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           if (data.rewritten) {
-            setUserRewritten((prev) => ({
-              ...prev,
-              [sectionId]: data.rewritten,
-            }));
-            // Clear any manual edits so regenerated text takes priority
-            setUserOptimizedState((prev) => {
-              const next = { ...prev };
-              delete next[sectionId];
-              // Also clear entry-level keys for this section
-              for (const k of Object.keys(next)) {
-                if (k.startsWith(`${sectionId}:`)) delete next[k];
-              }
-              return next;
-            });
+            // HOTFIX-7: No-diff detection — compare with previous text
+            const previousText = userRewritten[sectionId] ?? rewrite?.rewritten ?? "";
+            const isNoDiff = data.rewritten.trim() === previousText.trim();
+
+            setRegenerationTimestamps((prev) => ({ ...prev, [sectionId]: Date.now() }));
+            setLastRegenerateNoDiff((prev) => ({ ...prev, [sectionId]: isNoDiff }));
+            setRegenerationCounts((prev) => ({ ...prev, [sectionId]: (prev[sectionId] ?? 0) + 1 }));
+
+            if (!isNoDiff) {
+              setUserRewritten((prev) => ({
+                ...prev,
+                [sectionId]: data.rewritten,
+              }));
+              // Clear any manual edits so regenerated text takes priority
+              setUserOptimizedState((prev) => {
+                const next = { ...prev };
+                delete next[sectionId];
+                // Also clear entry-level keys for this section
+                for (const k of Object.keys(next)) {
+                  if (k.startsWith(`${sectionId}:`)) delete next[k];
+                }
+                return next;
+              });
+            }
           }
         } else {
           const err = await res.json().catch(() => ({ error: "Unknown error" }));
@@ -744,7 +783,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setRegeneratingSection(null);
       }
     },
-    [results, isAdmin, userInput, userImprovements, exportLocale, manualSections]
+    [results, isAdmin, userInput, userImprovements, userRewritten, exportLocale, manualSections, regenerationCounts]
   );
 
   const isFeatureUnlocked = useCallback(
@@ -937,6 +976,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         userRewritten,
         userOptimized,
         regeneratingSection,
+        regenerationCounts,
+        regenerationTimestamps,
+        lastRegenerateNoDiff,
         unlockAnimationTriggered,
         auditId,
         isGenerating,

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import type { ExportModuleId, ExportFormat, ExportStatus } from "@/lib/types";
+import { trackEvent } from "@/lib/analytics/tracker";
 
 interface ModuleState {
   status: ExportStatus | "idle";
@@ -54,6 +55,9 @@ export function useExport(): UseExportReturn {
     async (opts: CreateExportOpts) => {
       const { exportType, adminToken, userEdits, ...payload } = opts;
 
+      // HOTFIX-7: Export telemetry
+      trackEvent("exportJobStarted", { metadata: { exportType } });
+
       setModuleStates((prev) => ({
         ...prev,
         [exportType]: { status: "processing", exportId: null, error: null },
@@ -87,6 +91,9 @@ export function useExport(): UseExportReturn {
           return;
         }
 
+        // HOTFIX-7: Export telemetry
+        trackEvent("exportJobSucceeded", { metadata: { exportType, exportId: data.exportId } });
+
         setModuleStates((prev) => ({
           ...prev,
           [exportType]: {
@@ -110,6 +117,8 @@ export function useExport(): UseExportReturn {
   );
 
   const downloadExport = useCallback((exportId: string) => {
+    // HOTFIX-7: Export telemetry
+    trackEvent("exportDownloadStarted", { metadata: { exportId } });
     window.open(`/api/exports/${exportId}?download=true`, "_blank");
   }, []);
 

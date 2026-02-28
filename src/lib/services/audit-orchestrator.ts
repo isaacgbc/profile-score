@@ -2390,9 +2390,13 @@ export async function generateAuditResults(
         );
         if (mismatch && parsedCount > 0) {
           console.warn(
-            `[diag] request=${requestId} | COUNT_MISMATCH linkedin.${sectionId}: ` +
-            `heuristic=${heuristicCount} >> parsed=${parsedCount}`
+            `[diag] request=${requestId} | COUNT_MISMATCH_ALERT linkedin.${sectionId}: ` +
+            `expected≈${heuristicCount}, parsed=${parsedCount}, ratio=${(heuristicCount / Math.max(1, parsedCount)).toFixed(1)}x`
           );
+          trackServerEvent("count_mismatch_detected", {
+            auditId: requestId,
+            metadata: { source: "linkedin", sectionId, expectedCountAI: heuristicCount, parsedCount, mismatchResolved: false },
+          });
         }
       }
     }
@@ -2498,9 +2502,13 @@ export async function generateAuditResults(
         );
         if (mismatch && parsedCount > 0) {
           console.warn(
-            `[diag] request=${requestId} | COUNT_MISMATCH cv.${sectionId}: ` +
-            `heuristic=${heuristicCount} >> parsed=${parsedCount}`
+            `[diag] request=${requestId} | COUNT_MISMATCH_ALERT cv.${sectionId}: ` +
+            `expected≈${heuristicCount}, parsed=${parsedCount}, ratio=${(heuristicCount / Math.max(1, parsedCount)).toFixed(1)}x`
           );
+          trackServerEvent("count_mismatch_detected", {
+            auditId: requestId,
+            metadata: { source: "cv", sectionId, expectedCountAI: heuristicCount, parsedCount, mismatchResolved: false },
+          });
         }
       }
     }

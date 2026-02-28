@@ -141,6 +141,8 @@ export default function CheckoutPage() {
       planId: selectedPlan,
       metadata: { moduleId, format, editedSectionCount, editedEntryCount, usedUserOptimized },
     });
+    // HOTFIX-7: Export CTA telemetry
+    trackEvent("exportCtaClicked", { auditId, metadata: { moduleId, format, isBypass: false } });
 
     createExport({
       auditId,
@@ -454,6 +456,8 @@ export default function CheckoutPage() {
                         placeholdersBefore: valueSummary?.placeholderCount ?? 0,
                       },
                     });
+                    // HOTFIX-7: Export CTA telemetry (bypass path)
+                    trackEvent("exportCtaClicked", { auditId: auditId ?? undefined, metadata: { moduleId: mod.id, format: fmt, isBypass: true } });
                     handleGenerate(mod.id, fmt);
                   }}
                 />

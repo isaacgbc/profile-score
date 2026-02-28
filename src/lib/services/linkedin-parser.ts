@@ -729,6 +729,23 @@ export function parseEntriesFromSection(
   // preceding real entry. This prevents bullet lines from becoming standalone cards.
   const mergedEntries = mergeFragmentEntries(entries);
 
+  // HOTFIX-7: Explicit bullet guard for work-experience — bullets must never be standalone entries
+  if (sectionId === "work-experience" || sectionId === "experience") {
+    const bulletRe = /^\s*[-*•–]/;
+    let hadBulletEntry = false;
+    for (let i = mergedEntries.length - 1; i >= 1; i--) {
+      if (bulletRe.test(mergedEntries[i].title) && !mergedEntries[i].dateRange) {
+        const prev = mergedEntries[i - 1];
+        prev.description = (prev.description + "\n" + mergedEntries[i].title + "\n" + mergedEntries[i].description).trim();
+        mergedEntries.splice(i, 1);
+        hadBulletEntry = true;
+      }
+    }
+    if (hadBulletEntry) {
+      console.log(`[diag] HOTFIX-7 bulletGuard: merged bullet-only entries into parent (${sectionId})`);
+    }
+  }
+
   // HOTFIX-CV-EDU-SPLIT: Education anti-over-split
   const finalEntries = sectionId === "education-section"
     ? mergeEducationOverSplit(mergedEntries, sectionText.length)

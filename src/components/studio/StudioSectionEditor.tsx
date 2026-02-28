@@ -31,6 +31,10 @@ interface StudioSectionEditorProps {
   entryScores?: EntryScore[];
   /** Callback to inject synthesized/manual entries into results for export */
   onInjectEntries?: (sectionId: string, entries: RewriteEntry[]) => void;
+  /** HOTFIX-7: Regeneration tracking */
+  regenerationCount?: number;
+  regenerationTimestamp?: number;
+  lastRegenerateNoDiff?: boolean;
 }
 
 /**
@@ -80,6 +84,9 @@ export default function StudioSectionEditor({
   onUpgradeClick,
   entryScores,
   onInjectEntries,
+  regenerationCount = 0,
+  regenerationTimestamp,
+  lastRegenerateNoDiff,
 }: StudioSectionEditorProps) {
   const { t } = useI18n();
   const sectionLabels = t.sectionLabels as Record<string, string>;
@@ -355,6 +362,20 @@ export default function StudioSectionEditor({
           </div>
         )}
 
+        {/* HOTFIX-7: Regeneration feedback */}
+        {regenerationTimestamp && Date.now() - regenerationTimestamp < 30_000 && !lastRegenerateNoDiff && (
+          <div className="mb-2 flex items-center gap-1.5">
+            <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold bg-indigo-100 text-indigo-700 rounded-full">
+              {studioT.regenerateUpdatedJustNow ?? "Updated just now"}
+            </span>
+          </div>
+        )}
+        {lastRegenerateNoDiff && (
+          <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-medium">
+            {studioT.regenerateNoDiff ?? "No significant changes generated"}
+          </div>
+        )}
+
         {/* AI Instructions + Suggestions (collapsible) — HOTFIX-6A */}
         <div className="mb-4">
           <button
@@ -410,14 +431,14 @@ export default function StudioSectionEditor({
           )}
         </div>
 
-        {/* Missing from Profile */}
+        {/* Missing from Profile — HOTFIX-7: cap to 3 suggestions */}
         {rewrite.missingSuggestions.length > 0 && (
           <div className="mb-4 pt-3 border-t border-blue-100">
             <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-2">
               {studioT.missingFromProfile ?? "Missing from Profile"}
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {rewrite.missingSuggestions.map((s, i) => (
+              {rewrite.missingSuggestions.slice(0, 3).map((s, i) => (
                 <span
                   key={i}
                   className="inline-flex items-center px-3 py-1.5 text-[11px] font-medium bg-blue-50 text-blue-700 rounded-lg border border-blue-200 whitespace-normal break-words max-w-full leading-snug"
@@ -439,7 +460,18 @@ export default function StudioSectionEditor({
             {studioT.resetSection ?? "Reset to original"}
           </button>
 
-          <div className="relative">
+          <div className="relative flex items-center gap-2">
+            {/* HOTFIX-7: Regeneration counter */}
+            {regenerationCount < 3 && regenerationCount > 0 && (
+              <span className="text-[10px] text-[var(--text-muted)] whitespace-nowrap">
+                {(studioT.regenRemaining ?? "{n}/3 regenerations remaining").replace("{n}", String(3 - regenerationCount))}
+              </span>
+            )}
+            {regenerationCount >= 3 ? (
+              <span className="text-[10px] text-amber-600 font-medium max-w-[160px] text-right">
+                {studioT.regenLimitReached ?? "Regeneration limit reached. Edit manually or reset."}
+              </span>
+            ) : (
             <Button
               variant="primary"
               size="sm"
@@ -454,6 +486,7 @@ export default function StudioSectionEditor({
                   : studioT.regenerate ?? "Regenerate"}
               </span>
             </Button>
+            )}
 
             {/* Regenerate confirmation (inline card) */}
             {showRegenConfirm && (

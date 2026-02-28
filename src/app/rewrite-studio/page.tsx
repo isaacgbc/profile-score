@@ -64,6 +64,9 @@ export default function RewriteStudioPage() {
     resetEntry,
     regenerateSection,
     regeneratingSection,
+    regenerationCounts,
+    regenerationTimestamps,
+    lastRegenerateNoDiff,
     showEmailCaptureModal,
     setShowEmailCaptureModal,
     setUserEmail,
@@ -484,6 +487,9 @@ export default function RewriteStudioPage() {
                       onUpgradeClick={() => setShowPricingModal(true)}
                       entryScores={entryScores}
                       onInjectEntries={injectEntries}
+                      regenerationCount={regenerationCounts[rewrite.sectionId] ?? 0}
+                      regenerationTimestamp={regenerationTimestamps[rewrite.sectionId]}
+                      lastRegenerateNoDiff={lastRegenerateNoDiff[rewrite.sectionId]}
                     />
                   );
                 })}
@@ -524,6 +530,9 @@ export default function RewriteStudioPage() {
                           locked={rewrite.locked && !isAdmin}
                           onUpgradeClick={() => setShowPricingModal(true)}
                           entryScores={entryScores}
+                          regenerationCount={regenerationCounts[rewrite.sectionId] ?? 0}
+                          regenerationTimestamp={regenerationTimestamps[rewrite.sectionId]}
+                          lastRegenerateNoDiff={lastRegenerateNoDiff[rewrite.sectionId]}
                         />
                       );
                     })}
