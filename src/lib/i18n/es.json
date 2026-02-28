@@ -388,7 +388,9 @@
     "contactInfoPhone": "Teléfono",
     "contactInfoLinkedin": "URL de LinkedIn",
     "contactInfoLocation": "Ubicación",
-    "contactInfoRequired": "El nombre es obligatorio"
+    "contactInfoRequired": "El nombre es obligatorio",
+    "addEducationEntry": "+ Agregar entrada de educación",
+    "viewRawSection": "Ver texto completo de la sección"
   },
   "checkout": {
     "title": "Exporta Tu Perfil Optimizado",

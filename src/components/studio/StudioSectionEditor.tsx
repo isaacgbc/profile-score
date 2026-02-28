@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useI18n } from "@/context/I18nContext";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -8,6 +8,7 @@ import { getSectionLabel } from "@/lib/section-labels";
 import { LockIcon, SparklesIcon } from "@/components/ui/Icons";
 import StudioEntryEditor, { computeEntryStableId } from "./StudioEntryEditor";
 import { hasPlaceholders } from "@/lib/utils/placeholder-detect";
+import { synthesizeEducationEntries, createBlankEducationEntry } from "@/lib/utils/education-synthesizer";
 import type { RewritePreview, EntryScore, RewriteEntry } from "@/lib/types";
 
 interface StudioSectionEditorProps {
@@ -25,6 +26,8 @@ interface StudioSectionEditorProps {
   onUpgradeClick?: () => void;
   /** Optional entry scores from results (v2 entry scoring) */
   entryScores?: EntryScore[];
+  /** HOTFIX-URGENT-4: Callback to inject synthesized/manual entries into results */
+  onInjectEntries?: (sectionId: string, entries: RewriteEntry[]) => void;
 }
 
 /**
@@ -71,6 +74,7 @@ export default function StudioSectionEditor({
   locked,
   onUpgradeClick,
   entryScores,
+  onInjectEntries,
 }: StudioSectionEditorProps) {
   const { t } = useI18n();
   const sectionLabels = t.sectionLabels as Record<string, string>;
@@ -79,6 +83,9 @@ export default function StudioSectionEditor({
   const [showOriginal, setShowOriginal] = useState(false);
   const [showDirections, setShowDirections] = useState(false);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
+  const [showRawText, setShowRawText] = useState(false);
+  // HOTFIX-URGENT-4: Track manually added entries for education
+  const [manualEntries, setManualEntries] = useState<RewriteEntry[]>([]);
 
   // Resolution: userOptimized > userRewritten > rewrite.rewritten
   const sectionOptimized = userOptimized[rewrite.sectionId];
@@ -87,14 +94,52 @@ export default function StudioSectionEditor({
   const hasEntries = rewrite.entries && rewrite.entries.length > 0;
   // HOTFIX-URGENT-2: Identify entry-based sections that should show recovery card if empty
   const isEntryBasedSection = ["experience", "education", "work-experience", "education-section"].includes(rewrite.sectionId);
+  const isEducationSection = ["education", "education-section"].includes(rewrite.sectionId);
 
-  // HOTFIX-URGENT-2: Diagnostic log for education rendering path
-  if (rewrite.sectionId === "education" || rewrite.sectionId === "education-section") {
+  // HOTFIX-URGENT-4: Synthesize education entries when parser returns ≤1 entry
+  const synthesizedEntries = useMemo(() => {
+    if (!isEducationSection) return null;
+    if (hasEntries && rewrite.entries!.length > 1) return null; // parser found enough entries
+    // Synthesize from raw text
+    const synth = synthesizeEducationEntries(rewrite.original, rewrite.rewritten);
+    console.log(
+      `[diag] educationSynthesizer sectionId=${rewrite.sectionId} ` +
+      `parsedEntries=${rewrite.entries?.length ?? 0} synthesizedEntries=${synth.length}`
+    );
+    return synth;
+  }, [isEducationSection, hasEntries, rewrite.entries, rewrite.original, rewrite.rewritten, rewrite.sectionId]);
+
+  // HOTFIX-URGENT-4: Effective entries = server entries (if >1) OR synthesized + manual
+  const effectiveEntries = useMemo(() => {
+    if (!isEducationSection) return rewrite.entries;
+    if (hasEntries && rewrite.entries!.length > 1) {
+      // Server parsed enough entries — use them + any manual
+      return [...rewrite.entries!, ...manualEntries];
+    }
+    // Use synthesized + manual
+    const base = synthesizedEntries ?? (hasEntries ? rewrite.entries! : []);
+    return [...base, ...manualEntries];
+  }, [isEducationSection, hasEntries, rewrite.entries, synthesizedEntries, manualEntries]);
+
+  // Inject synthesized entries into parent results (for export flow)
+  // Only fire once when synthesized entries are first computed
+  const injectedRef = useState<boolean>(false);
+  if (isEducationSection && synthesizedEntries && synthesizedEntries.length > 0 && onInjectEntries && !injectedRef[0]) {
+    injectedRef[1](true);
+    onInjectEntries(rewrite.sectionId, synthesizedEntries);
+  }
+
+  const effectiveHasEntries = effectiveEntries && effectiveEntries.length > 0;
+
+  // HOTFIX-URGENT-4: Enhanced diagnostic log for education
+  if (isEducationSection) {
     console.log(
       `[diag] educationRenderer sectionId=${rewrite.sectionId} ` +
-      `hasEntries=${hasEntries} entryCount=${rewrite.entries?.length ?? 0} ` +
-      `renderedEducationCount=${rewrite.entries?.length ?? 0} ` +
-      `rendererPath=${hasEntries ? "sharedEntryCards" : (isEntryBasedSection ? "missingRecovery" : "sectionTextarea")}`
+      `parsedEntries=${rewrite.entries?.length ?? 0} ` +
+      `synthesizedEntries=${synthesizedEntries?.length ?? 0} ` +
+      `manualEntries=${manualEntries.length} ` +
+      `effectiveEntries=${effectiveEntries?.length ?? 0} ` +
+      `rendererPath=${effectiveHasEntries ? "entryCards" : "sectionTextarea"}`
     );
   }
 
@@ -184,9 +229,10 @@ export default function StudioSectionEditor({
         )}
 
         {/* Entry-level editors (for experience/education) */}
-        {hasEntries ? (
+        {/* HOTFIX-URGENT-4: Education always uses entry cards (synthesized if needed) */}
+        {(effectiveHasEntries && (isEducationSection || hasEntries)) ? (
           <div className="space-y-2 mb-4">
-            {rewrite.entries!.map((entry, idx) => {
+            {effectiveEntries!.map((entry, idx) => {
               const stableId = computeEntryStableId(entry.entryTitle, entry.original);
               const entryKey = `${rewrite.sectionId}:${stableId}`;
               // Robust matching: title-based → partial → index fallback
@@ -194,7 +240,8 @@ export default function StudioSectionEditor({
               if (
                 !matchingScore &&
                 entryScores &&
-                entryScores.length === rewrite.entries!.length
+                rewrite.entries &&
+                entryScores.length === rewrite.entries.length
               ) {
                 matchingScore = entryScores[idx]; // index-based fallback
               }
@@ -212,9 +259,48 @@ export default function StudioSectionEditor({
                 />
               );
             })}
+
+            {/* HOTFIX-URGENT-4: + Add education entry button */}
+            {isEducationSection && !locked && (
+              <button
+                onClick={() => {
+                  const newEntry = createBlankEducationEntry(
+                    (effectiveEntries?.length ?? 0) + manualEntries.length
+                  );
+                  setManualEntries((prev) => [...prev, newEntry]);
+                }}
+                className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-emerald-600 bg-emerald-50/50 border border-dashed border-emerald-300 rounded-xl hover:bg-emerald-50 hover:border-emerald-400 transition-colors"
+              >
+                <span className="text-base leading-none">+</span>
+                {studioT.addEducationEntry ?? "Add education entry"}
+              </button>
+            )}
+
+            {/* HOTFIX-URGENT-4: Collapsible raw section text backup */}
+            {isEducationSection && (
+              <div className="mt-1">
+                <button
+                  onClick={() => setShowRawText(!showRawText)}
+                  className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+                >
+                  <span className={`transition-transform ${showRawText ? "rotate-90" : ""}`}>▸</span>
+                  {studioT.viewRawSection ?? "View full section text"}
+                </button>
+                {showRawText && (
+                  <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <textarea
+                      value={displayRewritten}
+                      onChange={(e) => onOptimizedChange(rewrite.sectionId, e.target.value)}
+                      className="w-full min-h-[100px] text-xs text-[var(--text-secondary)] bg-transparent border-0 resize-none focus:outline-none leading-relaxed"
+                      style={{ fieldSizing: "content" } as React.CSSProperties}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        ) : isEntryBasedSection ? (
-          /* HOTFIX-URGENT-2: Missing-section recovery card for entry-based sections (education/experience) */
+        ) : isEntryBasedSection && !isEducationSection ? (
+          /* HOTFIX-URGENT-2: Missing-section recovery card for experience (not education) */
           <div className="mb-4 border-2 border-emerald-200 bg-emerald-50/30 rounded-xl p-4">
             <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">
               {studioT.optimizedDraft ?? "Optimized Draft"}

@@ -84,6 +84,8 @@ interface AppContextValue extends AppState {
   /** HOTFIX-3: Manually added section content (for missing critical sections) */
   manualSections: Record<string, string>;
   setManualSection: (sectionId: string, content: string) => void;
+  /** HOTFIX-URGENT-4: Inject synthesized/manual entries into a rewrite section */
+  injectEntries: (sectionId: string, entries: import("@/lib/types").RewriteEntry[]) => void;
   triggerUnlockAnimation: () => void;
   isFeatureUnlocked: (featureId: FeatureId) => boolean;
   isSectionLocked: (sectionId: string) => boolean;
@@ -147,6 +149,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [manualSections, setManualSections] = useState<Record<string, string>>({});
   const setManualSection = useCallback((sectionId: string, content: string) => {
     setManualSections((prev) => ({ ...prev, [sectionId]: content }));
+  }, []);
+
+  // HOTFIX-URGENT-4: Inject synthesized entries into results for export flow
+  const injectEntries = useCallback((sectionId: string, entries: import("@/lib/types").RewriteEntry[]) => {
+    setResultsState((prev) => {
+      if (!prev) return prev;
+      const updateRewrites = (rwArr: ProfileResult["linkedinRewrites"]) =>
+        rwArr.map((r) => {
+          if (r.sectionId !== sectionId) return r;
+          // Only inject if current entries are empty or ≤1
+          if (r.entries && r.entries.length > 1) return r;
+          return { ...r, entries };
+        });
+      return {
+        ...prev,
+        linkedinRewrites: updateRewrites(prev.linkedinRewrites),
+        cvRewrites: updateRewrites(prev.cvRewrites),
+      };
+    });
   }, []);
 
   // Sprint 2: Progressive generation stream (SSE — works on Pro/Enterprise)
@@ -849,6 +870,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         regenerateSection,
         manualSections,
         setManualSection,
+        injectEntries,
         triggerUnlockAnimation,
         isFeatureUnlocked,
         isSectionLocked,

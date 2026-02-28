@@ -72,6 +72,7 @@ export default function RewriteStudioPage() {
     auditId,
     manualSections,
     setManualSection,
+    injectEntries,
   } = useApp();
   const router = useRouter();
 
@@ -461,6 +462,7 @@ export default function RewriteStudioPage() {
                       locked={rewrite.locked && !isAdmin}
                       onUpgradeClick={() => setShowPricingModal(true)}
                       entryScores={entryScores}
+                      onInjectEntries={injectEntries}
                     />
                   );
                 })}
