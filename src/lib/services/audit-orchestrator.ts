@@ -153,6 +153,9 @@ const REWRITE_CALL_TIMEOUT_MS = 20_000;
 // HOTFIX-5: First-pass entry cap for experience sections — show fast partial results
 const MAX_ENTRIES_FIRST_PASS = 4;
 
+// PERF-HOTFIX-2: Global orchestration time budget — skip non-essential stages if exceeded
+const ORCHESTRATION_BUDGET_MS = 45_000;
+
 // ── Feature flags ──
 const ENABLE_STRUCTURING_PASS = process.env.ENABLE_STRUCTURING_PASS === "true";
 const ENABLE_ENTRY_SCORING = process.env.ENABLE_ENTRY_SCORING === "true";
@@ -294,6 +297,22 @@ export interface GenerationMeta {
   experienceRewriteSkippedReason?: string;
   /** PERF-HOTFIX: Number of entries deferred for on-demand Sonnet */
   deferredExperienceEntries?: number;
+  /** PERF-HOTFIX-2: Reason structuring was skipped (e.g. archetype_high_confidence) */
+  structuringSkippedReason?: string;
+  /** PERF-HOTFIX-2: Total experience entries found */
+  totalExperienceEntries?: number;
+  /** PERF-HOTFIX-2: Entries processed in first pass */
+  firstPassProcessedEntries?: number;
+  /** PERF-HOTFIX-2: "fast" when headline/summary use Haiku first-pass */
+  firstPassMode?: "fast" | "full";
+  /** PERF-HOTFIX-2: Section IDs deferred for Sonnet enhancement */
+  deferredEnhancements?: string[];
+  /** PERF-HOTFIX-2: Wall-clock budget used (ms) */
+  timeBudgetMs?: number;
+  /** PERF-HOTFIX-2: Whether time budget was triggered */
+  timeBudgetTriggered?: boolean;
+  /** PERF-HOTFIX-2: Stages skipped due to time budget */
+  skippedStages?: string[];
 }
 
 export interface GenerationResult {
@@ -1270,6 +1289,149 @@ async function fastSectionRewriteWithEntries(
   }
 }
 
+// ── PERF-HOTFIX-2: Fast section-level rewrite (Haiku, no entries) ──
+// Mirrors rewriteSection() but: Haiku model, 8s timeout, 1 attempt, passthrough on failure.
+// Used for headline/summary in first-pass when archetype is confident.
+async function fastRewriteSection(
+  sectionId: string,
+  originalContent: string,
+  promptKey: string,
+  targetRole: string,
+  jobObjective: string,
+  framing: ObjectiveFraming,
+  locale: Locale,
+  promptVersions: Record<string, number>,
+  failureReasons: FailureReason[],
+  sectionDiagnostics: SectionDiagnostic[],
+  retryAttemptsByReason: Record<string, number>
+): Promise<{ rewrite: RewritePreview; modelUsed: string; mode: "fast_section" | "passthrough" }> {
+  const sectionStart = Date.now();
+  const source: "linkedin" | "cv" = promptKey.includes("linkedin") ? "linkedin" : "cv";
+  const isCore = isCoreSection(sectionId, source);
+
+  // Passthrough builder — returns original content as-is
+  const buildPassthroughPreview = (): RewritePreview => ({
+    sectionId,
+    source,
+    original: originalContent.slice(0, 2000),
+    improvements: "",
+    missingSuggestions: [],
+    rewritten: originalContent.slice(0, 2000),
+    locked: false,
+  });
+
+  const prompt = await getActivePromptWithVersion(promptKey, locale);
+  if (!prompt) {
+    console.warn(`[perf] fastRewriteSection: no prompt for ${promptKey}, passthrough`);
+    return { rewrite: buildPassthroughPreview(), modelUsed: "none", mode: "passthrough" };
+  }
+  promptVersions[promptKey] = prompt.version;
+
+  const systemPrompt = interpolatePrompt(prompt.content, {
+    section_name: SECTION_DISPLAY_NAMES[sectionId] ?? sectionId,
+    original_content: truncate(originalContent, MAX_SECTION_CHARS, sectionId),
+    target_role: targetRole,
+    job_objective: jobObjective,
+    objective_mode_label: framing.objective_mode_label,
+    objective_framing: framing.objective_framing,
+    objective_context: framing.objective_context,
+  });
+
+  // Single attempt, no retries — passthrough on any failure
+  try {
+    const langInstruction = locale !== "en"
+      ? " ALL output text (original, improvements, missingSuggestions, rewritten) MUST be in Spanish."
+      : "";
+
+    const userMessage =
+      `Rewrite this section. Respond in JSON format with keys: original, improvements, missingSuggestions, rewritten.${langInstruction}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FAST_REWRITE_TIMEOUT_MS);
+    let result;
+    try {
+      result = await callLLM({
+        model: LLM_MODEL_FAST, // Haiku instead of Sonnet
+        systemPrompt,
+        userMessage,
+        maxTokens: 2048, // Headline/summary are small
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    // Empty output check
+    if (!result.text || result.text.trim().length < 5) {
+      console.warn(`[perf] fastRewriteSection: empty output for ${sectionId}, passthrough`);
+      failureReasons.push("invalid_json");
+      return { rewrite: buildPassthroughPreview(), modelUsed: result.modelUsed, mode: "passthrough" };
+    }
+
+    const jsonStr = extractJson(result.text);
+    let rawParsed: unknown;
+    try {
+      rawParsed = JSON.parse(jsonStr);
+    } catch {
+      console.warn(`[perf] fastRewriteSection: JSON parse failed for ${sectionId}, passthrough`);
+      failureReasons.push("invalid_json");
+      return { rewrite: buildPassthroughPreview(), modelUsed: result.modelUsed, mode: "passthrough" };
+    }
+
+    const parsed = RewriteSectionOutput.safeParse(rawParsed);
+    if (!parsed.success) {
+      console.warn(`[perf] fastRewriteSection: schema invalid for ${sectionId}, passthrough`);
+      failureReasons.push("invalid_json");
+      return { rewrite: buildPassthroughPreview(), modelUsed: result.modelUsed, mode: "passthrough" };
+    }
+
+    const rewrite: RewritePreview = {
+      sectionId,
+      source,
+      original: parsed.data.original,
+      improvements: parsed.data.improvements,
+      missingSuggestions: parsed.data.missingSuggestions,
+      rewritten: stripNonFlagEmojis(parsed.data.rewritten),
+      locked: false,
+    };
+
+    // Anti-placeholder guard (same as rewriteSection)
+    if (isMockRewrite(rewrite)) {
+      console.warn(`[perf] fastRewriteSection: mock fingerprint in ${sectionId}, passthrough`);
+      failureReasons.push("mock_fingerprint_retry");
+      return { rewrite: buildPassthroughPreview(), modelUsed: result.modelUsed, mode: "passthrough" };
+    }
+
+    console.log(
+      `[perf] fastRewriteSection: section=${sectionId}, model=${result.modelUsed}, ` +
+      `duration=${Date.now() - sectionStart}ms`
+    );
+
+    return { rewrite, modelUsed: result.modelUsed, mode: "fast_section" };
+  } catch (err) {
+    const { reason } = classifyError(err);
+    failureReasons.push(reason);
+    retryAttemptsByReason[reason] = (retryAttemptsByReason[reason] || 0) + 1;
+
+    const sectionReason: SectionFailureReason = reason === "timeout" ? "llm_timeout"
+      : reason === "rate_limit_429" ? "llm_rate_limited"
+      : "retry_exhausted";
+
+    console.warn(
+      `[perf] fastRewriteSection: error (${reason}), passthrough. ` +
+      `section=${sectionId}, duration=${Date.now() - sectionStart}ms, ` +
+      `error=${err instanceof Error ? err.message : "Unknown"}`
+    );
+
+    sectionDiagnostics.push({
+      sectionId, module: "rewrite", source, isCore, reason: sectionReason,
+      attempts: 1, durationMs: Date.now() - sectionStart,
+    });
+
+    return { rewrite: buildPassthroughPreview(), modelUsed: LLM_MODEL_FAST, mode: "passthrough" };
+  }
+}
+
 // ── Generate cover letter via LLM ───────────────────────
 async function generateCoverLetter(
   targetRole: string,
@@ -1742,21 +1904,63 @@ export async function generateAuditResults(
   stageTimer.start("extracting_input");
   emitProgress("extracting_input", 5, "Reading your profile...");
 
-  // ─── 1b. Parse input sections (with optional structuring pass) ──
-  const useStructuring = ENABLE_STRUCTURING_PASS && !!input.isPdfSource;
+  // ─── 1b. Parse input sections (with conditional structuring pass) ──
+  const wantStructuring = ENABLE_STRUCTURING_PASS && !!input.isPdfSource;
   let structuringUsed = false;
   let structuringDurationMs = 0;
+  let structuringSkippedReason: string | undefined;
 
   let linkedinSections: Record<string, string> = {};
   if (input.linkedinText.trim()) {
-    const parseResult = await parseLinkedinWithStructuring(
-      input.linkedinText,
-      locale,
-      useStructuring
-    );
-    linkedinSections = parseResult.sections;
-    structuringUsed = parseResult.structuringUsed;
-    structuringDurationMs = parseResult.structuringDurationMs;
+    if (wantStructuring) {
+      // PERF-HOTFIX-2: Phase 1 — regex-only parse first (~0ms)
+      const regexResult = await parseLinkedinWithStructuring(
+        input.linkedinText,
+        locale,
+        false // regex only
+      );
+
+      // Phase 2 — check if archetype is confident on regex-extracted experience
+      const regexExpText = regexResult.sections["experience"] ?? "";
+      let archetypeHighOnRegex = false;
+      if (regexExpText.length > 50) {
+        const quickArchetype = parseLinkedinExperienceArchetype(regexExpText, requestId);
+        archetypeHighOnRegex =
+          quickArchetype.confidence === "high" &&
+          quickArchetype.entries.length > 0;
+      }
+
+      const hasHeadline = !!(regexResult.sections["headline"]?.trim());
+      const hasExperience = !!(regexResult.sections["experience"]?.trim());
+      const coreSectionsPresent = hasHeadline && hasExperience;
+
+      if (archetypeHighOnRegex && coreSectionsPresent) {
+        // Skip LLM structuring — regex + archetype are sufficient
+        linkedinSections = regexResult.sections;
+        structuringSkippedReason = "archetype_high_confidence";
+        console.log(
+          `[perf] request=${requestId} | Structuring SKIPPED: ${structuringSkippedReason} ` +
+          `(headline=${hasHeadline}, exp=${hasExperience})`
+        );
+      } else {
+        // Fall back to full LLM structuring
+        const fullResult = await parseLinkedinWithStructuring(
+          input.linkedinText,
+          locale,
+          true
+        );
+        linkedinSections = fullResult.sections;
+        structuringUsed = fullResult.structuringUsed;
+        structuringDurationMs = fullResult.structuringDurationMs;
+      }
+    } else {
+      const parseResult = await parseLinkedinWithStructuring(
+        input.linkedinText,
+        locale,
+        false
+      );
+      linkedinSections = parseResult.sections;
+    }
   }
 
   const cvSections =
@@ -1992,7 +2196,15 @@ export async function generateAuditResults(
   // PERF-HOTFIX: Experience rewrite mode tracking
   let experienceRewriteMode: "full_sonnet" | "fast_section" | "passthrough" = "full_sonnet";
   let experienceRewriteSkippedReason: string | null = null;
+  let totalExperienceEntries = 0;
+  let firstPassProcessedEntries = 0;
   let deferredExperienceEntries = 0;
+
+  // PERF-HOTFIX-2: First-pass mode + time budget tracking
+  let firstPassMode: "fast" | "full" = "full";
+  let deferredEnhancements: string[] = [];
+  let timeBudgetTriggered = false;
+  let skippedStages: string[] = [];
 
   for (const sectionId of ["experience", "education"]) {
     if (linkedinSections[sectionId]) {
@@ -2314,13 +2526,48 @@ export async function generateAuditResults(
 
       return fastPromise.then((fastResult) => {
         experienceRewriteMode = fastResult.mode;
-        deferredExperienceEntries = linkedinEntries[section.id].length;
+        totalExperienceEntries = linkedinEntries[section.id].length;
+        firstPassProcessedEntries = Math.min(MAX_ENTRIES_FIRST_PASS, totalExperienceEntries);
+        deferredExperienceEntries = Math.max(0, totalExperienceEntries - firstPassProcessedEntries);
         const wrappedResult = { rewrite: fastResult.rewrite, modelUsed: fastResult.modelUsed };
         handleRewriteResult(section, wrappedResult);
         return { id: section.id, result: wrappedResult };
       }).catch((err) => {
         experienceRewriteMode = "passthrough";
         experienceRewriteSkippedReason = err instanceof Error ? err.message : "unknown";
+        handleRewriteResult(section, null);
+        throw err;
+      });
+    }
+
+    // PERF-HOTFIX-2: Fast Haiku rewrite for headline/summary when archetype confident
+    if (
+      (section.id === "headline" || section.id === "summary") &&
+      linkedinExpArchetypeUsed &&
+      linkedinExpParserConfidence === "high"
+    ) {
+      firstPassMode = "fast";
+      deferredEnhancements.push(section.id);
+
+      const fastPromise = fastRewriteSection(
+        section.id,
+        content,
+        "rewrite.linkedin.section",
+        targetRole,
+        jobObjective,
+        framing,
+        locale,
+        promptVersions,
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason
+      );
+
+      return fastPromise.then((fastResult) => {
+        const wrappedResult = { rewrite: fastResult.rewrite, modelUsed: fastResult.modelUsed };
+        handleRewriteResult(section, wrappedResult);
+        return { id: section.id, result: wrappedResult };
+      }).catch((err) => {
         handleRewriteResult(section, null);
         throw err;
       });
@@ -2426,7 +2673,14 @@ export async function generateAuditResults(
     `[diag] request=${requestId} | EXP_REWRITE_PERF: ` +
     `mode=${experienceRewriteMode}, ` +
     `skippedReason=${experienceRewriteSkippedReason ?? "none"}, ` +
-    `deferredEntries=${deferredExperienceEntries}`
+    `totalEntries=${totalExperienceEntries}, ` +
+    `firstPass=${firstPassProcessedEntries}, ` +
+    `deferredEntries=${deferredExperienceEntries}, ` +
+    `firstPassMode=${firstPassMode}, ` +
+    `deferredEnhancements=[${deferredEnhancements.join(",")}], ` +
+    `structuringSkipped=${structuringSkippedReason ?? "none"}, ` +
+    `budgetTriggered=${timeBudgetTriggered}, ` +
+    `skipped=[${skippedStages.join(",")}]`
   );
 
   // ─── 5b. Quality guard diagnostics (logging only) ─────
@@ -2505,7 +2759,17 @@ export async function generateAuditResults(
   let entryScoringSuccessCount = 0;
   let entryScoringFailCount = 0;
 
-  if (ENABLE_ENTRY_SCORING) {
+  // PERF-HOTFIX-2: Skip entry scoring if time budget exceeded
+  const entryScoringBudgetExceeded = Date.now() - startTime > ORCHESTRATION_BUDGET_MS;
+  if (entryScoringBudgetExceeded) {
+    timeBudgetTriggered = true;
+    skippedStages.push("entry_scoring");
+    console.log(
+      `[perf] request=${requestId} | Time budget exceeded (${Date.now() - startTime}ms > ${ORCHESTRATION_BUDGET_MS}ms), skipping entry_scoring`
+    );
+  }
+
+  if (ENABLE_ENTRY_SCORING && !entryScoringBudgetExceeded) {
     const entryScoreTargets: Array<{
       section: ScoreSection;
       entries: ParsedEntry[];
@@ -2599,8 +2863,18 @@ export async function generateAuditResults(
 
   // ─── 6. Cover letter (if pro/coach/admin) ────────────
   let coverLetter: CoverLetterResult | null = null;
+  // PERF-HOTFIX-2: Skip cover letter if time budget exceeded
+  const coverLetterBudgetExceeded = Date.now() - startTime > ORCHESTRATION_BUDGET_MS;
+  if (coverLetterBudgetExceeded) {
+    timeBudgetTriggered = true;
+    if (!skippedStages.includes("cover_letter")) skippedStages.push("cover_letter");
+    console.log(
+      `[perf] request=${requestId} | Time budget exceeded (${Date.now() - startTime}ms > ${ORCHESTRATION_BUDGET_MS}ms), skipping cover_letter`
+    );
+  }
+
   const shouldGenerateCoverLetter =
-    input.isAdmin || input.planId === "coach";
+    (input.isAdmin || input.planId === "coach") && !coverLetterBudgetExceeded;
 
   if (shouldGenerateCoverLetter) {
     const keyStrengths = scoredLinkedinSections
@@ -2935,6 +3209,15 @@ export async function generateAuditResults(
       experienceRewriteMode,
       experienceRewriteSkippedReason: experienceRewriteSkippedReason ?? undefined,
       deferredExperienceEntries,
+      // PERF-HOTFIX-2: Extended diagnostics
+      structuringSkippedReason: structuringSkippedReason ?? undefined,
+      totalExperienceEntries: totalExperienceEntries || undefined,
+      firstPassProcessedEntries: firstPassProcessedEntries || undefined,
+      firstPassMode,
+      deferredEnhancements: deferredEnhancements.length > 0 ? deferredEnhancements : undefined,
+      timeBudgetMs: Date.now() - startTime,
+      timeBudgetTriggered,
+      skippedStages: skippedStages.length > 0 ? skippedStages : undefined,
     },
   };
 }
