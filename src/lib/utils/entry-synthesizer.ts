@@ -1,9 +1,11 @@
 /**
- * HOTFIX-URGENT-4: Client-side education entry synthesizer.
+ * Client-side entry synthesizer for ANY entry-based section (Experience, Education, etc.).
  *
- * When the server-side parser returns ≤1 education entry, this utility
- * splits the raw education section text into multiple synthetic entries
- * using heuristics (year patterns, blank line separators, institution keywords).
+ * When the server-side parser returns <=1 entry, this utility splits the raw
+ * section text into multiple synthetic entries using heuristics:
+ *   - Year/date patterns
+ *   - Blank-line separators
+ *   - Organization keywords (companies, institutions, etc.)
  *
  * Returns RewriteEntry[] that can be injected into the RewritePreview.entries array.
  */
@@ -18,23 +20,23 @@ const DATE_RANGE_RE =
 /** Inline date in parentheses: · (date range) */
 const INLINE_DATE_PAREN_RE = /·\s*\(.*?\d{4}.*?\)/;
 
-// ── Institution keywords ────────────────────────────────
-const INSTITUTION_RE =
-  /\b(?:universid|university|college|instituto|institute|school|colegio|escuela|aceler|programa|bootcamp|maestr[ií]a|master|mba|phd|doctorad|bachelor|licenciat|diplomad|certificad|posgrado|postgrado|facultad)\b/i;
+// ── Organization keywords (covers both experience & education) ────
+const ORGANIZATION_RE =
+  /\b(?:universid|university|college|instituto|institute|school|colegio|escuela|aceler|programa|bootcamp|maestr[ií]a|master|mba|phd|doctorad|bachelor|licenciat|diplomad|certificad|posgrado|postgrado|facultad|company|corp|inc|ltd|llc|gmbh|s\.?a\.?|s\.?l\.?|empresa|consultora|startup|freelance|autónom|contractor|director|manager|engineer|developer|analyst|specialist|coordinator|lead|senior|junior|head\s+of|vp\s+of|chief)\b/i;
 
 /**
- * Synthesize education entries from raw section text.
+ * Synthesize entries from raw section text.
  *
  * Strategy:
  * 1. Split text into blocks by blank lines
- * 2. Identify blocks that look like entry boundaries (have dates/institutions)
+ * 2. Identify blocks that look like entry boundaries (have dates/organizations)
  * 3. Merge orphan blocks with their parent entry
  * 4. Create RewriteEntry objects
  *
- * If synthesis produces ≤1 entry, falls back to splitting the text into
- * roughly equal chunks (minimum 2 entries).
+ * If synthesis produces <=1 entry, falls back to returning the full text
+ * as a single editable entry.
  */
-export function synthesizeEducationEntries(
+export function synthesizeEntries(
   rawText: string,
   rewrittenText?: string
 ): RewriteEntry[] {
@@ -64,33 +66,31 @@ export function synthesizeEducationEntries(
   }
 
   // Strategy 2: Identify entry boundaries
-  // An entry boundary block typically has a date range or institution keyword
   const boundaryIndices: number[] = [];
   for (let i = 0; i < blocks.length; i++) {
     const blockText = blocks[i].join(" ");
     const hasDate = DATE_RANGE_RE.test(blockText) || INLINE_DATE_PAREN_RE.test(blockText);
-    const hasInstitution = INSTITUTION_RE.test(blockText);
+    const hasOrg = ORGANIZATION_RE.test(blockText);
     const hasYear = YEAR_RE.test(blockText);
 
-    if (hasDate || hasInstitution || (hasYear && blockText.length < 200)) {
+    if (hasDate || hasOrg || (hasYear && blockText.length < 200)) {
       boundaryIndices.push(i);
     }
   }
 
-  // If no boundaries found, try splitting by standalone year lines or just chunk it
+  // If no boundaries found, chunk it
   if (boundaryIndices.length === 0) {
     return chunkIntoEntries(rawText, rewrittenText || rawText);
   }
 
   // Strategy 3: Merge blocks into entries
-  // Each boundary block starts a new entry; non-boundary blocks attach to the previous entry
   const entries: RewriteEntry[] = [];
 
   for (let b = 0; b < boundaryIndices.length; b++) {
     const startIdx = boundaryIndices[b];
     const endIdx = b + 1 < boundaryIndices.length ? boundaryIndices[b + 1] : blocks.length;
 
-    // Also include preceding non-boundary blocks (e.g., institution name before date block)
+    // Include preceding non-boundary blocks
     const lookbackStart = b === 0 ? 0 : boundaryIndices[b - 1] + 1;
     const precedingBlocks: string[] = [];
     for (let p = lookbackStart; p < startIdx; p++) {
@@ -99,7 +99,6 @@ export function synthesizeEducationEntries(
       }
     }
 
-    // Collect all lines for this entry
     const entryLines: string[] = [...precedingBlocks];
     for (let i = startIdx; i < endIdx; i++) {
       entryLines.push(...blocks[i]);
@@ -117,11 +116,11 @@ export function synthesizeEducationEntries(
       original: entryText,
       improvements: "",
       missingSuggestions: [],
-      rewritten: entryText, // Use original as placeholder for rewritten
+      rewritten: entryText,
     });
   }
 
-  // If still ≤1, chunk
+  // If still <=1, chunk
   if (entries.length <= 1) {
     return chunkIntoEntries(rawText, rewrittenText || rawText);
   }
@@ -134,18 +133,16 @@ export function synthesizeEducationEntries(
   return entries;
 }
 
-/** Extract the most likely title from entry lines (first non-date, non-empty line) */
+/** Extract the most likely title from entry lines */
 function extractEntryTitle(lines: string[]): string {
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.length < 3) continue;
-    // Skip pure date lines
     if (/^\s*(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d)/i.test(trimmed) && trimmed.length < 40) continue;
-    // Clean up: remove trailing date in parens
     const cleaned = trimmed.replace(/\s*·\s*\(.*?\)$/, "").trim();
     return cleaned.length > 80 ? cleaned.slice(0, 77) + "..." : cleaned;
   }
-  return lines[0]?.trim().slice(0, 80) || "Education Entry";
+  return lines[0]?.trim().slice(0, 80) || "Entry";
 }
 
 /** Extract date range string from text */
@@ -161,17 +158,14 @@ function extractDateRange(text: string): string | null {
 
 /**
  * Fallback: chunk text into roughly equal entries.
- * Splits by blank lines or double-newlines, creating at least 2 entries.
  */
 function chunkIntoEntries(rawText: string, rewrittenText: string): RewriteEntry[] {
   const lines = rawText.split("\n").filter((l) => l.trim().length > 0);
 
   if (lines.length <= 3) {
-    // Too short to split — return as single entry
     return [createFallbackEntry(rawText, rewrittenText, 0)];
   }
 
-  // Split roughly in half, preferring blank-line boundaries
   const midpoint = Math.floor(lines.length / 2);
   const firstHalf = lines.slice(0, midpoint).join("\n").trim();
   const secondHalf = lines.slice(midpoint).join("\n").trim();
@@ -219,19 +213,14 @@ function createFallbackEntry(
   };
 }
 
-/**
- * Try to match rewritten text blocks to synthesized entries.
- * Splits rewritten text into blocks and assigns them to entries by position.
- */
+/** Match rewritten text blocks to synthesized entries by position */
 function matchRewrittenToEntries(entries: RewriteEntry[], rewrittenText: string): void {
-  // Split rewritten by double newlines
   const rewrittenBlocks = rewrittenText
     .split(/\n\s*\n/)
     .map((b) => b.trim())
     .filter((b) => b.length > 10);
 
   if (rewrittenBlocks.length >= entries.length) {
-    // Assign blocks to entries proportionally
     const blocksPerEntry = Math.floor(rewrittenBlocks.length / entries.length);
     for (let i = 0; i < entries.length; i++) {
       const start = i * blocksPerEntry;
@@ -242,12 +231,12 @@ function matchRewrittenToEntries(entries: RewriteEntry[], rewrittenText: string)
 }
 
 /**
- * Create a blank education entry for manual addition.
+ * Create a blank entry for manual addition.
  */
-export function createBlankEducationEntry(index: number): RewriteEntry {
+export function createBlankEntry(index: number): RewriteEntry {
   return {
     entryIndex: index,
-    entryTitle: "New Education Entry",
+    entryTitle: "New Entry",
     original: "",
     improvements: "",
     missingSuggestions: [],

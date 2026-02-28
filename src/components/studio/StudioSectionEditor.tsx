@@ -8,7 +8,7 @@ import { getSectionLabel } from "@/lib/section-labels";
 import { LockIcon, SparklesIcon } from "@/components/ui/Icons";
 import StudioEntryEditor, { computeEntryStableId } from "./StudioEntryEditor";
 import { hasPlaceholders } from "@/lib/utils/placeholder-detect";
-import { synthesizeEducationEntries, createBlankEducationEntry } from "@/lib/utils/education-synthesizer";
+import { synthesizeEntries, createBlankEntry } from "@/lib/utils/entry-synthesizer";
 import type { RewritePreview, EntryScore, RewriteEntry } from "@/lib/types";
 
 interface StudioSectionEditorProps {
@@ -26,7 +26,7 @@ interface StudioSectionEditorProps {
   onUpgradeClick?: () => void;
   /** Optional entry scores from results (v2 entry scoring) */
   entryScores?: EntryScore[];
-  /** HOTFIX-URGENT-4: Callback to inject synthesized/manual entries into results */
+  /** Callback to inject synthesized/manual entries into results for export */
   onInjectEntries?: (sectionId: string, entries: RewriteEntry[]) => void;
 }
 
@@ -83,8 +83,7 @@ export default function StudioSectionEditor({
   const [showOriginal, setShowOriginal] = useState(false);
   const [showDirections, setShowDirections] = useState(false);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
-  const [showRawText, setShowRawText] = useState(false);
-  // HOTFIX-URGENT-4: Track manually added entries for education
+  // Track manually added entries for any entry-based section
   const [manualEntries, setManualEntries] = useState<RewriteEntry[]>([]);
 
   // Resolution: userOptimized > userRewritten > rewrite.rewritten
@@ -92,49 +91,44 @@ export default function StudioSectionEditor({
   const displayRewritten = sectionOptimized ?? userRewritten ?? rewrite.rewritten;
   const hasManualEdits = sectionOptimized !== undefined;
   const hasEntries = rewrite.entries && rewrite.entries.length > 0;
-  // HOTFIX-URGENT-2: Identify entry-based sections that should show recovery card if empty
+  // Unified: all entry-based sections (experience + education) share the same path
   const isEntryBasedSection = ["experience", "education", "work-experience", "education-section"].includes(rewrite.sectionId);
-  const isEducationSection = ["education", "education-section"].includes(rewrite.sectionId);
 
-  // HOTFIX-URGENT-4: Synthesize education entries when parser returns ≤1 entry
+  // Synthesize entries when parser returns <=1 entry for ANY entry-based section
   const synthesizedEntries = useMemo(() => {
-    if (!isEducationSection) return null;
-    if (hasEntries && rewrite.entries!.length > 1) return null; // parser found enough entries
-    // Synthesize from raw text
-    const synth = synthesizeEducationEntries(rewrite.original, rewrite.rewritten);
+    if (!isEntryBasedSection) return null;
+    if (hasEntries && rewrite.entries!.length > 1) return null; // parser found enough
+    const synth = synthesizeEntries(rewrite.original, rewrite.rewritten);
     console.log(
-      `[diag] educationSynthesizer sectionId=${rewrite.sectionId} ` +
+      `[diag] entrySynthesizer sectionId=${rewrite.sectionId} ` +
       `parsedEntries=${rewrite.entries?.length ?? 0} synthesizedEntries=${synth.length}`
     );
     return synth;
-  }, [isEducationSection, hasEntries, rewrite.entries, rewrite.original, rewrite.rewritten, rewrite.sectionId]);
+  }, [isEntryBasedSection, hasEntries, rewrite.entries, rewrite.original, rewrite.rewritten, rewrite.sectionId]);
 
-  // HOTFIX-URGENT-4: Effective entries = server entries (if >1) OR synthesized + manual
+  // Effective entries = server entries (if >1) OR synthesized + manual
   const effectiveEntries = useMemo(() => {
-    if (!isEducationSection) return rewrite.entries;
+    if (!isEntryBasedSection) return rewrite.entries;
     if (hasEntries && rewrite.entries!.length > 1) {
-      // Server parsed enough entries — use them + any manual
       return [...rewrite.entries!, ...manualEntries];
     }
-    // Use synthesized + manual
     const base = synthesizedEntries ?? (hasEntries ? rewrite.entries! : []);
     return [...base, ...manualEntries];
-  }, [isEducationSection, hasEntries, rewrite.entries, synthesizedEntries, manualEntries]);
+  }, [isEntryBasedSection, hasEntries, rewrite.entries, synthesizedEntries, manualEntries]);
 
   // Inject synthesized entries into parent results (for export flow)
-  // Only fire once when synthesized entries are first computed
   const injectedRef = useState<boolean>(false);
-  if (isEducationSection && synthesizedEntries && synthesizedEntries.length > 0 && onInjectEntries && !injectedRef[0]) {
+  if (isEntryBasedSection && synthesizedEntries && synthesizedEntries.length > 0 && onInjectEntries && !injectedRef[0]) {
     injectedRef[1](true);
     onInjectEntries(rewrite.sectionId, synthesizedEntries);
   }
 
   const effectiveHasEntries = effectiveEntries && effectiveEntries.length > 0;
 
-  // HOTFIX-URGENT-4: Enhanced diagnostic log for education
-  if (isEducationSection) {
+  // Diagnostic log for entry-based sections
+  if (isEntryBasedSection) {
     console.log(
-      `[diag] educationRenderer sectionId=${rewrite.sectionId} ` +
+      `[diag] entryRenderer sectionId=${rewrite.sectionId} ` +
       `parsedEntries=${rewrite.entries?.length ?? 0} ` +
       `synthesizedEntries=${synthesizedEntries?.length ?? 0} ` +
       `manualEntries=${manualEntries.length} ` +
@@ -206,7 +200,7 @@ export default function StudioSectionEditor({
           </div>
         </div>
 
-        {/* HOTFIX-4: Truncation notice when section is near MAX_SECTION_CHARS limit */}
+        {/* Truncation notice when section is near MAX_SECTION_CHARS limit */}
         {rewrite.original.length >= 9500 && (
           <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
             <p className="text-xs text-amber-700">
@@ -228,14 +222,13 @@ export default function StudioSectionEditor({
           </div>
         )}
 
-        {/* Entry-level editors (for experience/education) */}
-        {/* HOTFIX-URGENT-4: Education always uses entry cards (synthesized if needed) */}
-        {(effectiveHasEntries && (isEducationSection || hasEntries)) ? (
+        {/* ── UNIFIED ENTRY-BASED RENDERING (Experience + Education share same path) ── */}
+        {effectiveHasEntries ? (
           <div className="space-y-2 mb-4">
             {effectiveEntries!.map((entry, idx) => {
               const stableId = computeEntryStableId(entry.entryTitle, entry.original);
               const entryKey = `${rewrite.sectionId}:${stableId}`;
-              // Robust matching: title-based → partial → index fallback
+              // Robust matching: title-based -> partial -> index fallback
               let matchingScore = findMatchingEntryScore(entry, entryScores);
               if (
                 !matchingScore &&
@@ -260,11 +253,11 @@ export default function StudioSectionEditor({
               );
             })}
 
-            {/* HOTFIX-URGENT-4: + Add education entry button */}
-            {isEducationSection && !locked && (
+            {/* + Add entry button for any entry-based section */}
+            {isEntryBasedSection && !locked && (
               <button
                 onClick={() => {
-                  const newEntry = createBlankEducationEntry(
+                  const newEntry = createBlankEntry(
                     (effectiveEntries?.length ?? 0) + manualEntries.length
                   );
                   setManualEntries((prev) => [...prev, newEntry]);
@@ -272,84 +265,12 @@ export default function StudioSectionEditor({
                 className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-emerald-600 bg-emerald-50/50 border border-dashed border-emerald-300 rounded-xl hover:bg-emerald-50 hover:border-emerald-400 transition-colors"
               >
                 <span className="text-base leading-none">+</span>
-                {studioT.addEducationEntry ?? "Add education entry"}
+                {studioT.addEntry ?? "+ Add entry"}
               </button>
-            )}
-
-            {/* HOTFIX-URGENT-4: Collapsible raw section text backup */}
-            {isEducationSection && (
-              <div className="mt-1">
-                <button
-                  onClick={() => setShowRawText(!showRawText)}
-                  className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-                >
-                  <span className={`transition-transform ${showRawText ? "rotate-90" : ""}`}>▸</span>
-                  {studioT.viewRawSection ?? "View full section text"}
-                </button>
-                {showRawText && (
-                  <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
-                    <textarea
-                      value={displayRewritten}
-                      onChange={(e) => onOptimizedChange(rewrite.sectionId, e.target.value)}
-                      className="w-full min-h-[100px] text-xs text-[var(--text-secondary)] bg-transparent border-0 resize-none focus:outline-none leading-relaxed"
-                      style={{ fieldSizing: "content" } as React.CSSProperties}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ) : isEntryBasedSection && !isEducationSection ? (
-          /* HOTFIX-URGENT-2: Missing-section recovery card for experience (not education) */
-          <div className="mb-4 border-2 border-emerald-200 bg-emerald-50/30 rounded-xl p-4">
-            <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">
-              {studioT.optimizedDraft ?? "Optimized Draft"}
-            </p>
-            <p className="text-sm text-emerald-700 mb-3">
-              {studioT.missingEntries ?? "Individual entries could not be parsed. Edit the full section text below."}
-            </p>
-            <div className="relative">
-              {hasPlaceholders(displayRewritten) && (
-                <div
-                  className="absolute inset-0 p-3 text-sm text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words pointer-events-none overflow-hidden"
-                  aria-hidden="true"
-                  dangerouslySetInnerHTML={{
-                    __html: displayRewritten
-                      .replace(/&/g, "&amp;")
-                      .replace(/</g, "&lt;")
-                      .replace(/>/g, "&gt;")
-                      .replace(
-                        /\[[A-Z][A-Z0-9_ /'-]*\]/g,
-                        (match) => `<mark class="bg-amber-200/70 text-amber-900 rounded px-0.5">${match}</mark>`
-                      ),
-                  }}
-                />
-              )}
-              <textarea
-                value={displayRewritten}
-                onChange={(e) =>
-                  onOptimizedChange(rewrite.sectionId, e.target.value)
-                }
-                className={`relative w-full min-h-[120px] text-sm border border-emerald-100 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300/50 leading-relaxed ${
-                  hasPlaceholders(displayRewritten)
-                    ? "text-transparent caret-[var(--text-primary)] bg-transparent"
-                    : "text-[var(--text-primary)] bg-white/60"
-                }`}
-                style={hasPlaceholders(displayRewritten)
-                  ? { fieldSizing: "content", WebkitTextFillColor: "transparent" } as React.CSSProperties
-                  : { fieldSizing: "content" } as React.CSSProperties
-                }
-              />
-            </div>
-            {hasPlaceholders(displayRewritten) && (
-              <p className="mt-1.5 text-xs text-amber-700 font-medium flex items-center gap-1.5">
-                <span className="inline-block w-4 h-4 rounded bg-amber-200 border border-amber-400 text-center text-[9px] font-bold leading-[16px]">!</span>
-                Items in [BRACKETS] need your input before final use
-              </p>
             )}
           </div>
         ) : (
-          /* Section-level optimized draft with HOTFIX-3 inline placeholder highlighting */
+          /* Section-level optimized draft with inline placeholder highlighting */
           <div className="mb-4 border-2 border-emerald-200 bg-emerald-50/30 rounded-xl p-4">
             <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">
               {studioT.optimizedDraft ?? "Optimized Draft"}
@@ -388,7 +309,7 @@ export default function StudioSectionEditor({
                 }
               />
             </div>
-            {/* HOTFIX-3: Placeholder legend */}
+            {/* Placeholder legend */}
             {hasPlaceholders(displayRewritten) && (
               <p className="mt-1.5 text-xs text-amber-700 font-medium flex items-center gap-1.5">
                 <span className="inline-block w-4 h-4 rounded bg-amber-200 border border-amber-400 text-center text-[9px] font-bold leading-[16px]">!</span>
