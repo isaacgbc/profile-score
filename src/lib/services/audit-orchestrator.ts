@@ -37,6 +37,7 @@ import {
   MAX_CHARS_PER_ENTRY,
 } from "./linkedin-parser";
 import type { ParsedEntry } from "./linkedin-parser";
+import { parseLinkedinExperienceArchetype } from "./linkedin-experience-archetype";
 import { detectProfileLanguage, isOutputInTargetLocale } from "@/lib/utils/language-detect";
 import {
   hasRepetitiveEntryContent,
@@ -1647,8 +1648,11 @@ export async function generateAuditResults(
     );
     // Log per-section char counts for debugging content loss
     for (const [id, content] of Object.entries(linkedinSections)) {
-      const entryCount = (id === "experience" || id === "education")
-        ? parseEntriesFromSection(id, content).entries.length : 0;
+      const entryCount = id === "experience"
+        ? parseLinkedinExperienceArchetype(content, requestId).entries.length
+        : id === "education"
+          ? parseEntriesFromSection(id, content).entries.length
+          : 0;
       console.log(`[diag] request=${requestId} | SECTION linkedin.${id}: ${content.length}chars, entries=${entryCount}`);
     }
     for (const [id, content] of Object.entries(cvSections)) {
@@ -1798,6 +1802,7 @@ export async function generateAuditResults(
   let linkedinExpAiStructured = false;
   let linkedinExpStructurerSkipped = false;
   let linkedinExpPreNormalized = false;
+  let linkedinExpArchetypeUsed = false;
   let linkedinExpParserConfidence: "high" | "low" = "low";
   let linkedinExpRawCount = 0;
   let linkedinExpCoverage = 0;
@@ -1808,34 +1813,67 @@ export async function generateAuditResults(
       let textToParse = linkedinSections[sectionId];
 
       if (sectionId === "experience") {
-        // First try heuristic parse on raw text to check confidence
-        const rawParsed = parseEntriesFromSection(sectionId, textToParse);
-        linkedinExpParserConfidence = rawParsed.confidence;
-        linkedinExpRawCount = rawParsed.entries.length;
-        linkedinExpCoverage = rawParsed.totalLineCount
-          ? Math.round(((rawParsed.coveredLineCount ?? 0) / rawParsed.totalLineCount) * 100)
+        // ── ARCHETYPE PARSER: deterministic-first, try before anything else ──
+        const archetypeParsed = parseLinkedinExperienceArchetype(textToParse, requestId);
+        linkedinExpParserConfidence = archetypeParsed.confidence;
+        linkedinExpRawCount = archetypeParsed.entries.length;
+        linkedinExpCoverage = archetypeParsed.totalLineCount
+          ? Math.round(((archetypeParsed.coveredLineCount ?? 0) / archetypeParsed.totalLineCount) * 100)
           : 100;
 
-        // D.7: Skip AI when heuristic parser is confident
-        if (rawParsed.confidence === "high" && rawParsed.entries.length > 0) {
+        // D.7: Skip AI when archetype parser is confident
+        if (archetypeParsed.confidence === "high" && archetypeParsed.entries.length > 0) {
           linkedinExpStructurerSkipped = true;
-          linkedinEntries[sectionId] = rawParsed.entries;
+          linkedinExpArchetypeUsed = true;
+          linkedinEntries[sectionId] = archetypeParsed.entries;
           console.log(
-            `[perf] request=${requestId} | linkedinExp: structurer SKIPPED (confidence=high, entries=${rawParsed.entries.length}, coverage=${linkedinExpCoverage}%)`
+            `[perf] request=${requestId} | linkedinExp: archetype ACCEPTED (confidence=high, entries=${archetypeParsed.entries.length}, coverage=${linkedinExpCoverage}%)`
           );
           continue;
         }
 
-        // HOTFIX-5B: Try lightweight pre-normalization before full AI structuring
+        // Archetype gave low confidence — try legacy heuristic for comparison
+        const rawParsed = parseEntriesFromSection(sectionId, textToParse);
+
+        // If archetype found entries (even low confidence) and legacy also found entries,
+        // prefer whichever has more entries or archetype if tied
+        if (archetypeParsed.entries.length > 0 && archetypeParsed.entries.length >= rawParsed.entries.length) {
+          linkedinExpArchetypeUsed = true;
+          linkedinExpStructurerSkipped = true;
+          linkedinEntries[sectionId] = archetypeParsed.entries;
+          console.log(
+            `[parser] request=${requestId} | linkedinExp: archetype preferred (archetype=${archetypeParsed.entries.length}, legacy=${rawParsed.entries.length}, coverage=${linkedinExpCoverage}%)`
+          );
+          continue;
+        }
+
+        // Both parsers gave low results — try AI fallbacks
         if (rawParsed.confidence === "low" && textToParse.length > 100) {
           console.log(
-            `[diag] request=${requestId} | linkedinExp: low confidence (entries=${rawParsed.entries.length}), trying pre-normalization`
+            `[diag] request=${requestId} | linkedinExp: low confidence (archetype=${archetypeParsed.entries.length}, legacy=${rawParsed.entries.length}), trying pre-normalization`
           );
           try {
             const { preNormalizeLinkedinExperience } = await import("./cv-work-exp-structurer");
             const normalized = await preNormalizeLinkedinExperience(textToParse);
             if (normalized) {
-              // Re-parse the normalized text
+              // Re-parse the normalized text with archetype first
+              const normalizedArchetype = parseLinkedinExperienceArchetype(normalized, requestId);
+              if (normalizedArchetype.confidence === "high" && normalizedArchetype.entries.length > 0) {
+                linkedinExpPreNormalized = true;
+                linkedinExpArchetypeUsed = true;
+                linkedinExpParserConfidence = normalizedArchetype.confidence;
+                linkedinExpRawCount = normalizedArchetype.entries.length;
+                linkedinExpCoverage = normalizedArchetype.totalLineCount
+                  ? Math.round(((normalizedArchetype.coveredLineCount ?? 0) / normalizedArchetype.totalLineCount) * 100)
+                  : 100;
+                linkedinEntries[sectionId] = normalizedArchetype.entries;
+                console.log(
+                  `[parser] Pre-normalized → archetype: ${normalizedArchetype.entries.length} entries, confidence=high`
+                );
+                continue;
+              }
+
+              // Try legacy parser on normalized text
               const normalizedParsed = parseEntriesFromSection(sectionId, normalized);
               if (normalizedParsed.entries.length > rawParsed.entries.length ||
                   normalizedParsed.confidence === "high") {
@@ -1851,7 +1889,7 @@ export async function generateAuditResults(
                   `[parser] Pre-normalized LinkedIn experience: ${normalizedParsed.entries.length} entries ` +
                   `(was ${rawParsed.entries.length} before normalization, confidence=${normalizedParsed.confidence})`
                 );
-                continue; // Skip to next section
+                continue;
               }
             }
           } catch (err) {
@@ -1874,24 +1912,29 @@ export async function generateAuditResults(
               linkedinExpAiStructured = true;
               console.log(
                 `[parser] AI-structured ${aiEntries.length} entries from LinkedIn experience ` +
-                `(replaced ${rawParsed.entries.length} heuristic entries)`
+                `(replaced archetype=${archetypeParsed.entries.length}, legacy=${rawParsed.entries.length})`
               );
-              continue; // Skip normal acceptance logic
+              continue;
             }
           } catch (err) {
             console.warn(
-              `[diag] linkedinExp AI structuring failed, using heuristic output: ${
+              `[diag] linkedinExp AI structuring failed, using best heuristic output: ${
                 err instanceof Error ? err.message : String(err)
               }`
             );
           }
         }
 
-        // Fall through: use raw heuristic entries
-        if (rawParsed.entries.length > 0) {
-          linkedinEntries[sectionId] = rawParsed.entries;
+        // Fall through: use best available entries (prefer archetype, then legacy)
+        const bestEntries = archetypeParsed.entries.length >= rawParsed.entries.length
+          ? archetypeParsed.entries
+          : rawParsed.entries;
+        if (bestEntries.length > 0) {
+          linkedinEntries[sectionId] = bestEntries;
+          linkedinExpArchetypeUsed = archetypeParsed.entries.length >= rawParsed.entries.length;
           console.log(
-            `[parser] Parsed ${rawParsed.entries.length} entries from LinkedIn ${sectionId} (confidence=${rawParsed.confidence})`
+            `[parser] Parsed ${bestEntries.length} entries from LinkedIn ${sectionId} ` +
+            `(archetype=${archetypeParsed.entries.length}, legacy=${rawParsed.entries.length}, used=${linkedinExpArchetypeUsed ? "archetype" : "legacy"})`
           );
         }
         continue; // Already handled experience
@@ -1922,6 +1965,7 @@ export async function generateAuditResults(
     `[diag] request=${requestId} | LINKEDIN_EXP: ` +
     `parserConfidence=${linkedinExpParserConfidence}, ` +
     `parsedCount=${linkedinExpRawCount}, ` +
+    `archetypeUsed=${linkedinExpArchetypeUsed}, ` +
     `preNormalized=${linkedinExpPreNormalized}, ` +
     `aiStructured=${linkedinExpAiStructured}, ` +
     `structurerSkipped=${linkedinExpStructurerSkipped}, ` +
