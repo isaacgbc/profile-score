@@ -129,14 +129,19 @@ export default function ExportModuleCard({
                 <span className="text-xs text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded max-w-[200px] text-right">
                   {disabledReason}
                 </span>
-                {/* HOTFIX-5B: Bypass button — only when blocked by placeholders, not missing sections */}
-                {canBypass && onBypassExport && (
-                  <button
+                {/* HOTFIX-EXPORT-CTA: Always render a visible primary Button */}
+                {canBypass && onBypassExport ? (
+                  <Button
+                    variant="primary"
+                    size="sm"
                     onClick={() => onBypassExport(formats[0])}
-                    className="text-[10px] text-slate-500 hover:text-slate-700 underline underline-offset-2 transition-colors"
                   >
-                    {checkoutT.exportBypass ?? "Export anyway (clean placeholders)"}
-                  </button>
+                    {checkoutT.exportBypassPrimary ?? "Export (clean placeholders)"}
+                  </Button>
+                ) : (
+                  <Button variant="primary" size="sm" disabled>
+                    {checkoutT.exportPrimary ?? "Export"}
+                  </Button>
                 )}
               </div>
             ) : status === "processing" ? (

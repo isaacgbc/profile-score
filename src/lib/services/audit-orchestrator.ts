@@ -313,6 +313,8 @@ export interface GenerationMeta {
   timeBudgetTriggered?: boolean;
   /** PERF-HOTFIX-2: Stages skipped due to time budget */
   skippedStages?: string[];
+  /** HOTFIX-CV-ONLY-ROUTING: CV first-pass mode */
+  cvFirstPassMode?: "fast" | "full";
 }
 
 export interface GenerationResult {
@@ -2612,13 +2614,42 @@ export async function generateAuditResults(
     });
   });
 
+  // HOTFIX-CV-ONLY-ROUTING: Track CV first-pass mode for diagnostics
+  let cvFirstPassMode: "fast" | "full" = "full";
+
   const cvRewritePromises = scoredCvSections.map((section) => {
     const content = cvSections[section.id] ??
       `[This section was not found in the CV. The user has not included a ${SECTION_DISPLAY_NAMES[section.id] ?? section.id} section.]`;
 
-    // Use per-entry rewrite for sections with parsed entries
-    const rewritePromise = (cvEntries[section.id] && cvEntries[section.id].length > 0)
-      ? rewriteSectionWithEntries(
+    // HOTFIX-CV-ONLY-ROUTING: Fast paths for CV sections
+    let rewritePromise: Promise<{ rewrite: RewritePreview; modelUsed: string } | null>;
+
+    if (
+      section.id === "work-experience" &&
+      cvWorkExpParserConfidence === "high" &&
+      cvEntries[section.id] &&
+      cvEntries[section.id].length > 0
+    ) {
+      // Fast path: CV work-experience with high-confidence entries → Haiku
+      cvFirstPassMode = "fast";
+      rewritePromise = fastSectionRewriteWithEntries(
+        section.id,
+        cvEntries[section.id],
+        content,
+        "rewrite.cv.section.entries",
+        targetRole,
+        jobObjective,
+        framing,
+        locale,
+        promptVersions,
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason
+      );
+    } else if (section.id === "education-section") {
+      // Fast path: CV education → always Haiku (small section)
+      if (cvEntries[section.id] && cvEntries[section.id].length > 0) {
+        rewritePromise = fastSectionRewriteWithEntries(
           section.id,
           cvEntries[section.id],
           content,
@@ -2631,8 +2662,9 @@ export async function generateAuditResults(
           failureReasons,
           sectionDiagnostics,
           retryAttemptsByReason
-        )
-      : rewriteSection(
+        );
+      } else {
+        rewritePromise = fastRewriteSection(
           section.id,
           content,
           "rewrite.cv.section",
@@ -2645,6 +2677,39 @@ export async function generateAuditResults(
           sectionDiagnostics,
           retryAttemptsByReason
         );
+      }
+    } else if (cvEntries[section.id] && cvEntries[section.id].length > 0) {
+      // Normal path: other CV sections with entries → Sonnet
+      rewritePromise = rewriteSectionWithEntries(
+        section.id,
+        cvEntries[section.id],
+        content,
+        "rewrite.cv.section.entries",
+        targetRole,
+        jobObjective,
+        framing,
+        locale,
+        promptVersions,
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason
+      );
+    } else {
+      // Normal path: other CV sections without entries → Sonnet
+      rewritePromise = rewriteSection(
+        section.id,
+        content,
+        "rewrite.cv.section",
+        targetRole,
+        jobObjective,
+        framing,
+        locale,
+        promptVersions,
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason
+      );
+    }
 
     return rewritePromise.then((result) => {
       handleRewriteResult(section, result);
@@ -2668,20 +2733,37 @@ export async function generateAuditResults(
     `cv=${cvRewrites.length} rewrites (entries: ${cvRewrites.reduce((sum, r) => sum + (r.entries?.length ?? 0), 0)})`
   );
 
-  // PERF-HOTFIX: Experience rewrite mode diagnostics
-  console.log(
-    `[diag] request=${requestId} | EXP_REWRITE_PERF: ` +
-    `mode=${experienceRewriteMode}, ` +
-    `skippedReason=${experienceRewriteSkippedReason ?? "none"}, ` +
-    `totalEntries=${totalExperienceEntries}, ` +
-    `firstPass=${firstPassProcessedEntries}, ` +
-    `deferredEntries=${deferredExperienceEntries}, ` +
-    `firstPassMode=${firstPassMode}, ` +
-    `deferredEnhancements=[${deferredEnhancements.join(",")}], ` +
-    `structuringSkipped=${structuringSkippedReason ?? "none"}, ` +
-    `budgetTriggered=${timeBudgetTriggered}, ` +
-    `skipped=[${skippedStages.join(",")}]`
-  );
+  // PERF-HOTFIX: Experience rewrite mode diagnostics (LinkedIn-only)
+  if (hasLinkedinInput) {
+    console.log(
+      `[diag] request=${requestId} | EXP_REWRITE_PERF: ` +
+      `mode=${experienceRewriteMode}, ` +
+      `skippedReason=${experienceRewriteSkippedReason ?? "none"}, ` +
+      `totalEntries=${totalExperienceEntries}, ` +
+      `firstPass=${firstPassProcessedEntries}, ` +
+      `deferredEntries=${deferredExperienceEntries}, ` +
+      `firstPassMode=${firstPassMode}, ` +
+      `deferredEnhancements=[${deferredEnhancements.join(",")}], ` +
+      `structuringSkipped=${structuringSkippedReason ?? "none"}, ` +
+      `budgetTriggered=${timeBudgetTriggered}, ` +
+      `skipped=[${skippedStages.join(",")}]`
+    );
+  }
+
+  // HOTFIX-CV-ONLY-ROUTING: CV rewrite diagnostics
+  if (hasCvInput) {
+    console.log(
+      `[diag] request=${requestId} | CV_REWRITE_PERF: ` +
+      `cvFirstPassMode=${cvFirstPassMode}, ` +
+      `cvSections=${scoredCvSections.length}, ` +
+      `cvRewrites=${cvRewrites.length}, ` +
+      `cvWorkExpConfidence=${cvWorkExpParserConfidence}, ` +
+      `cvWorkExpEntries=${cvEntries["work-experience"]?.length ?? 0}, ` +
+      `cvEduEntries=${cvEntries["education-section"]?.length ?? 0}, ` +
+      `budgetTriggered=${timeBudgetTriggered}, ` +
+      `elapsed=${Date.now() - startTime}ms`
+    );
+  }
 
   // ─── 5b. Quality guard diagnostics (logging only) ─────
   let repetitiveEntryCount = 0;
@@ -3218,6 +3300,7 @@ export async function generateAuditResults(
       timeBudgetMs: Date.now() - startTime,
       timeBudgetTriggered,
       skippedStages: skippedStages.length > 0 ? skippedStages : undefined,
+      cvFirstPassMode: hasCvInput ? cvFirstPassMode : undefined,
     },
   };
 }

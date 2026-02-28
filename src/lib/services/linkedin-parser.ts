@@ -726,26 +726,31 @@ export function parseEntriesFromSection(
   // preceding real entry. This prevents bullet lines from becoming standalone cards.
   const mergedEntries = mergeFragmentEntries(entries);
 
-  result.entries = mergedEntries;
+  // HOTFIX-CV-EDU-SPLIT: Education anti-over-split
+  const finalEntries = sectionId === "education-section"
+    ? mergeEducationOverSplit(mergedEntries, sectionText.length)
+    : mergedEntries;
 
-  // Compute confidence with fragment-aware scoring
-  const triadCount = mergedEntries.filter(
+  result.entries = finalEntries;
+
+  // Compute confidence with fragment-aware scoring (on final entries)
+  const triadCount = finalEntries.filter(
     (e) => (e.title || e.organization) && e.dateRange
   ).length;
-  const bulletOnlyCount = mergedEntries.filter(
+  const bulletOnlyCount = finalEntries.filter(
     (e) => !e.title && !e.organization && !e.dateRange
   ).length;
-  const tinyEntryCount = mergedEntries.filter(
+  const tinyEntryCount = finalEntries.filter(
     (e) => (e.title + e.organization + e.description).length < 30
   ).length;
 
   // High confidence requires: entries found, section has content, most entries have triads
   if (
-    mergedEntries.length > 0 &&
+    finalEntries.length > 0 &&
     sectionText.length > 200 &&
     bulletOnlyCount === 0 &&
     tinyEntryCount <= 1 &&
-    triadCount >= mergedEntries.length * 0.5
+    triadCount >= finalEntries.length * 0.5
   ) {
     result.confidence = "high";
   } else {
@@ -755,7 +760,7 @@ export function parseEntriesFromSection(
   // HOTFIX-5: Coverage invariant — compute how many source lines are covered by entries
   const nonEmptyLineCount = lines.filter((l) => l.trim().length > 0).length;
   const coveredLines = new Set<number>();
-  for (const e of mergedEntries) {
+  for (const e of finalEntries) {
     if (e.sourceLineStart != null && e.sourceLineEnd != null) {
       for (let i = e.sourceLineStart; i < e.sourceLineEnd; i++) {
         if (lines[i]?.trim().length > 0) coveredLines.add(i);
@@ -771,7 +776,7 @@ export function parseEntriesFromSection(
 
   console.log(
     `[diag] entryParser: sectionId=${sectionId}, dateLines=${dateLineIndices.length}, ` +
-    `rawEntries=${entries.length}, mergedEntries=${mergedEntries.length}, ` +
+    `rawEntries=${entries.length}, mergedEntries=${mergedEntries.length}, finalEntries=${finalEntries.length}, ` +
     `triadCount=${triadCount}, bulletOnlyCount=${bulletOnlyCount}, ` +
     `tinyEntryCount=${tinyEntryCount}, confidence=${result.confidence}, ` +
     `coverage=${coveragePct}% (${coveredLines.size}/${nonEmptyLineCount} lines)`
@@ -862,6 +867,83 @@ function buildFragmentText(entry: ParsedEntry): string {
   if (entry.dateRange) parts.push(entry.dateRange);
   if (entry.description) parts.push(entry.description);
   return parts.join("\n");
+}
+
+/**
+ * HOTFIX-CV-EDU-SPLIT: Merge over-split education entries.
+ *
+ * Education sections are often short (300-500 chars) but the date-based splitter
+ * can fragment them into 6-8+ micro-entries. This function merges them back:
+ *
+ * Phase 1 — Quality merge: entry needs ≥2 of {institution, title, date} AND ≥50 chars;
+ *           otherwise merge into preceding entry.
+ * Phase 2 — Hard cap: ceil(sectionCharLength / 150) max entries.
+ *           Force-merge from end if exceeded.
+ */
+function mergeEducationOverSplit(
+  entries: ParsedEntry[],
+  sectionCharLength: number
+): ParsedEntry[] {
+  if (entries.length <= 1) return entries;
+
+  // Phase 1: Quality merge — only keep entries with adequate structure
+  const qualityMerged: ParsedEntry[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const hasInstitution = e.organization.trim().length > 0;
+    const hasTitle = e.title.trim().length > 0;
+    const hasDate = e.dateRange.trim().length > 0;
+    const traitCount = (hasInstitution ? 1 : 0) + (hasTitle ? 1 : 0) + (hasDate ? 1 : 0);
+    const totalChars = (e.title + e.organization + e.description + e.dateRange).length;
+
+    const isQuality = traitCount >= 2 && totalChars >= 50;
+
+    if (isQuality || qualityMerged.length === 0) {
+      qualityMerged.push({ ...e });
+    } else {
+      // Merge into preceding entry
+      const parent = qualityMerged[qualityMerged.length - 1];
+      const fragmentText = buildFragmentText(e);
+      parent.description = parent.description
+        ? parent.description + "\n" + fragmentText
+        : fragmentText;
+      // Extend source line range
+      if (e.sourceLineEnd != null && parent.sourceLineEnd != null) {
+        parent.sourceLineEnd = Math.max(parent.sourceLineEnd, e.sourceLineEnd);
+      }
+    }
+  }
+
+  // Phase 2: Hard cap — ceil(sectionChars / 150) max entries
+  const maxEntries = Math.max(1, Math.ceil(sectionCharLength / 150));
+  if (qualityMerged.length <= maxEntries) {
+    if (qualityMerged.length < entries.length) {
+      console.log(
+        `[diag] eduOverSplit: phase1 reduced ${entries.length} → ${qualityMerged.length} entries (cap=${maxEntries})`
+      );
+    }
+    return qualityMerged;
+  }
+
+  // Force-merge from end until we're at cap
+  const capped = [...qualityMerged];
+  while (capped.length > maxEntries && capped.length > 1) {
+    const last = capped.pop()!;
+    const parent = capped[capped.length - 1];
+    const fragmentText = buildFragmentText(last);
+    parent.description = parent.description
+      ? parent.description + "\n" + fragmentText
+      : fragmentText;
+    if (last.sourceLineEnd != null && parent.sourceLineEnd != null) {
+      parent.sourceLineEnd = Math.max(parent.sourceLineEnd, last.sourceLineEnd);
+    }
+  }
+
+  console.log(
+    `[diag] eduOverSplit: ${entries.length} → ${capped.length} entries (phase1=${qualityMerged.length}, cap=${maxEntries})`
+  );
+
+  return capped;
 }
 
 // ── LLM Structuring Pass ─────────────────────────────────

@@ -449,7 +449,9 @@
     "addLinkedinToUnlock": "Agrega tu perfil de LinkedIn para desbloquear",
     "selectFeatureToUnlock": "Selecciona la función correspondiente en el Paso 2 para habilitar",
     "missingSectionsHint": "Faltan secciones críticas — agrégalas en el Estudio de Reescritura para desbloquear exportaciones",
-    "exportBypass": "Exportar de todos modos (limpiar marcadores)"
+    "exportBypass": "Exportar de todos modos (limpiar marcadores)",
+    "exportPrimary": "Exportar",
+    "exportBypassPrimary": "Exportar (limpiar marcadores)"
   },
   "progress": {
     "analyzing": "Analizando tu perfil",

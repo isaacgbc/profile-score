@@ -449,7 +449,9 @@
     "addLinkedinToUnlock": "Add your LinkedIn profile to unlock",
     "selectFeatureToUnlock": "Select the relevant feature in Step 2 to enable",
     "missingSectionsHint": "Critical sections are missing — add them in Rewrite Studio to unlock exports",
-    "exportBypass": "Export anyway (clean placeholders)"
+    "exportBypass": "Export anyway (clean placeholders)",
+    "exportPrimary": "Export",
+    "exportBypassPrimary": "Export (clean placeholders)"
   },
   "progress": {
     "analyzing": "Analyzing your profile",
