@@ -1737,11 +1737,56 @@ export async function generateAuditResults(
   }
 
   const cvEntries: Record<string, ParsedEntry[]> = {};
+  let cvWorkExpAiStructured = false;
+  let cvWorkExpParserConfidence: "high" | "low" = "low";
+  let cvWorkExpRawCount = 0;
+  let cvWorkExpMergedCount = 0;
+
   for (const sectionId of ["work-experience", "education-section"]) {
     if (cvSections[sectionId]) {
       const parsed = parseEntriesFromSection(sectionId, cvSections[sectionId]);
+
+      // ── HOTFIX-CV: AI structuring pass for work-experience with low confidence ──
+      if (sectionId === "work-experience") {
+        cvWorkExpParserConfidence = parsed.confidence;
+        cvWorkExpRawCount = parsed.entries.length;
+        cvWorkExpMergedCount = parsed.entries.length;
+
+        if (parsed.confidence === "low" && cvSections[sectionId].length > 100) {
+          console.log(
+            `[diag] request=${requestId} | cvWorkExp: low confidence (entries=${parsed.entries.length}), trying AI structuring`
+          );
+          try {
+            const { structureCvWorkExperience } = await import("./cv-work-exp-structurer");
+            const aiEntries = await structureCvWorkExperience(cvSections[sectionId]);
+            if (aiEntries && aiEntries.length > 0) {
+              cvEntries[sectionId] = aiEntries;
+              cvWorkExpAiStructured = true;
+              cvWorkExpMergedCount = aiEntries.length;
+              console.log(
+                `[parser] AI-structured ${aiEntries.length} entries from CV work-experience ` +
+                `(replaced ${parsed.entries.length} heuristic entries)`
+              );
+              continue; // Skip normal acceptance logic
+            }
+          } catch (err) {
+            console.warn(
+              `[diag] cvWorkExp AI structuring failed, using heuristic output: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            );
+          }
+        }
+      }
+
       // HOTFIX-URGENT: Accept ALL education entries regardless of confidence
-      if (parsed.entries.length > 0 && (parsed.confidence === "high" || sectionId === "education-section")) {
+      // HOTFIX-CV: Also accept work-experience entries (merge guard already ran)
+      if (
+        parsed.entries.length > 0 &&
+        (parsed.confidence === "high" ||
+          sectionId === "education-section" ||
+          sectionId === "work-experience")
+      ) {
         cvEntries[sectionId] = parsed.entries;
         console.log(
           `[parser] Parsed ${parsed.entries.length} entries from CV ${sectionId} (confidence=${parsed.confidence})`
@@ -1749,6 +1794,16 @@ export async function generateAuditResults(
       }
     }
   }
+
+  // HOTFIX-CV: Diagnostics for CV work experience parsing
+  console.log(
+    `[diag] request=${requestId} | CV_WORK_EXP: ` +
+    `cvWorkExpParserConfidence=${cvWorkExpParserConfidence}, ` +
+    `cvWorkExpParsedCount=${cvWorkExpRawCount}, ` +
+    `cvWorkExpMergedCount=${cvWorkExpMergedCount}, ` +
+    `cvWorkExpAiStructured=${cvWorkExpAiStructured}, ` +
+    `cvWorkExpFinalCount=${cvEntries["work-experience"]?.length ?? 0}`
+  );
 
   // HOTFIX-URGENT-2: Hard diagnostics for education entry counts
   const liEduEntryCount = linkedinEntries["education"]?.length ?? 0;

@@ -709,16 +709,121 @@ export function parseEntriesFromSection(
     }
   }
 
-  result.entries = entries;
-  result.confidence =
-    entries.length > 0 && sectionText.length > 200 ? "high" : "low";
+  // ── HOTFIX-CV: Post-parse merge guard ──
+  // Merge fragment entries (bullet-only, title-only, date-only) back into the
+  // preceding real entry. This prevents bullet lines from becoming standalone cards.
+  const mergedEntries = mergeFragmentEntries(entries);
+
+  result.entries = mergedEntries;
+
+  // Compute confidence with fragment-aware scoring
+  const triadCount = mergedEntries.filter(
+    (e) => (e.title || e.organization) && e.dateRange
+  ).length;
+  const bulletOnlyCount = mergedEntries.filter(
+    (e) => !e.title && !e.organization && !e.dateRange
+  ).length;
+  const tinyEntryCount = mergedEntries.filter(
+    (e) => (e.title + e.organization + e.description).length < 30
+  ).length;
+
+  // High confidence requires: entries found, section has content, most entries have triads
+  if (
+    mergedEntries.length > 0 &&
+    sectionText.length > 200 &&
+    bulletOnlyCount === 0 &&
+    tinyEntryCount <= 1 &&
+    triadCount >= mergedEntries.length * 0.5
+  ) {
+    result.confidence = "high";
+  } else {
+    result.confidence = "low";
+  }
 
   console.log(
-    `[diag] educationParser: sectionId=${sectionId}, dateLines=${dateLineIndices.length}, ` +
-    `entries=${entries.length}, preferring=dateBased`
+    `[diag] entryParser: sectionId=${sectionId}, dateLines=${dateLineIndices.length}, ` +
+    `rawEntries=${entries.length}, mergedEntries=${mergedEntries.length}, ` +
+    `triadCount=${triadCount}, bulletOnlyCount=${bulletOnlyCount}, ` +
+    `tinyEntryCount=${tinyEntryCount}, confidence=${result.confidence}`
   );
 
   return result;
+}
+
+/**
+ * HOTFIX-CV: Merge fragment entries back into the preceding real entry.
+ *
+ * A "fragment" is an entry that looks like it was incorrectly split from
+ * a parent entry. Indicators:
+ * - Title starts with a bullet marker (-, *, •, –)
+ * - No title AND no organization (just description or date)
+ * - Very short total content (< 40 chars) with no clear org/title/date triad
+ * - Adjacent to a real entry and looks like continuation
+ */
+function mergeFragmentEntries(entries: ParsedEntry[]): ParsedEntry[] {
+  if (entries.length <= 1) return entries;
+
+  const merged: ParsedEntry[] = [];
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const isFragment = isFragmentEntry(entry);
+
+    if (isFragment && merged.length > 0) {
+      // Merge into preceding entry
+      const parent = merged[merged.length - 1];
+      const fragmentText = buildFragmentText(entry);
+      parent.description = parent.description
+        ? parent.description + "\n" + fragmentText
+        : fragmentText;
+      console.log(
+        `[diag] mergeGuard: merged fragment ${i} into entry ${merged.length - 1} ` +
+        `(fragment: title="${entry.title.slice(0, 30)}", org="${entry.organization.slice(0, 30)}")`
+      );
+    } else {
+      merged.push({ ...entry });
+    }
+  }
+
+  return merged;
+}
+
+/** Check if an entry is a fragment that should be merged into the preceding entry */
+function isFragmentEntry(entry: ParsedEntry): boolean {
+  const { title, organization, dateRange, description } = entry;
+
+  // Bullet-only: title starts with bullet marker
+  if (/^\s*[-*•–]/.test(title)) return true;
+
+  // No title AND no organization — only has description or dateRange
+  if (!title.trim() && !organization.trim()) return true;
+
+  // Title looks like a bullet point or continuation (starts with lowercase, very short)
+  if (
+    title.length > 0 &&
+    title.length < 60 &&
+    !organization.trim() &&
+    !dateRange.trim() &&
+    /^[a-záéíóú]/.test(title.trim())
+  ) {
+    return true;
+  }
+
+  // Very short total content with no org+title triad
+  const totalChars = (title + organization + description).length;
+  if (totalChars < 40 && !organization.trim() && !dateRange.trim()) return true;
+
+  return false;
+}
+
+/** Build text from a fragment entry for appending to parent description */
+function buildFragmentText(entry: ParsedEntry): string {
+  const parts: string[] = [];
+  if (entry.title) parts.push(entry.title);
+  if (entry.organization) parts.push(entry.organization);
+  if (entry.dateRange) parts.push(entry.dateRange);
+  if (entry.description) parts.push(entry.description);
+  return parts.join("\n");
 }
 
 // ── LLM Structuring Pass ─────────────────────────────────
