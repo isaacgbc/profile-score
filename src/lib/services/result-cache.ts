@@ -16,7 +16,7 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 // ── Parser version — bump to invalidate cache on parser changes ──
 // HOTFIX-URGENT-2: Added parser version to cache key.
 // Bump this whenever parser logic changes to prevent stale cached results.
-const PARSER_VERSION = "v3.5";
+const PARSER_VERSION = "v3.6";
 
 // ── Compute SHA-256 hash of input ────────────────────────
 // V2: includes objectiveMode + objectiveText for cache key correctness.
