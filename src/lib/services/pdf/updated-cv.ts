@@ -165,17 +165,16 @@ export async function generateUpdatedCvPdf(
       for (const entry of rewrite.entries) {
         ensureSpace(60);
 
-        // Parse entry title for company/position split
-        const parsed = parseEntryTitle(entry.entryTitle);
-        if (parsed) {
-          // Line 1: Company/Organization (bold)
-          const companyLines = wrapText(
-            sanitizeForPdf(parsed.company),
+        // Structured entry rendering: organization > title > dateRange
+        if (entry.organization) {
+          // Line 1: Organization (bold)
+          const orgLines = wrapText(
+            sanitizeForPdf(entry.organization),
             fontBold,
             10,
             contentWidth
           );
-          for (const line of companyLines) {
+          for (const line of orgLines) {
             ensureSpace(40);
             page.drawText(line, {
               x: margin,
@@ -186,42 +185,97 @@ export async function generateUpdatedCvPdf(
             });
             y -= 12;
           }
-          // Line 2: Position (italic)
-          const positionLines = wrapText(
-            sanitizeForPdf(parsed.position),
-            fontItalic,
-            10,
-            contentWidth
-          );
-          for (const line of positionLines) {
+          // Line 2: Title/Role/Degree (italic)
+          if (entry.title) {
+            const titleRoleLines = wrapText(
+              sanitizeForPdf(entry.title),
+              fontItalic,
+              10,
+              contentWidth
+            );
+            for (const line of titleRoleLines) {
+              ensureSpace(40);
+              page.drawText(line, {
+                x: margin,
+                y,
+                size: 10,
+                font: fontItalic,
+                color: CV_BLACK,
+              });
+              y -= 12;
+            }
+          }
+          // Line 3: Date range (regular, muted)
+          if (entry.dateRange) {
             ensureSpace(40);
-            page.drawText(line, {
+            page.drawText(sanitizeForPdf(entry.dateRange), {
               x: margin,
               y,
-              size: 10,
-              font: fontItalic,
+              size: 9,
+              font: fontRegular,
               color: CV_BLACK,
             });
             y -= 12;
           }
         } else {
-          // Fallback: single bold title line
-          const titleLines = wrapText(
-            sanitizeForPdf(entry.entryTitle),
-            fontBold,
-            10,
-            contentWidth
-          );
-          for (const line of titleLines) {
-            ensureSpace(40);
-            page.drawText(line, {
-              x: margin,
-              y,
-              size: 10,
-              font: fontBold,
-              color: CV_BLACK,
-            });
-            y -= 12;
+          // Fallback: regex-based parsing for old cached results without structured fields
+          const parsed = parseEntryTitle(entry.entryTitle);
+          if (parsed) {
+            // Line 1: Company/Organization (bold)
+            const companyLines = wrapText(
+              sanitizeForPdf(parsed.company),
+              fontBold,
+              10,
+              contentWidth
+            );
+            for (const line of companyLines) {
+              ensureSpace(40);
+              page.drawText(line, {
+                x: margin,
+                y,
+                size: 10,
+                font: fontBold,
+                color: CV_BLACK,
+              });
+              y -= 12;
+            }
+            // Line 2: Position (italic)
+            const positionLines = wrapText(
+              sanitizeForPdf(parsed.position),
+              fontItalic,
+              10,
+              contentWidth
+            );
+            for (const line of positionLines) {
+              ensureSpace(40);
+              page.drawText(line, {
+                x: margin,
+                y,
+                size: 10,
+                font: fontItalic,
+                color: CV_BLACK,
+              });
+              y -= 12;
+            }
+          } else {
+            // Fallback: single bold title line
+            const titleLines = wrapText(
+              sanitizeForPdf(entry.entryTitle),
+              fontBold,
+              10,
+              contentWidth
+            );
+            for (const line of titleLines) {
+              ensureSpace(40);
+              page.drawText(line, {
+                x: margin,
+                y,
+                size: 10,
+                font: fontBold,
+                color: CV_BLACK,
+              });
+              y -= 12;
+            }
           }
         }
 

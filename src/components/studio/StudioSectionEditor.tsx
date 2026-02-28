@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useI18n } from "@/context/I18nContext";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -21,6 +21,7 @@ interface StudioSectionEditorProps {
   onRegenerate: (intent: "directions" | "draft") => void;
   onReset: (sectionId: string) => void;
   onResetEntry: (sectionId: string, entryStableId: string) => void;
+  onDeleteEntry?: (sectionId: string, entryStableId: string) => void;
   isRegenerating: boolean;
   locked: boolean;
   onUpgradeClick?: () => void;
@@ -70,6 +71,7 @@ export default function StudioSectionEditor({
   onRegenerate,
   onReset,
   onResetEntry,
+  onDeleteEntry,
   isRegenerating,
   locked,
   onUpgradeClick,
@@ -85,6 +87,8 @@ export default function StudioSectionEditor({
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   // Track manually added entries for any entry-based section
   const [manualEntries, setManualEntries] = useState<RewriteEntry[]>([]);
+  // Track deleted entries (by stableId) — local state, propagated to parent via onDeleteEntry
+  const [deletedEntryIds, setDeletedEntryIds] = useState<Set<string>>(new Set());
 
   // Resolution: userOptimized > userRewritten > rewrite.rewritten
   const sectionOptimized = userOptimized[rewrite.sectionId];
@@ -106,15 +110,26 @@ export default function StudioSectionEditor({
     return synth;
   }, [isEntryBasedSection, hasEntries, rewrite.entries, rewrite.original, rewrite.rewritten, rewrite.sectionId]);
 
-  // Effective entries = server entries (if >1) OR synthesized + manual
+  // Effective entries = server entries (if >1) OR synthesized + manual, minus deleted
   const effectiveEntries = useMemo(() => {
-    if (!isEntryBasedSection) return rewrite.entries;
-    if (hasEntries && rewrite.entries!.length > 1) {
-      return [...rewrite.entries!, ...manualEntries];
+    let entries: RewriteEntry[] | undefined;
+    if (!isEntryBasedSection) {
+      entries = rewrite.entries;
+    } else if (hasEntries && rewrite.entries!.length > 1) {
+      entries = [...rewrite.entries!, ...manualEntries];
+    } else {
+      const base = synthesizedEntries ?? (hasEntries ? rewrite.entries! : []);
+      entries = [...base, ...manualEntries];
     }
-    const base = synthesizedEntries ?? (hasEntries ? rewrite.entries! : []);
-    return [...base, ...manualEntries];
-  }, [isEntryBasedSection, hasEntries, rewrite.entries, synthesizedEntries, manualEntries]);
+    // Filter out deleted entries
+    if (entries && deletedEntryIds.size > 0) {
+      entries = entries.filter((e) => {
+        const stableId = computeEntryStableId(e.entryTitle, e.original);
+        return !deletedEntryIds.has(stableId);
+      });
+    }
+    return entries;
+  }, [isEntryBasedSection, hasEntries, rewrite.entries, synthesizedEntries, manualEntries, deletedEntryIds]);
 
   // Inject synthesized entries into parent results (for export flow)
   const injectedRef = useState<boolean>(false);
@@ -125,14 +140,30 @@ export default function StudioSectionEditor({
 
   const effectiveHasEntries = effectiveEntries && effectiveEntries.length > 0;
 
+  // Local delete handler: track locally + propagate to parent
+  const handleDeleteEntry = useCallback(
+    (sectionId: string, entryStableId: string) => {
+      setDeletedEntryIds((prev) => new Set(prev).add(entryStableId));
+      onDeleteEntry?.(sectionId, entryStableId);
+    },
+    [onDeleteEntry]
+  );
+
   // Diagnostic log for entry-based sections
   if (isEntryBasedSection) {
+    const parsedOrgCount = effectiveEntries?.filter((e) => e.organization).length ?? 0;
+    const parsedTitleCount = effectiveEntries?.filter((e) => e.title).length ?? 0;
+    const ambiguousCount = effectiveEntries?.filter((e) => !e.organization && !e.title).length ?? 0;
     console.log(
       `[diag] entryRenderer sectionId=${rewrite.sectionId} ` +
       `parsedEntries=${rewrite.entries?.length ?? 0} ` +
       `synthesizedEntries=${synthesizedEntries?.length ?? 0} ` +
       `manualEntries=${manualEntries.length} ` +
+      `deletedEntries=${deletedEntryIds.size} ` +
       `effectiveEntries=${effectiveEntries?.length ?? 0} ` +
+      `parsedOrganizationCount=${parsedOrgCount} ` +
+      `parsedTitleCount=${parsedTitleCount} ` +
+      `ambiguousEntryCount=${ambiguousCount} ` +
       `rendererPath=${effectiveHasEntries ? "entryCards" : "sectionTextarea"}`
     );
   }
@@ -247,6 +278,7 @@ export default function StudioSectionEditor({
                   userOptimized={userOptimized[entryKey]}
                   onOptimizedChange={onOptimizedChange}
                   onResetEntry={onResetEntry}
+                  onDeleteEntry={handleDeleteEntry}
                   locked={locked}
                   entryScore={matchingScore}
                 />

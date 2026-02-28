@@ -26,6 +26,7 @@ import { mockPlans } from "@/lib/mock/plans";
 import { featureFlags } from "@/lib/feature-flags";
 import { useI18n } from "@/context/I18nContext";
 import { trackEvent } from "@/lib/analytics/tracker";
+import { computeEntryStableId } from "@/lib/utils/entry-id";
 import {
   getUnlockedLinkedinIds,
   getUnlockedCvIds,
@@ -86,6 +87,8 @@ interface AppContextValue extends AppState {
   setManualSection: (sectionId: string, content: string) => void;
   /** HOTFIX-URGENT-4: Inject synthesized/manual entries into a rewrite section */
   injectEntries: (sectionId: string, entries: import("@/lib/types").RewriteEntry[]) => void;
+  /** Delete a single entry from results + clear its userOptimized key */
+  deleteEntry: (sectionId: string, entryStableId: string) => void;
   triggerUnlockAnimation: () => void;
   isFeatureUnlocked: (featureId: FeatureId) => boolean;
   isSectionLocked: (sectionId: string) => boolean;
@@ -166,6 +169,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         linkedinRewrites: updateRewrites(prev.linkedinRewrites),
         cvRewrites: updateRewrites(prev.cvRewrites),
+      };
+    });
+  }, []);
+
+  // Delete a single entry from results and clear its userOptimized key
+  const deleteEntry = useCallback((sectionId: string, entryStableId: string) => {
+    const key = `${sectionId}:${entryStableId}`;
+    // Remove from userOptimized
+    setUserOptimizedState((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    // Remove entry from results using computeEntryStableId for matching
+    setResultsState((prev) => {
+      if (!prev) return prev;
+      const filterEntries = (rwArr: ProfileResult["linkedinRewrites"]) =>
+        rwArr.map((r) => {
+          if (r.sectionId !== sectionId || !r.entries) return r;
+          return {
+            ...r,
+            entries: r.entries.filter((e) => {
+              const eStableId = computeEntryStableId(e.entryTitle, e.original);
+              return eStableId !== entryStableId;
+            }),
+          };
+        });
+      return {
+        ...prev,
+        linkedinRewrites: filterEntries(prev.linkedinRewrites),
+        cvRewrites: filterEntries(prev.cvRewrites),
       };
     });
   }, []);
@@ -871,6 +905,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         manualSections,
         setManualSection,
         injectEntries,
+        deleteEntry,
         triggerUnlockAnimation,
         isFeatureUnlocked,
         isSectionLocked,

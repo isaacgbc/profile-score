@@ -73,6 +73,7 @@ export default function RewriteStudioPage() {
     manualSections,
     setManualSection,
     injectEntries,
+    deleteEntry,
   } = useApp();
   const router = useRouter();
 
@@ -236,6 +237,15 @@ export default function RewriteStudioPage() {
       persistence.clearPersistedEntry(sectionId, entryStableId);
     },
     [resetEntry, persistence]
+  );
+
+  const handleDeleteEntry = useCallback(
+    (sectionId: string, entryStableId: string) => {
+      deleteEntry(sectionId, entryStableId);
+      // Also clear any persisted edits for this entry
+      persistence.clearPersistedEntry(sectionId, entryStableId);
+    },
+    [deleteEntry, persistence]
   );
 
   const handleRegenerate = useCallback(
@@ -458,6 +468,7 @@ export default function RewriteStudioPage() {
                       }
                       onReset={handleResetSection}
                       onResetEntry={handleResetEntry}
+                      onDeleteEntry={handleDeleteEntry}
                       isRegenerating={regeneratingSection === rewrite.sectionId}
                       locked={rewrite.locked && !isAdmin}
                       onUpgradeClick={() => setShowPricingModal(true)}
@@ -498,6 +509,7 @@ export default function RewriteStudioPage() {
                           }
                           onReset={handleResetSection}
                           onResetEntry={handleResetEntry}
+                          onDeleteEntry={handleDeleteEntry}
                           isRegenerating={regeneratingSection === rewrite.sectionId}
                           locked={rewrite.locked && !isAdmin}
                           onUpgradeClick={() => setShowPricingModal(true)}

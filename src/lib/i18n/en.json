@@ -389,7 +389,9 @@
     "contactInfoLinkedin": "LinkedIn URL",
     "contactInfoLocation": "Location",
     "contactInfoRequired": "Name is required",
-    "addEntry": "+ Add entry"
+    "addEntry": "+ Add entry",
+    "deleteEntry": "Delete",
+    "deleteEntryConfirm": "Delete this entry?"
   },
   "checkout": {
     "title": "Export Your Optimized Profile",

@@ -109,6 +109,12 @@ export interface ScoreSection {
 export interface RewriteEntry {
   entryIndex: number;
   entryTitle: string;
+  /** Company or institution name (first-class field, optional for backward compat) */
+  organization?: string;
+  /** Role/position or degree/program (first-class field, optional for backward compat) */
+  title?: string;
+  /** Date range string, e.g. "Jan 2020 - Present" */
+  dateRange?: string;
   original: string;
   improvements: string;
   missingSuggestions: string[];

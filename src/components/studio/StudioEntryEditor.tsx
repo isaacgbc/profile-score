@@ -16,6 +16,7 @@ interface StudioEntryEditorProps {
   userOptimized?: string;
   onOptimizedChange: (key: string, text: string) => void;
   onResetEntry: (sectionId: string, entryStableId: string) => void;
+  onDeleteEntry?: (sectionId: string, entryStableId: string) => void;
   locked: boolean;
   /** Optional entry score context from v2 entry scoring */
   entryScore?: EntryScore;
@@ -27,41 +28,115 @@ export default function StudioEntryEditor({
   userOptimized,
   onOptimizedChange,
   onResetEntry,
+  onDeleteEntry,
   locked,
   entryScore,
 }: StudioEntryEditorProps) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const stableId = computeEntryStableId(entry.entryTitle, entry.original);
   const stateKey = `${sectionId}:${stableId}`;
   const displayText = userOptimized ?? entry.rewritten;
   const hasEdits = userOptimized !== undefined;
 
-  const resetEntryLabel =
-    (t.rewriteStudio as Record<string, string>).resetEntry ?? "Reset this entry";
-  const optimizedLabel =
-    (t.rewriteStudio as Record<string, string>).optimizedDraft ?? "Optimized Draft";
+  const studioT = t.rewriteStudio as Record<string, string>;
+  const resetEntryLabel = studioT.resetEntry ?? "Reset this entry";
+  const optimizedLabel = studioT.optimizedDraft ?? "Optimized Draft";
   const originalLabel = t.rewriteStudio.original;
+  const deleteLabel = studioT.deleteEntry ?? "Delete";
+  const deleteConfirmLabel = studioT.deleteEntryConfirm ?? "Delete this entry?";
+
+  // Structured header fields (with fallback to entryTitle)
+  const orgDisplay = entry.organization || null;
+  const titleDisplay = entry.title || null;
+  const dateDisplay = entry.dateRange || null;
+  const hasSeparateFields = orgDisplay || titleDisplay;
 
   return (
     <div className="border border-[var(--border-light)] rounded-xl overflow-hidden">
-      {/* Collapsible header — identical for all entry sections (experience, education, etc.) */}
+      {/* Collapsible header — structured: Organization > Title > Date */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[var(--surface-secondary)]/50 transition-colors"
+        className="w-full flex items-start justify-between px-4 py-3 text-left hover:bg-[var(--surface-secondary)]/50 transition-colors gap-2"
       >
-        <span className="text-sm font-medium text-[var(--text-primary)]">
-          {entry.entryTitle}
-        </span>
-        <span
-          className={`text-xs text-[var(--text-muted)] transition-transform ${
-            expanded ? "rotate-180" : ""
-          }`}
-        >
-          ▾
-        </span>
+        <div className="flex-1 min-w-0">
+          {hasSeparateFields ? (
+            <>
+              {/* Line 1: Organization (bold) */}
+              {orgDisplay && (
+                <p className="text-sm font-semibold text-[var(--text-primary)] leading-snug truncate">
+                  {orgDisplay}
+                </p>
+              )}
+              {/* Line 2: Title/Role/Degree (regular) */}
+              {titleDisplay && (
+                <p className="text-xs text-[var(--text-secondary)] leading-snug mt-0.5 line-clamp-2">
+                  {titleDisplay}
+                </p>
+              )}
+              {/* Line 3: Date range (muted) */}
+              {dateDisplay && (
+                <p className="text-[10px] text-[var(--text-muted)] leading-snug mt-0.5">
+                  {dateDisplay}
+                </p>
+              )}
+            </>
+          ) : (
+            /* Fallback: single entryTitle line (backward compat for old cached results) */
+            <p className="text-sm font-medium text-[var(--text-primary)] leading-snug">
+              {entry.entryTitle}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
+          {/* Delete button */}
+          {onDeleteEntry && !locked && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDeleteConfirm(true);
+              }}
+              className="text-[10px] text-[var(--text-muted)] hover:text-red-500 transition-colors cursor-pointer px-1"
+              title={deleteLabel}
+            >
+              ✕
+            </span>
+          )}
+          <span
+            className={`text-xs text-[var(--text-muted)] transition-transform ${
+              expanded ? "rotate-180" : ""
+            }`}
+          >
+            ▾
+          </span>
+        </div>
       </button>
+
+      {/* Delete confirmation inline */}
+      {showDeleteConfirm && (
+        <div className="px-4 py-2 bg-red-50 border-t border-red-200 flex items-center justify-between">
+          <span className="text-xs text-red-700">{deleteConfirmLabel}</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                onDeleteEntry?.(sectionId, stableId);
+              }}
+              className="text-[10px] font-medium text-red-600 hover:text-red-800 px-2 py-1 bg-red-100 rounded transition-colors"
+            >
+              {deleteLabel}
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-2 py-1 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Content: lazy-mounted on expand */}
       {expanded && (
@@ -91,7 +166,7 @@ export default function StudioEntryEditor({
             </div>
           )}
 
-          {/* Optimized Draft (editable) with HOTFIX-3 inline placeholder highlighting */}
+          {/* Optimized Draft (editable) with inline placeholder highlighting */}
           {!locked && (
             <div className="bg-emerald-50/40 border border-emerald-200 rounded-lg p-3">
               <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mb-2">
@@ -128,7 +203,7 @@ export default function StudioEntryEditor({
                   }
                 />
               </div>
-              {/* HOTFIX-3: Placeholder legend */}
+              {/* Placeholder legend */}
               {hasPlaceholders(displayText) && (
                 <p className="mt-1.5 text-xs text-amber-700 font-medium flex items-center gap-1.5">
                   <span className="inline-block w-4 h-4 rounded bg-amber-200 border border-amber-400 text-center text-[9px] font-bold leading-[16px]">!</span>
@@ -150,8 +225,7 @@ export default function StudioEntryEditor({
           {entry.missingSuggestions.length > 0 && (
             <div className="pt-2 border-t border-blue-100">
               <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1.5">
-                {(t.rewriteStudio as Record<string, string>).missingFromProfile ??
-                  "Missing from Profile"}
+                {studioT.missingFromProfile ?? "Missing from Profile"}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {entry.missingSuggestions.map((s, i) => (

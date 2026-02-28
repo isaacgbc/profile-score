@@ -143,16 +143,11 @@ export async function generateLinkedinUpdatesPdf(
           y -= 10;
         }
 
-        // HOTFIX-3: Parse entry title for "Position at Company" pattern
-        const titleText = sanitizeForPdf(entry.entryTitle);
-        const atMatch = titleText.match(/^(.+?)\s+at\s+(.+)$/i);
-        const enMatch = titleText.match(/^(.+?)\s+en\s+(.+)$/i);
-        const parsed = atMatch ?? enMatch;
-
-        if (parsed) {
-          // Position (bold)
-          const positionLines = wrapText(parsed[1].trim(), fontBold, 11, contentWidth);
-          for (const line of positionLines) {
+        // Structured entry rendering: organization > title > dateRange
+        if (entry.organization) {
+          // Line 1: Organization (bold)
+          const orgLines = wrapText(sanitizeForPdf(entry.organization), fontBold, 11, contentWidth);
+          for (const line of orgLines) {
             ensureSpace(50);
             page.drawText(line, {
               x: margin + 5,
@@ -163,51 +158,102 @@ export async function generateLinkedinUpdatesPdf(
             });
             y -= 15;
           }
-          // Company (regular, smaller)
-          const companyLines = wrapText(parsed[2].trim(), fontRegular, 10, contentWidth);
-          for (const line of companyLines) {
-            ensureSpace(50);
-            page.drawText(line, {
+          // Line 2: Title/Role (regular, smaller)
+          if (entry.title) {
+            const titleLines = wrapText(sanitizeForPdf(entry.title), fontRegular, 10, contentWidth);
+            for (const line of titleLines) {
+              ensureSpace(50);
+              page.drawText(line, {
+                x: margin + 5,
+                y,
+                size: 10,
+                font: fontRegular,
+                color: COLORS.textMuted,
+              });
+              y -= 14;
+            }
+          }
+          // Line 3: Date range (muted)
+          if (entry.dateRange) {
+            ensureSpace(40);
+            page.drawText(sanitizeForPdf(entry.dateRange), {
               x: margin + 5,
               y,
-              size: 10,
+              size: 9,
               font: fontRegular,
               color: COLORS.textMuted,
             });
-            y -= 14;
+            y -= 12;
           }
         } else {
-          // Fallback: render full title bold
-          const titleLines = wrapText(titleText, fontBold, 11, contentWidth);
-          for (const line of titleLines) {
-            ensureSpace(50);
-            page.drawText(line, {
-              x: margin + 5,
-              y,
-              size: 11,
-              font: fontBold,
-              color: COLORS.text,
-            });
-            y -= 16;
-          }
-        }
+          // Fallback: regex-based parsing for old cached results without structured fields
+          const titleText = sanitizeForPdf(entry.entryTitle);
+          const atMatch = titleText.match(/^(.+?)\s+at\s+(.+)$/i);
+          const enMatch = titleText.match(/^(.+?)\s+en\s+(.+)$/i);
+          const parsed = atMatch ?? enMatch;
 
-        // HOTFIX-4: Extract date/location from original text first line
-        const originalFirstLine = entry.original.split("\n").find((l) => l.trim().length > 0)?.trim() ?? "";
-        const dateLocMatch = originalFirstLine.match(
-          /^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Ene|Abr|Ago|Dic)[a-z]*\.?\s+\d{4}|(?:19|20)\d{2})\s*[-–]\s*(?:Present|Actual|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Ene|Abr|Ago|Dic)[a-z]*\.?\s+\d{4}|(?:19|20)\d{2})(?:\s*[·|,]\s*.+)?$/i
-        );
-        if (dateLocMatch) {
-          ensureSpace(40);
-          const dateLocText = sanitizeForPdf(dateLocMatch[0]);
-          page.drawText(dateLocText, {
-            x: margin + 5,
-            y,
-            size: 9,
-            font: fontRegular,
-            color: COLORS.textMuted,
-          });
-          y -= 12;
+          if (parsed) {
+            // Position (bold)
+            const positionLines = wrapText(parsed[1].trim(), fontBold, 11, contentWidth);
+            for (const line of positionLines) {
+              ensureSpace(50);
+              page.drawText(line, {
+                x: margin + 5,
+                y,
+                size: 11,
+                font: fontBold,
+                color: COLORS.text,
+              });
+              y -= 15;
+            }
+            // Company (regular, smaller)
+            const companyLines = wrapText(parsed[2].trim(), fontRegular, 10, contentWidth);
+            for (const line of companyLines) {
+              ensureSpace(50);
+              page.drawText(line, {
+                x: margin + 5,
+                y,
+                size: 10,
+                font: fontRegular,
+                color: COLORS.textMuted,
+              });
+              y -= 14;
+            }
+          } else {
+            // Fallback: render full title bold
+            const fallbackLines = wrapText(titleText, fontBold, 11, contentWidth);
+            for (const line of fallbackLines) {
+              ensureSpace(50);
+              page.drawText(line, {
+                x: margin + 5,
+                y,
+                size: 11,
+                font: fontBold,
+                color: COLORS.text,
+              });
+              y -= 16;
+            }
+          }
+
+          // Extract date/location from original text (fallback for old results)
+          if (!entry.dateRange) {
+            const originalFirstLine = entry.original.split("\n").find((l) => l.trim().length > 0)?.trim() ?? "";
+            const dateLocMatch = originalFirstLine.match(
+              /^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Ene|Abr|Ago|Dic)[a-z]*\.?\s+\d{4}|(?:19|20)\d{2})\s*[-–]\s*(?:Present|Actual|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Ene|Abr|Ago|Dic)[a-z]*\.?\s+\d{4}|(?:19|20)\d{2})(?:\s*[·|,]\s*.+)?$/i
+            );
+            if (dateLocMatch) {
+              ensureSpace(40);
+              const dateLocText = sanitizeForPdf(dateLocMatch[0]);
+              page.drawText(dateLocText, {
+                x: margin + 5,
+                y,
+                size: 9,
+                font: fontRegular,
+                color: COLORS.textMuted,
+              });
+              y -= 12;
+            }
+          }
         }
 
         y -= 4; // spacing between title block and content

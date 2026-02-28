@@ -7,7 +7,7 @@
  *   - Blank-line separators
  *   - Organization keywords (companies, institutions, etc.)
  *
- * Returns RewriteEntry[] that can be injected into the RewritePreview.entries array.
+ * Returns RewriteEntry[] with structured organization/title/dateRange fields.
  */
 
 import type { RewriteEntry } from "@/lib/types";
@@ -31,7 +31,7 @@ const ORGANIZATION_RE =
  * 1. Split text into blocks by blank lines
  * 2. Identify blocks that look like entry boundaries (have dates/organizations)
  * 3. Merge orphan blocks with their parent entry
- * 4. Create RewriteEntry objects
+ * 4. Create RewriteEntry objects with structured fields
  *
  * If synthesis produces <=1 entry, falls back to returning the full text
  * as a single editable entry.
@@ -107,12 +107,16 @@ export function synthesizeEntries(
     const entryText = entryLines.join("\n").trim();
     if (entryText.length < 5) continue;
 
-    const title = extractEntryTitle(entryLines);
+    const { organization, title } = extractOrgAndTitle(entryLines);
     const dateRange = extractDateRange(entryText);
+    const displayTitle = organization || title || extractEntryTitle(entryLines);
 
     entries.push({
       entryIndex: entries.length,
-      entryTitle: title + (dateRange ? ` (${dateRange})` : ""),
+      entryTitle: displayTitle + (dateRange ? ` (${dateRange})` : ""),
+      organization: organization || undefined,
+      title: title || undefined,
+      dateRange: dateRange || undefined,
       original: entryText,
       improvements: "",
       missingSuggestions: [],
@@ -133,7 +137,39 @@ export function synthesizeEntries(
   return entries;
 }
 
-/** Extract the most likely title from entry lines */
+/**
+ * Extract organization and title from entry header lines.
+ * Heuristic: short entity-like line = organization, role/program-like line = title.
+ * If ambiguous, first non-date line = organization, second = title.
+ */
+function extractOrgAndTitle(lines: string[]): { organization: string; title: string } {
+  const nonDateLines: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length < 3) continue;
+    // Skip pure date lines
+    if (/^\s*(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d)/i.test(trimmed) && trimmed.length < 50) continue;
+    // Skip bullet lines (descriptions)
+    if (/^\s*[-*•]/.test(trimmed)) continue;
+    // Clean inline date from line
+    const cleaned = trimmed.replace(/\s*·\s*\(.*?\)$/, "").trim();
+    if (cleaned.length >= 3) {
+      nonDateLines.push(cleaned.length > 120 ? cleaned.slice(0, 117) + "..." : cleaned);
+    }
+    // Only consider first 2 header lines
+    if (nonDateLines.length >= 2) break;
+  }
+
+  if (nonDateLines.length >= 2) {
+    // First line = organization, second = title/role
+    return { organization: nonDateLines[0], title: nonDateLines[1] };
+  } else if (nonDateLines.length === 1) {
+    return { organization: nonDateLines[0], title: "" };
+  }
+  return { organization: "", title: "" };
+}
+
+/** Extract the most likely display title from entry lines (legacy fallback) */
 function extractEntryTitle(lines: string[]): string {
   for (const line of lines) {
     const trimmed = line.trim();
@@ -172,9 +208,12 @@ function chunkIntoEntries(rawText: string, rewrittenText: string): RewriteEntry[
 
   const entries: RewriteEntry[] = [];
   if (firstHalf.length > 5) {
+    const { organization, title } = extractOrgAndTitle(firstHalf.split("\n"));
     entries.push({
       entryIndex: 0,
-      entryTitle: extractEntryTitle(firstHalf.split("\n")),
+      entryTitle: organization || title || extractEntryTitle(firstHalf.split("\n")),
+      organization: organization || undefined,
+      title: title || undefined,
       original: firstHalf,
       improvements: "",
       missingSuggestions: [],
@@ -182,9 +221,12 @@ function chunkIntoEntries(rawText: string, rewrittenText: string): RewriteEntry[
     });
   }
   if (secondHalf.length > 5) {
+    const { organization, title } = extractOrgAndTitle(secondHalf.split("\n"));
     entries.push({
       entryIndex: entries.length,
-      entryTitle: extractEntryTitle(secondHalf.split("\n")),
+      entryTitle: organization || title || extractEntryTitle(secondHalf.split("\n")),
+      organization: organization || undefined,
+      title: title || undefined,
       original: secondHalf,
       improvements: "",
       missingSuggestions: [],
@@ -203,9 +245,12 @@ function createFallbackEntry(
   rewritten: string,
   index: number
 ): RewriteEntry {
+  const { organization, title } = extractOrgAndTitle(original.split("\n"));
   return {
     entryIndex: index,
-    entryTitle: extractEntryTitle(original.split("\n")),
+    entryTitle: organization || title || extractEntryTitle(original.split("\n")),
+    organization: organization || undefined,
+    title: title || undefined,
     original: original.trim(),
     improvements: "",
     missingSuggestions: [],
@@ -237,6 +282,9 @@ export function createBlankEntry(index: number): RewriteEntry {
   return {
     entryIndex: index,
     entryTitle: "New Entry",
+    organization: "",
+    title: "",
+    dateRange: "",
     original: "",
     improvements: "",
     missingSuggestions: [],

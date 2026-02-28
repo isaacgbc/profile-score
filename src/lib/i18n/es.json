@@ -389,7 +389,9 @@
     "contactInfoLinkedin": "URL de LinkedIn",
     "contactInfoLocation": "Ubicación",
     "contactInfoRequired": "El nombre es obligatorio",
-    "addEntry": "+ Agregar entrada"
+    "addEntry": "+ Agregar entrada",
+    "deleteEntry": "Eliminar",
+    "deleteEntryConfirm": "¿Eliminar esta entrada?"
   },
   "checkout": {
     "title": "Exporta Tu Perfil Optimizado",

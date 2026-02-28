@@ -927,6 +927,10 @@ async function rewriteSectionWithEntries(
           (e, i) => ({
             entryIndex: i,
             entryTitle: e.entryTitle,
+            // Carry forward structured fields from original parsed entries
+            organization: cappedEntries[i]?.organization || undefined,
+            title: cappedEntries[i]?.title || undefined,
+            dateRange: cappedEntries[i]?.dateRange || undefined,
             original: e.original,
             improvements: e.improvements,
             missingSuggestions: e.missingSuggestions,
