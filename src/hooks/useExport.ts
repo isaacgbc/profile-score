@@ -171,50 +171,19 @@ export function useExport(): UseExportReturn {
           },
         }));
 
-        // HOTFIX-9: Auto-trigger download via fetch + blob (reliable, no popup blocker)
+        // HOTFIX-9d: Open export in new tab for preview (user can download from there)
         if (data.exportId && data.status === "ready") {
           trackEvent("exportDownloadTriggered", {
             metadata: { exportType, exportId: data.exportId },
           });
-          try {
-            const downloadRes = await fetch(
-              `/api/exports/${data.exportId}?download=true`
-            );
-            if (!downloadRes.ok)
-              throw new Error(`Download HTTP ${downloadRes.status}`);
-            const blob = await downloadRes.blob();
-
-            // HOTFIX-9b: Extract filename from Content-Disposition header
-            const disposition = downloadRes.headers.get("content-disposition");
-            const filenameMatch = disposition?.match(/filename="?([^";\n]+)"?/);
-            const filename = filenameMatch?.[1] ?? `${exportType}.${payload.format ?? "pdf"}`;
-
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            trackEvent("exportDownloadSucceeded", {
-              metadata: { exportType, exportId: data.exportId },
-            });
-          } catch (dlErr) {
-            trackEvent("exportDownloadFailed", {
-              metadata: {
-                exportType,
-                exportId: data.exportId,
-                reason:
-                  dlErr instanceof Error ? dlErr.message : "unknown",
-              },
-            });
-            // Fallback: open in new tab
-            window.open(
-              `/api/exports/${data.exportId}?download=true`,
-              "_blank"
-            );
-          }
+          // Open in new tab with inline disposition — user sees preview, can download manually
+          window.open(
+            `/api/exports/${data.exportId}?inline=true`,
+            "_blank"
+          );
+          trackEvent("exportPreviewOpened", {
+            metadata: { exportType, exportId: data.exportId },
+          });
         }
       } catch {
         trackEvent("exportDownloadFailed", {
@@ -233,35 +202,11 @@ export function useExport(): UseExportReturn {
     []
   );
 
-  const downloadExport = useCallback(async (exportId: string) => {
-    // HOTFIX-9: Reliable blob download with success/failure telemetry
+  const downloadExport = useCallback((exportId: string) => {
+    // HOTFIX-9d: Open in new tab for preview (user can save from browser)
     trackEvent("exportDownloadStarted", { metadata: { exportId } });
-    try {
-      const res = await fetch(`/api/exports/${exportId}?download=true`);
-      if (!res.ok) throw new Error(`Download HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      // Extract filename from Content-Disposition if available
-      const cd = res.headers.get("content-disposition");
-      const match = cd?.match(/filename="?(.+?)"?$/);
-      a.download = match?.[1] ?? `export-${exportId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      trackEvent("exportDownloadSucceeded", { metadata: { exportId } });
-    } catch (dlErr) {
-      trackEvent("exportDownloadFailed", {
-        metadata: {
-          exportId,
-          reason: dlErr instanceof Error ? dlErr.message : "unknown",
-        },
-      });
-      // Fallback: open in new tab
-      window.open(`/api/exports/${exportId}?download=true`, "_blank");
-    }
+    window.open(`/api/exports/${exportId}?inline=true`, "_blank");
+    trackEvent("exportPreviewOpened", { metadata: { exportId } });
   }, []);
 
   const retryExport = useCallback(

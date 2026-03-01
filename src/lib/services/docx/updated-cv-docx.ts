@@ -128,8 +128,13 @@ export async function generateUpdatedCvDocx(
 
     // Contact line (centered, pipe-separated)
     if (contactLines.length > 1) {
+      // HOTFIX-9d: Deduplicate LinkedIn entries — remove bare "LinkedIn" text if URL exists
+      const hasLinkedInUrl = contactLines.some(l => /linkedin\.com\/in\//i.test(l));
+      const dedupedLines = hasLinkedInUrl
+        ? contactLines.filter(l => !/^\s*linkedin\s*$/i.test(l.trim()))
+        : contactLines;
       // HOTFIX-9c: Shorten LinkedIn URLs for cleaner header display
-      const contactText = shortenLinkedInUrl(contactLines.slice(1).join(" | "));
+      const contactText = shortenLinkedInUrl(dedupedLines.slice(1).join(" | "));
       paragraphs.push(
         new Paragraph({
           alignment: AlignmentType.CENTER,

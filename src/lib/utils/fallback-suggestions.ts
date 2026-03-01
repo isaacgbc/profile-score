@@ -20,6 +20,12 @@ export const FALLBACK_SUGGESTIONS: Record<string, string[]> = {
     "Mention leadership scope",
     "Include domain expertise",
   ],
+  // HOTFIX-9d: "about" is an alias for "summary" — some code paths use either ID
+  about: [
+    "Add quantifiable achievements",
+    "Mention leadership scope",
+    "Include domain expertise",
+  ],
   experience: [
     "Add measurable metrics (%, $, team size)",
     "Include technologies used",

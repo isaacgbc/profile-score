@@ -621,8 +621,11 @@ export function parseEntriesFromSection(
       if (fallbackEntries.length > 0) {
         // HOTFIX-6D: Apply anti-over-split before early return
         const mergedFallback = mergeEducationOverSplit(fallbackEntries, sectionText.length);
-        console.log(`[diag] educationParser: dateLines=0, fallback=${fallbackEntries.length} entries, afterMerge=${mergedFallback.length}`);
-        result.entries = mergedFallback;
+        // HOTFIX-9d: Apply fragment merge to fallback entries too (catches lowercase-starting
+        // titles like "financing models." that are sentence fragments, not real entries)
+        const finalFallback = mergeFragmentEntries(mergedFallback);
+        console.log(`[diag] educationParser: dateLines=0, fallback=${fallbackEntries.length} entries, afterOverSplit=${mergedFallback.length}, afterFragMerge=${finalFallback.length}`);
+        result.entries = finalFallback;
         result.confidence = "low";
         return result;
       }
@@ -714,11 +717,13 @@ export function parseEntriesFromSection(
     if (qualityFallback.length > entries.length) {
       // HOTFIX-6D: Apply anti-over-split before early return
       const mergedFallback = mergeEducationOverSplit(qualityFallback, sectionText.length);
+      // HOTFIX-9d: Apply fragment merge to fallback entries too
+      const finalFallback = mergeFragmentEntries(mergedFallback);
       console.log(
         `[diag] educationParser: dateBasedEntries=${entries.length}, fallbackEntries=${qualityFallback.length}, ` +
-        `afterMerge=${mergedFallback.length}, preferring=fallback for ${sectionId}`
+        `afterOverSplit=${mergedFallback.length}, afterFragMerge=${finalFallback.length}, preferring=fallback for ${sectionId}`
       );
-      result.entries = mergedFallback;
+      result.entries = finalFallback;
       result.confidence = "low";
       return result;
     }
@@ -898,8 +903,9 @@ function buildFragmentText(entry: ParsedEntry): string {
  *
  * Phase 1 — Quality merge: entry needs ≥2 of {institution, title, date} AND ≥50 chars;
  *           otherwise merge into preceding entry.
- * Phase 2 — Hard cap: ceil(sectionCharLength / 150) max entries.
- *           Force-merge from end if exceeded.
+ * Phase 2 — Hard cap: max(3, ceil(sectionCharLength / 80)) max entries.
+ *           Force-merge from end if exceeded. Floor of 3 ensures short education
+ *           sections (3 schools × ~80 chars each) aren't force-merged.
  */
 function mergeEducationOverSplit(
   entries: ParsedEntry[],
@@ -919,7 +925,13 @@ function mergeEducationOverSplit(
 
     const isQuality = traitCount >= 2 && totalChars >= 50;
 
-    if (isQuality || qualityMerged.length === 0) {
+    // HOTFIX-9d: Don't keep non-quality entries just because they're first —
+    // if the first entry is non-quality (e.g., a fragment like "financing models."),
+    // still allow it to be a base, but mark it so the next quality entry replaces it.
+    if (isQuality) {
+      qualityMerged.push({ ...e });
+    } else if (qualityMerged.length === 0) {
+      // First entry but not quality — push it as provisional base for fragment merges
       qualityMerged.push({ ...e });
     } else {
       // Merge into preceding entry
@@ -935,8 +947,8 @@ function mergeEducationOverSplit(
     }
   }
 
-  // Phase 2: Hard cap — ceil(sectionChars / 150) max entries
-  const maxEntries = Math.max(1, Math.ceil(sectionCharLength / 150));
+  // Phase 2: Hard cap — HOTFIX-9d: Use /80 (education entries ~80 chars) with floor of 3
+  const maxEntries = Math.max(3, Math.ceil(sectionCharLength / 80));
   if (qualityMerged.length <= maxEntries) {
     if (qualityMerged.length < entries.length) {
       console.log(
@@ -1019,8 +1031,9 @@ export function estimateSectionEntryCount(
   // HOTFIX-8: Use heading anchors and date anchors as primary signals
   const rawMax = Math.max(dateCount, Math.ceil(blockCount / 2), headingCount);
 
-  // HOTFIX-8: Character-based sanity cap — a reasonable entry is >= 150 chars
-  const maxReasonableByChars = Math.ceil(sectionText.length / 150);
+  // HOTFIX-9d: Character-based sanity cap — education entries ~80 chars, experience ~150
+  const minCharsPerEntry = ["education", "education-section"].includes(sectionId) ? 80 : 150;
+  const maxReasonableByChars = Math.ceil(sectionText.length / minCharsPerEntry);
 
   return Math.min(rawMax, maxReasonableByChars);
 }

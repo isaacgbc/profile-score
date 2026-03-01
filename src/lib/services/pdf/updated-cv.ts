@@ -149,8 +149,14 @@ export async function generateUpdatedCvPdf(
     y -= 28;
     // Remaining lines = contact info (pipe-separated on one line)
     if (filteredContactLines.length > 1) {
+      // HOTFIX-9d: Deduplicate LinkedIn entries — if we have both bare "LinkedIn" text
+      // AND a linkedin.com URL, remove the bare text to avoid "LinkedIn | linkedin.com/in/x"
+      const hasLinkedInUrl = filteredContactLines.some(l => /linkedin\.com\/in\//i.test(l));
+      const deduped = hasLinkedInUrl
+        ? filteredContactLines.filter(l => !/^\s*linkedin\s*$/i.test(l.trim()))
+        : filteredContactLines;
       // HOTFIX-9c: Shorten LinkedIn URLs for cleaner header display
-      const contactText = shortenLinkedInUrl(filteredContactLines.slice(1).join(" | "));
+      const contactText = shortenLinkedInUrl(deduped.slice(1).join(" | "));
       drawCentered(contactText, 10, fontRegular);
       y -= 16;
     }

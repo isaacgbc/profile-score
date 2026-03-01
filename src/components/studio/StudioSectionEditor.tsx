@@ -450,13 +450,13 @@ export default function StudioSectionEditor({
         </div>
 
         {/* Missing from Profile — HOTFIX-7: cap to 3 suggestions */}
-        {rewrite.missingSuggestions.length > 0 && (
+        {(rewrite.missingSuggestions ?? []).length > 0 && (
           <div className="mb-4 pt-3 border-t border-blue-100">
             <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-2">
               {studioT.missingFromProfile ?? "Missing from Profile"}
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {rewrite.missingSuggestions.slice(0, 3).map((s, i) => (
+              {(rewrite.missingSuggestions ?? []).slice(0, 3).map((s, i) => (
                 <span
                   key={i}
                   className="inline-flex items-center px-3 py-1.5 text-[11px] font-medium bg-blue-50 text-blue-700 rounded-lg border border-blue-200 whitespace-normal break-words max-w-full leading-snug"

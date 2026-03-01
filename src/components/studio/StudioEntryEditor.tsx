@@ -306,13 +306,13 @@ export default function StudioEntryEditor({
           )}
 
           {/* Missing suggestions */}
-          {entry.missingSuggestions.length > 0 && (
+          {(entry.missingSuggestions ?? []).length > 0 && (
             <div className="pt-2 border-t border-blue-100">
               <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1.5">
                 {studioT.missingFromProfile ?? "Missing from Profile"}
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {entry.missingSuggestions.map((s, i) => (
+                {(entry.missingSuggestions ?? []).map((s, i) => (
                   <span
                     key={i}
                     className="inline-flex items-center px-2.5 py-1 text-[10px] font-medium bg-blue-50 text-blue-700 rounded-lg border border-blue-200 whitespace-normal break-words max-w-full leading-snug"

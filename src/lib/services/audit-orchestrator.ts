@@ -2771,7 +2771,33 @@ export async function generateAuditResults(
   ) => {
     if (!result) {
       fallbackCount++;
-      console.warn(`[fallback] Skipping rewrite (no mock): ${section.id}`);
+      console.warn(`[fallback] Creating passthrough rewrite for: ${section.id}`);
+      // HOTFIX-9d: Never silently drop a section — create a passthrough rewrite
+      // so the section always appears in the Studio with fallback AI instructions.
+      const passthroughRewrite: RewritePreview = {
+        sectionId: section.id,
+        source: section.source as "linkedin" | "cv",
+        original: section.explanation ?? "",
+        improvements: "",
+        missingSuggestions: getFallbackSuggestions(section.id),
+        rewritten: section.explanation ?? "",
+        locked: false,
+      };
+      if (section.source === "linkedin") {
+        linkedinRewrites.push(passthroughRewrite);
+      } else {
+        cvRewrites.push(passthroughRewrite);
+      }
+
+      // Still emit sectionReady so the UI shows this section
+      completedSectionCount++;
+      const pct = 45 + Math.round((completedSectionCount / Math.max(totalSectionCount, 1)) * 25);
+      emitProgress(
+        "generating_rewrites",
+        Math.min(pct, 70),
+        `${SECTION_DISPLAY_NAMES[section.id] ?? section.id} ready`,
+        { section, rewrite: passthroughRewrite }
+      );
       return;
     }
     const { rewrite } = result;

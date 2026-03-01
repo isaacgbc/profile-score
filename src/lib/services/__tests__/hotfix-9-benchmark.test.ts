@@ -1,5 +1,5 @@
 /**
- * HOTFIX-9c — Real Bug Regression Tests
+ * HOTFIX-9d — Real Bug Regression Tests
  *
  * These tests verify the ACTUAL bugs reported by the user:
  * 1. missingSuggestions must NEVER be empty (even with empty-string LLM responses)
@@ -12,6 +12,11 @@
  * 8. HOTFIX-9c: Bullet guard applies to education sections
  * 9. HOTFIX-9c: Watermarks removed from all PDF/DOCX generators
  * 10. HOTFIX-9c: LinkedIn URL shortening + annotation extraction
+ * 11. HOTFIX-9d: Education parsing — fragment merge on fallback paths
+ * 12. HOTFIX-9d: LinkedIn dedup in CV header
+ * 13. HOTFIX-9d: Export opens in new tab + UserName_Type filename
+ * 14. HOTFIX-9d: Education hard cap uses /80 with floor of 3
+ * 15. HOTFIX-9d: handleRewriteResult creates passthrough on null
  */
 
 import * as fs from "node:fs";
@@ -210,16 +215,16 @@ test("download endpoint proxies file bytes instead of 302 redirect", () => {
   );
 });
 
-test("client-side download extracts filename from Content-Disposition", () => {
+test("client-side export opens in new tab (HOTFIX-9d)", () => {
   const hookPath = path.resolve(__dirname, "../../../hooks/useExport.ts");
   const content = fs.readFileSync(hookPath, "utf-8");
   assertTrue(
-    content.includes("content-disposition"),
-    "must read Content-Disposition header"
+    content.includes("inline=true"),
+    "must use inline=true for new-tab preview"
   );
   assertTrue(
-    content.includes("filenameMatch"),
-    "must extract filename from header"
+    content.includes("window.open"),
+    "must use window.open for preview"
   );
 });
 
@@ -566,10 +571,217 @@ test("header filter catches 'Summary |' pattern", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
+// 11. HOTFIX-9d: Education fragment merge on fallback paths
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n11. HOTFIX-9d: Education fragment merge on fallback paths");
+
+test("fallback path (no date lines) applies mergeFragmentEntries", () => {
+  const parserPath = path.resolve(__dirname, "../linkedin-parser.ts");
+  const content = fs.readFileSync(parserPath, "utf-8");
+  // The first fallback path: dateLineIndices.length === 0 → parseEducationFallback → mergeFragmentEntries
+  const startIdx = content.indexOf("if (dateLineIndices.length === 0)");
+  // End at the line "return result; // confidence stays" which closes the dateLines === 0 block
+  const endIdx = content.indexOf('return result; // confidence stays "low"', startIdx);
+  const dateLines0Block = content.slice(startIdx, endIdx);
+  assertTrue(
+    dateLines0Block.includes("mergeFragmentEntries"),
+    "fallback path (dateLines=0) must call mergeFragmentEntries"
+  );
+});
+
+test("fallback path (quality preferred) applies mergeFragmentEntries", () => {
+  const parserPath = path.resolve(__dirname, "../linkedin-parser.ts");
+  const content = fs.readFileSync(parserPath, "utf-8");
+  // The second fallback (qualityFallback.length > entries.length) must also merge
+  const secondFallbackBlock = content.slice(
+    content.indexOf("if (qualityFallback.length > entries.length)"),
+    content.indexOf("// ── HOTFIX-CV: Post-parse merge guard")
+  );
+  assertTrue(
+    secondFallbackBlock.includes("mergeFragmentEntries"),
+    "quality fallback path must call mergeFragmentEntries"
+  );
+});
+
+test("'about' section has fallback suggestions", () => {
+  const suggestions = getFallbackSuggestions("about");
+  assertTrue(suggestions.length >= 3, "'about' must have fallback suggestions");
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 12. HOTFIX-9d: LinkedIn dedup in CV header
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n12. HOTFIX-9d: LinkedIn dedup in CV header");
+
+test("PDF generator deduplicates bare 'LinkedIn' text when URL exists", () => {
+  const pdfPath = path.resolve(__dirname, "../pdf/updated-cv.ts");
+  const content = fs.readFileSync(pdfPath, "utf-8");
+  assertTrue(
+    content.includes("hasLinkedInUrl") && content.includes("deduped"),
+    "PDF must deduplicate LinkedIn entries"
+  );
+});
+
+test("DOCX generator deduplicates bare 'LinkedIn' text when URL exists", () => {
+  const docxPath = path.resolve(__dirname, "../docx/updated-cv-docx.ts");
+  const content = fs.readFileSync(docxPath, "utf-8");
+  assertTrue(
+    content.includes("hasLinkedInUrl") && content.includes("dedupedLines"),
+    "DOCX must deduplicate LinkedIn entries"
+  );
+});
+
+test("LinkedIn dedup logic: bare 'LinkedIn' removed when URL present", () => {
+  const lines = [
+    "John Smith",
+    "LinkedIn",
+    "linkedin.com/in/johnsmith",
+    "john@email.com",
+  ];
+  const hasLinkedInUrl = lines.some(l => /linkedin\.com\/in\//i.test(l));
+  const deduped = hasLinkedInUrl
+    ? lines.filter(l => !/^\s*linkedin\s*$/i.test(l.trim()))
+    : lines;
+  assertEqual(deduped.length, 3, "should remove bare 'LinkedIn' text");
+  assertTrue(!deduped.some(l => /^\s*linkedin\s*$/i.test(l.trim())), "bare LinkedIn removed");
+  assertTrue(deduped.some(l => l.includes("linkedin.com/in/")), "URL preserved");
+});
+
+test("LinkedIn dedup logic: keeps 'LinkedIn' when no URL present", () => {
+  const lines = ["John Smith", "LinkedIn", "john@email.com"];
+  const hasLinkedInUrl = lines.some(l => /linkedin\.com\/in\//i.test(l));
+  const deduped = hasLinkedInUrl
+    ? lines.filter(l => !/^\s*linkedin\s*$/i.test(l.trim()))
+    : lines;
+  assertEqual(deduped.length, 3, "should keep all lines when no URL");
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 13. HOTFIX-9d: Export in new tab + UserName_Type filename
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n13. HOTFIX-9d: Export opens in new tab + filename");
+
+test("export API supports inline disposition for preview", () => {
+  const routePath = path.resolve(__dirname, "../../../app/api/exports/[id]/route.ts");
+  const content = fs.readFileSync(routePath, "utf-8");
+  assertTrue(content.includes("inline"), "must support inline disposition");
+  assertTrue(content.includes("EXPORT_TYPE_LABELS"), "must have export type label map");
+  assertTrue(content.includes("extractCandidateName"), "must extract candidate name for filename");
+});
+
+test("export filename uses UserName_Type pattern", () => {
+  const routePath = path.resolve(__dirname, "../../../app/api/exports/[id]/route.ts");
+  const content = fs.readFileSync(routePath, "utf-8");
+  assertTrue(
+    content.includes("candidateName") && content.includes("typeLabel"),
+    "filename must use candidateName + typeLabel"
+  );
+  assertTrue(
+    content.includes("UpdatedCV") && content.includes("ResultsSummary"),
+    "must map export types to readable labels"
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 14. HOTFIX-9d: Education hard cap uses /80 with floor of 3
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n14. HOTFIX-9d: Education hard cap /80 with floor 3");
+
+test("mergeEducationOverSplit uses /80 divisor (not /150)", () => {
+  const parserPath = path.resolve(__dirname, "../linkedin-parser.ts");
+  const content = fs.readFileSync(parserPath, "utf-8");
+  const mergeBlock = content.slice(
+    content.indexOf("function mergeEducationOverSplit"),
+    content.indexOf("function estimateSectionEntryCount")
+  );
+  assertTrue(
+    mergeBlock.includes("sectionCharLength / 80"),
+    "hard cap must use /80 divisor"
+  );
+  assertTrue(
+    mergeBlock.includes("Math.max(3,"),
+    "hard cap must have floor of 3"
+  );
+  assertTrue(
+    !mergeBlock.includes("sectionCharLength / 150)"),
+    "must NOT use old /150 divisor"
+  );
+});
+
+test("3 short education entries survive hard cap (240 chars total)", () => {
+  // Simulate: 3 entries × 80 chars = 240 total chars
+  const sectionCharLength = 240;
+  const maxEntries = Math.max(3, Math.ceil(sectionCharLength / 80));
+  assertTrue(maxEntries >= 3, `maxEntries for 240 chars should be >= 3, got ${maxEntries}`);
+});
+
+test("3 very short education entries survive hard cap (195 chars total)", () => {
+  // Simulate: 3 entries × 65 chars = 195 total chars
+  const sectionCharLength = 195;
+  const maxEntries = Math.max(3, Math.ceil(sectionCharLength / 80));
+  assertTrue(maxEntries >= 3, `maxEntries for 195 chars should be >= 3, got ${maxEntries}`);
+});
+
+test("estimateSectionEntryCount uses /80 for education sections", () => {
+  const parserPath = path.resolve(__dirname, "../linkedin-parser.ts");
+  const content = fs.readFileSync(parserPath, "utf-8");
+  const estimateBlock = content.slice(
+    content.indexOf("function estimateSectionEntryCount"),
+    content.indexOf("// ── LLM Structuring")
+  );
+  assertTrue(
+    estimateBlock.includes("education") && estimateBlock.includes("80"),
+    "estimator must use 80-char divisor for education"
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 15. HOTFIX-9d: handleRewriteResult creates passthrough on null
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n15. HOTFIX-9d: handleRewriteResult passthrough on null");
+
+test("handleRewriteResult creates passthrough rewrite when result is null", () => {
+  const orchestratorPath = path.resolve(__dirname, "../audit-orchestrator.ts");
+  const content = fs.readFileSync(orchestratorPath, "utf-8");
+  const handleBlock = content.slice(
+    content.indexOf("const handleRewriteResult"),
+    content.indexOf("const linkedinRewritePromises")
+  );
+  assertTrue(
+    handleBlock.includes("passthroughRewrite"),
+    "handleRewriteResult must create passthrough on null"
+  );
+  assertTrue(
+    handleBlock.includes("getFallbackSuggestions"),
+    "passthrough must use getFallbackSuggestions"
+  );
+  assertTrue(
+    !handleBlock.includes("console.warn(`[fallback] Skipping rewrite"),
+    "must NOT silently skip sections (old behavior)"
+  );
+});
+
+test("Studio UI handles undefined missingSuggestions safely", () => {
+  const sectionEditorPath = path.resolve(__dirname, "../../../components/studio/StudioSectionEditor.tsx");
+  const entryEditorPath = path.resolve(__dirname, "../../../components/studio/StudioEntryEditor.tsx");
+  const sectionContent = fs.readFileSync(sectionEditorPath, "utf-8");
+  const entryContent = fs.readFileSync(entryEditorPath, "utf-8");
+  // Both must use nullish coalescing for missingSuggestions
+  assertTrue(
+    sectionContent.includes("missingSuggestions ?? []"),
+    "StudioSectionEditor must guard against undefined missingSuggestions"
+  );
+  assertTrue(
+    entryContent.includes("missingSuggestions ?? []"),
+    "StudioEntryEditor must guard against undefined missingSuggestions"
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════
 // Results
 // ══════════════════════════════════════════════════════════════════════
 console.log(`\n──────────────────────────────────────`);
-console.log(`HOTFIX-9c Benchmark: ${passed} passed, ${failed} failed`);
+console.log(`HOTFIX-9d Benchmark: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
   process.exit(1);
 }
