@@ -490,6 +490,7 @@ export default function RewriteStudioPage() {
                       regenerationCount={regenerationCounts[rewrite.sectionId] ?? 0}
                       regenerationTimestamp={regenerationTimestamps[rewrite.sectionId]}
                       lastRegenerateNoDiff={lastRegenerateNoDiff[rewrite.sectionId]}
+                      isAdmin={isAdmin}
                     />
                   );
                 })}
@@ -533,6 +534,7 @@ export default function RewriteStudioPage() {
                           regenerationCount={regenerationCounts[rewrite.sectionId] ?? 0}
                           regenerationTimestamp={regenerationTimestamps[rewrite.sectionId]}
                           lastRegenerateNoDiff={lastRegenerateNoDiff[rewrite.sectionId]}
+                          isAdmin={isAdmin}
                         />
                       );
                     })}

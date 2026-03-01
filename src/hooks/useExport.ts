@@ -171,12 +171,44 @@ export function useExport(): UseExportReturn {
           },
         }));
 
-        // Auto-trigger download on success
+        // HOTFIX-9: Auto-trigger download via fetch + blob (reliable, no popup blocker)
         if (data.exportId && data.status === "ready") {
           trackEvent("exportDownloadTriggered", {
             metadata: { exportType, exportId: data.exportId },
           });
-          window.open(`/api/exports/${data.exportId}?download=true`, "_blank");
+          try {
+            const downloadRes = await fetch(
+              `/api/exports/${data.exportId}?download=true`
+            );
+            if (!downloadRes.ok)
+              throw new Error(`Download HTTP ${downloadRes.status}`);
+            const blob = await downloadRes.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${exportType}.${payload.format ?? "pdf"}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            trackEvent("exportDownloadSucceeded", {
+              metadata: { exportType, exportId: data.exportId },
+            });
+          } catch (dlErr) {
+            trackEvent("exportDownloadFailed", {
+              metadata: {
+                exportType,
+                exportId: data.exportId,
+                reason:
+                  dlErr instanceof Error ? dlErr.message : "unknown",
+              },
+            });
+            // Fallback: open in new tab
+            window.open(
+              `/api/exports/${data.exportId}?download=true`,
+              "_blank"
+            );
+          }
         }
       } catch {
         trackEvent("exportDownloadFailed", {
@@ -195,10 +227,35 @@ export function useExport(): UseExportReturn {
     []
   );
 
-  const downloadExport = useCallback((exportId: string) => {
-    // HOTFIX-7: Export telemetry
+  const downloadExport = useCallback(async (exportId: string) => {
+    // HOTFIX-9: Reliable blob download with success/failure telemetry
     trackEvent("exportDownloadStarted", { metadata: { exportId } });
-    window.open(`/api/exports/${exportId}?download=true`, "_blank");
+    try {
+      const res = await fetch(`/api/exports/${exportId}?download=true`);
+      if (!res.ok) throw new Error(`Download HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      // Extract filename from Content-Disposition if available
+      const cd = res.headers.get("content-disposition");
+      const match = cd?.match(/filename="?(.+?)"?$/);
+      a.download = match?.[1] ?? `export-${exportId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      trackEvent("exportDownloadSucceeded", { metadata: { exportId } });
+    } catch (dlErr) {
+      trackEvent("exportDownloadFailed", {
+        metadata: {
+          exportId,
+          reason: dlErr instanceof Error ? dlErr.message : "unknown",
+        },
+      });
+      // Fallback: open in new tab
+      window.open(`/api/exports/${exportId}?download=true`, "_blank");
+    }
   }, []);
 
   const retryExport = useCallback(

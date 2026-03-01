@@ -9,6 +9,7 @@ import { callLLM, LLM_MODEL_FAST } from "./llm-client";
 import { getActivePromptWithVersion, interpolatePrompt } from "./prompt-resolver";
 import { extractJson } from "@/lib/schemas/llm-output";
 import { stripNonFlagEmojis } from "./generation-guards";
+import { sanitizeTemplateOutput, countPlaceholders } from "@/lib/utils/placeholder-detect";
 import type { Locale } from "@/lib/types";
 
 interface GenerateResult {
@@ -143,16 +144,28 @@ export async function generateExport(
   // Apply polish pass to all rewrites before export generation
   const polishedResults = await applyPolishPass(results, language, userInput);
 
+  // HOTFIX-9: Final sanitization pass — strip any remaining placeholders
+  const sanitizedResults = sanitizeAllRewrites(polishedResults);
+
+  // HOTFIX-9: Assert zero placeholders before export
+  const totalPlaceholders = countAllPlaceholders(sanitizedResults);
+  if (totalPlaceholders > 0) {
+    console.error(
+      `[EXPORT_HARD_STOP] ${totalPlaceholders} placeholders survived sanitization. ` +
+      `Export proceeding with stripped output.`
+    );
+  }
+
   switch (exportType) {
     case "results-summary": {
       if (format !== "pdf") throw new Error("Results Summary only supports PDF format");
-      const bytes = await generateResultsSummaryPdf(polishedResults, language);
+      const bytes = await generateResultsSummaryPdf(sanitizedResults, language);
       return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     case "updated-cv": {
       if (format === "docx") {
-        const bytes = await generateUpdatedCvDocx(polishedResults, language);
+        const bytes = await generateUpdatedCvDocx(sanitizedResults, language);
         return {
           bytes,
           contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -160,29 +173,66 @@ export async function generateExport(
         };
       }
       if (format !== "pdf") throw new Error("Updated CV only supports PDF and DOCX formats");
-      const bytes = await generateUpdatedCvPdf(polishedResults, language);
+      const bytes = await generateUpdatedCvPdf(sanitizedResults, language);
       return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     case "full-audit": {
       if (format !== "pdf") throw new Error("Full Audit only supports PDF format");
-      const bytes = await generateFullAuditPdf(polishedResults, language);
+      const bytes = await generateFullAuditPdf(sanitizedResults, language);
       return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     case "linkedin-updates": {
       if (format !== "pdf") throw new Error("LinkedIn Updates only supports PDF format");
-      const bytes = await generateLinkedinUpdatesPdf(polishedResults, language);
+      const bytes = await generateLinkedinUpdatesPdf(sanitizedResults, language);
       return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     case "cover-letter": {
       if (format !== "pdf") throw new Error("Cover Letter only supports PDF format");
-      const bytes = await generateCoverLetterPdf(polishedResults, language, userInput);
+      const bytes = await generateCoverLetterPdf(sanitizedResults, language, userInput);
       return { bytes, contentType: "application/pdf", ext: "pdf" };
     }
 
     default:
       throw new Error(`Unknown export type: ${exportType}`);
   }
+}
+
+/**
+ * HOTFIX-9: Apply sanitizeTemplateOutput to ALL rewrite text before export.
+ * Ensures no placeholder tokens survive to PDF/DOCX output.
+ */
+function sanitizeAllRewrites(results: ProfileResult): ProfileResult {
+  const sanitize = (r: ProfileResult["linkedinRewrites"][number]) => ({
+    ...r,
+    rewritten: sanitizeTemplateOutput(r.rewritten),
+    entries: r.entries?.map((e) => ({
+      ...e,
+      rewritten: sanitizeTemplateOutput(e.rewritten),
+    })),
+  });
+  return {
+    ...results,
+    linkedinRewrites: results.linkedinRewrites.map(sanitize),
+    cvRewrites: results.cvRewrites.map(sanitize),
+  };
+}
+
+/**
+ * HOTFIX-9: Count remaining placeholders across all rewrites.
+ * Should be 0 after sanitizeAllRewrites.
+ */
+function countAllPlaceholders(results: ProfileResult): number {
+  let total = 0;
+  for (const r of [...results.linkedinRewrites, ...results.cvRewrites]) {
+    total += countPlaceholders(r.rewritten);
+    if (r.entries) {
+      for (const e of r.entries) {
+        total += countPlaceholders(e.rewritten);
+      }
+    }
+  }
+  return total;
 }

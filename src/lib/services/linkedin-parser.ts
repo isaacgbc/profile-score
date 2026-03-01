@@ -1109,8 +1109,8 @@ export async function parseLinkedinWithStructuring(
   };
 }
 
-/** Max entries to send to LLM for per-entry rewriting (cost control) */
-export const MAX_ENTRIES_PER_SECTION = 6;
+/** HOTFIX-9: Raised from 6 → 15 to show ALL parsed entries (anti-over-split guard) */
+export const MAX_ENTRIES_PER_SECTION = 15;
 
 /** Max characters per entry sent to LLM (cost control) */
 export const MAX_CHARS_PER_ENTRY = 1_500;

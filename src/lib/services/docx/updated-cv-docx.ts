@@ -12,6 +12,7 @@ import {
 } from "docx";
 import type { ProfileResult, RewritePreview } from "@/lib/types";
 import { getSectionLabel } from "@/lib/section-labels";
+import { sanitizeTemplateOutput } from "@/lib/utils/placeholder-detect";
 
 import en from "@/lib/i18n/en.json";
 import es from "@/lib/i18n/es.json";
@@ -86,7 +87,20 @@ export async function generateUpdatedCvDocx(
   // ── Header: Name + Contact Info ──
   const contactRewrite = allRewrites.find((r) => r.sectionId === "contact-info");
   if (contactRewrite) {
-    const contactLines = contactRewrite.rewritten.split("\n").filter(Boolean);
+    // HOTFIX-9: Apply sanitizeTemplateOutput to DOCX contact lines
+    const cleanedContact = sanitizeTemplateOutput(contactRewrite.rewritten);
+    const rawContactLines = cleanedContact.split("\n").filter(Boolean);
+
+    // HOTFIX-9: Filter non-contact lines from header (objective, headline, etc.)
+    const HEADER_EXCLUDE_RE = /^(objective|professional\s*(goal|growth|summary)|career\s*(objective|goal))/i;
+    const SEPARATOR_ONLY_RE = /^\s*[|,;\-–—]+\s*$/;
+    const contactLines = rawContactLines.filter((line) => {
+      const trimmed = line.trim();
+      if (HEADER_EXCLUDE_RE.test(trimmed)) return false;
+      if (SEPARATOR_ONLY_RE.test(trimmed)) return false;
+      if (/^objective\s*[|:]/i.test(trimmed)) return false;
+      return true;
+    });
 
     // Name (centered, 24pt bold)
     if (contactLines.length > 0) {
@@ -152,8 +166,10 @@ export async function generateUpdatedCvDocx(
       })
     );
 
-    // Strip potential LLM-duplicated section title
-    const cleanedRewritten = stripLeadingSectionTitle(rewrite.rewritten, label);
+    // HOTFIX-9: Strip placeholders + LLM-duplicated section title
+    const cleanedRewritten = sanitizeTemplateOutput(
+      stripLeadingSectionTitle(rewrite.rewritten, label)
+    );
 
     // ── Entry-level rendering (work-experience, education-section) ──
     if (rewrite.entries && rewrite.entries.length > 0) {
@@ -207,8 +223,10 @@ export async function generateUpdatedCvDocx(
           );
         }
 
-        // Entry content (strip duplicated title)
-        const cleanedEntry = stripLeadingSectionTitle(entry.rewritten, entry.entryTitle);
+        // HOTFIX-9: Entry content — sanitize placeholders + strip duplicated title
+        const cleanedEntry = sanitizeTemplateOutput(
+          stripLeadingSectionTitle(entry.rewritten, entry.entryTitle)
+        );
         const lines = cleanedEntry.split("\n").filter(Boolean);
 
         for (const rawLine of lines) {

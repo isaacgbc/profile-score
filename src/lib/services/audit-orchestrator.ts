@@ -68,6 +68,7 @@ import {
   stripNonFlagEmojis,
   isOverallDescriptorDuplicate,
 } from "./generation-guards";
+import { getFallbackSuggestions } from "@/lib/utils/fallback-suggestions";
 
 // ── Failure reason categories (P0-1: structured diagnostics) ──
 export type FailureReason =
@@ -151,8 +152,8 @@ const SECTION_BUDGET_QUALITY_MS = 50_000; // rewriting (Sonnet)
 // HOTFIX-5: Per-rewrite hard timeout (20s) — prevents individual LLM calls from stalling
 const REWRITE_CALL_TIMEOUT_MS = 20_000;
 
-// HOTFIX-5: First-pass entry cap for experience sections — show fast partial results
-const MAX_ENTRIES_FIRST_PASS = 4;
+// HOTFIX-9: Removed first-pass cap — process ALL parsed entries (was 4 in HOTFIX-5)
+const MAX_ENTRIES_FIRST_PASS = 20;
 
 // PERF-HOTFIX-2: Global orchestration time budget — skip non-essential stages if exceeded
 const ORCHESTRATION_BUDGET_MS = 45_000;
@@ -816,6 +817,11 @@ async function rewriteSection(
           locked: false, // locking applied later
         };
 
+        // HOTFIX-9: Ensure missingSuggestions is never empty
+        if (!rewrite.missingSuggestions || rewrite.missingSuggestions.length === 0) {
+          rewrite.missingSuggestions = getFallbackSuggestions(sectionId);
+        }
+
         // Anti-placeholder guard
         if (isMockRewrite(rewrite)) {
           console.warn(
@@ -1060,6 +1066,19 @@ async function rewriteSectionWithEntries(
           entries: rewriteEntries.length > 0 ? rewriteEntries : undefined,
         };
 
+        // HOTFIX-9: Ensure missingSuggestions is never empty
+        if (!rewrite.missingSuggestions || rewrite.missingSuggestions.length === 0) {
+          rewrite.missingSuggestions = getFallbackSuggestions(sectionId);
+        }
+        // HOTFIX-9: Ensure entry-level missingSuggestions are never empty
+        if (rewrite.entries) {
+          for (const entry of rewrite.entries) {
+            if (!entry.missingSuggestions || entry.missingSuggestions.length === 0) {
+              entry.missingSuggestions = getFallbackSuggestions(sectionId);
+            }
+          }
+        }
+
         if (isMockRewrite(rewrite)) {
           console.warn(
             `[guard] Mock fingerprint in entry rewrite ${sectionId} (attempt ${attempt + 1}), retrying`
@@ -1157,7 +1176,7 @@ async function fastSectionRewriteWithEntries(
       dateRange: e.dateRange || undefined,
       original: e.description,
       improvements: "",
-      missingSuggestions: [],
+      missingSuggestions: getFallbackSuggestions(sectionId),
       rewritten: e.description, // pass-through: original = rewritten
     }));
 
@@ -1167,7 +1186,7 @@ async function fastSectionRewriteWithEntries(
     source: source as "linkedin" | "cv",
     original: fullSectionContent.slice(0, 2000),
     improvements: "",
-    missingSuggestions: [],
+    missingSuggestions: getFallbackSuggestions(sectionId),
     rewritten: fullSectionContent.slice(0, 2000),
     locked: false,
     entries: buildPassthrough(),
@@ -1262,6 +1281,18 @@ async function fastSectionRewriteWithEntries(
       entries: rewriteEntries.length > 0 ? rewriteEntries : undefined,
     };
 
+    // HOTFIX-9: Ensure missingSuggestions is never empty
+    if (!rewrite.missingSuggestions || rewrite.missingSuggestions.length === 0) {
+      rewrite.missingSuggestions = getFallbackSuggestions(sectionId);
+    }
+    if (rewrite.entries) {
+      for (const entry of rewrite.entries) {
+        if (!entry.missingSuggestions || entry.missingSuggestions.length === 0) {
+          entry.missingSuggestions = getFallbackSuggestions(sectionId);
+        }
+      }
+    }
+
     console.log(
       `[perf] fastRewrite: section=${sectionId}, entries=${rewriteEntries.length}/${cappedEntries.length}, ` +
       `model=${result.modelUsed}, duration=${Date.now() - sectionStart}ms`
@@ -1318,7 +1349,7 @@ async function fastRewriteSection(
     source,
     original: originalContent.slice(0, 2000),
     improvements: "",
-    missingSuggestions: [],
+    missingSuggestions: getFallbackSuggestions(sectionId),
     rewritten: originalContent.slice(0, 2000),
     locked: false,
   });
@@ -1720,6 +1751,9 @@ function parseCvSections(cvText: string): Record<string, string> {
  * HOTFIX-8: Fallback regex extractor for contact info when header is missing.
  * Scans the first 20 lines for email, phone, LinkedIn URL patterns.
  * Returns concatenated matches or null if nothing found.
+ *
+ * HOTFIX-9: Enhanced to extract full LinkedIn URLs from embedded link targets
+ * (e.g., PDF hyperlink text) and filter bare "LinkedIn" text without a URL.
  */
 function extractContactInfoFallback(text: string): string | null {
   const lines = text.split("\n").slice(0, 20);
@@ -1730,11 +1764,29 @@ function extractContactInfoFallback(text: string): string | null {
   const LINKEDIN_RE = /linkedin\.com\/in\/[\w-]+/i;
   const LOCATION_RE = /^[A-Z][a-z]+(?:\s[A-Z][a-z]+)*,\s*[A-Z]{2}\s*\d{0,5}/;
 
+  // HOTFIX-9: Full URL pattern to extract embedded LinkedIn URLs
+  const LINKEDIN_URL_RE = /https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w-]+/i;
+  // HOTFIX-9: Detect bare "LinkedIn" text without actual URL
+  const BARE_LINKEDIN_RE = /^\s*linkedin\s*$/i;
+
   let grabbedFirstLine = false;
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
+
+    // HOTFIX-9: Skip bare "LinkedIn" text without actual URL
+    if (BARE_LINKEDIN_RE.test(trimmed)) continue;
+
+    // HOTFIX-9: Extract full LinkedIn URL from embedded patterns
+    // PDF parsers may render links as "(link)" or "[link]" or bare URLs
+    const linkedinUrlMatch = trimmed.match(LINKEDIN_URL_RE);
+    if (linkedinUrlMatch && !LINKEDIN_RE.test(trimmed.replace(linkedinUrlMatch[0], ""))) {
+      // Line contains a LinkedIn URL — use just the URL
+      contactLines.push(linkedinUrlMatch[0]);
+      continue;
+    }
+
     if (
       EMAIL_RE.test(trimmed) ||
       PHONE_RE.test(trimmed) ||
@@ -1748,7 +1800,7 @@ function extractContactInfoFallback(text: string): string | null {
       !grabbedFirstLine &&
       trimmed.length > 2 &&
       trimmed.length < 60 &&
-      !/^(contact|experience|education|skills|summary)/i.test(trimmed)
+      !/^(contact|experience|education|skills|summary|objective|professional\s*goal|career)/i.test(trimmed)
     ) {
       grabbedFirstLine = true;
       if (!contactLines.includes(trimmed)) {

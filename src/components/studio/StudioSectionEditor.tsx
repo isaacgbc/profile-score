@@ -35,6 +35,8 @@ interface StudioSectionEditorProps {
   regenerationCount?: number;
   regenerationTimestamp?: number;
   lastRegenerateNoDiff?: boolean;
+  /** HOTFIX-9: Admin mode — show entry count diagnostics */
+  isAdmin?: boolean;
 }
 
 /**
@@ -87,6 +89,7 @@ export default function StudioSectionEditor({
   regenerationCount = 0,
   regenerationTimestamp,
   lastRegenerateNoDiff,
+  isAdmin = false,
 }: StudioSectionEditorProps) {
   const { t } = useI18n();
   const sectionLabels = t.sectionLabels as Record<string, string>;
@@ -252,6 +255,17 @@ export default function StudioSectionEditor({
               {studioT.truncationNotice ?? "This section was truncated due to size limits. Some content may not appear in the rewrite."}
               <span className="ml-1 text-amber-500 font-medium">({rewrite.original.length.toLocaleString()} chars)</span>
             </p>
+          </div>
+        )}
+
+        {/* HOTFIX-9: Admin entry count diagnostics panel */}
+        {isAdmin && isEntryBasedSection && (
+          <div className="mb-2 text-[10px] bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 font-mono text-gray-500">
+            raw={rewrite.entries?.length ?? 0}
+            {" "}visible={effectiveEntries?.length ?? 0}
+            {" "}manual={manualEntries.length}
+            {" "}deleted={deletedEntryIds.size}
+            {" "}synthesized={synthesizedEntries?.length ?? 0}
           </div>
         )}
 

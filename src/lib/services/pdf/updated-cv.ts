@@ -122,15 +122,27 @@ export async function generateUpdatedCvPdf(
   if (contactRewrite) {
     const cleanedContact = sanitizeTemplateOutput(contactRewrite.rewritten);
     const contactLines = cleanedContact.split("\n").filter(Boolean);
+
+    // HOTFIX-9: Filter non-contact lines from header (objective, headline, etc.)
+    const HEADER_EXCLUDE_RE = /^(objective|professional\s*(goal|growth|summary)|career\s*(objective|goal))/i;
+    const SEPARATOR_ONLY_RE = /^\s*[|,;\-–—]+\s*$/;
+    const filteredContactLines = contactLines.filter((line) => {
+      const trimmed = line.trim();
+      if (HEADER_EXCLUDE_RE.test(trimmed)) return false;
+      if (SEPARATOR_ONLY_RE.test(trimmed)) return false;
+      if (/^objective\s*[|:]/i.test(trimmed)) return false;
+      return true;
+    });
+
     // First line = name (fallback to "Candidate" if missing)
-    const nameText = contactLines.length > 0 && contactLines[0].trim().length > 0
-      ? contactLines[0]
+    const nameText = filteredContactLines.length > 0 && filteredContactLines[0].trim().length > 0
+      ? filteredContactLines[0]
       : "Candidate";
     drawCentered(nameText, 24, fontBold);
     y -= 28;
     // Remaining lines = contact info (pipe-separated on one line)
-    if (contactLines.length > 1) {
-      const contactText = contactLines.slice(1).join(" | ");
+    if (filteredContactLines.length > 1) {
+      const contactText = filteredContactLines.slice(1).join(" | ");
       drawCentered(contactText, 10, fontRegular);
       y -= 16;
     }
