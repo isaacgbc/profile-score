@@ -10,6 +10,8 @@
 export interface PdfExtractionResult {
   text: string;
   pageCount: number;
+  /** HOTFIX-9c: LinkedIn URLs extracted from PDF hyperlink annotations */
+  linkedinUrls?: string[];
   error?: "insufficient_text" | "parse_error";
 }
 
@@ -98,6 +100,12 @@ export async function extractTextFromPdf(
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const pages: string[] = [];
 
+    // HOTFIX-9c: Extract hyperlink annotations (LinkedIn URLs) from PDF
+    // pdfjs-dist getTextContent() only returns display text, not hyperlink targets.
+    // PDF hyperlinks often have a different URL in the annotation than what's displayed.
+    const linkedinUrlSet = new Set<string>();
+    const LINKEDIN_ANNOTATION_RE = /https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w-]+/i;
+
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
@@ -109,6 +117,21 @@ export async function extractTextFromPdf(
         }>
       );
       pages.push(pageText.trim());
+
+      // HOTFIX-9c: Extract hyperlink URLs from page annotations
+      try {
+        const annotations = await page.getAnnotations();
+        for (const annot of annotations) {
+          if (annot.subtype === "Link" && annot.url) {
+            const match = annot.url.match(LINKEDIN_ANNOTATION_RE);
+            if (match) {
+              linkedinUrlSet.add(match[0]);
+            }
+          }
+        }
+      } catch {
+        // Annotation extraction is best-effort — don't fail the whole extraction
+      }
     }
 
     const fullText = pages.filter(Boolean).join("\n\n").trim();
@@ -122,7 +145,17 @@ export async function extractTextFromPdf(
       };
     }
 
-    return { text: fullText, pageCount: pdf.numPages };
+    const linkedinUrls = Array.from(linkedinUrlSet);
+
+    // HOTFIX-9c: If we found LinkedIn URLs from annotations, append them to text
+    // so downstream parsers (extractContactInfoFallback) can find the real URL.
+    // Prefix with a marker so the URL can be identified as annotation-sourced.
+    let enrichedText = fullText;
+    if (linkedinUrls.length > 0) {
+      enrichedText += "\n" + linkedinUrls.map(url => `LinkedIn: ${url}`).join("\n");
+    }
+
+    return { text: enrichedText, pageCount: pdf.numPages, linkedinUrls };
   } catch {
     return {
       text: "",

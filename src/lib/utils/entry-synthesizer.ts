@@ -11,6 +11,7 @@
  */
 
 import type { RewriteEntry } from "@/lib/types";
+import { getFallbackSuggestions } from "@/lib/utils/fallback-suggestions";
 
 // ── Date/year patterns ──────────────────────────────────
 const YEAR_RE = /\b(19|20)\d{2}\b/;
@@ -119,7 +120,7 @@ export function synthesizeEntries(
       dateRange: dateRange || undefined,
       original: entryText,
       improvements: "",
-      missingSuggestions: [],
+      missingSuggestions: getFallbackSuggestions("experience"),
       rewritten: entryText,
     });
   }
@@ -216,7 +217,7 @@ function chunkIntoEntries(rawText: string, rewrittenText: string): RewriteEntry[
       title: title || undefined,
       original: firstHalf,
       improvements: "",
-      missingSuggestions: [],
+      missingSuggestions: getFallbackSuggestions("experience"),
       rewritten: firstHalf,
     });
   }
@@ -229,7 +230,7 @@ function chunkIntoEntries(rawText: string, rewrittenText: string): RewriteEntry[
       title: title || undefined,
       original: secondHalf,
       improvements: "",
-      missingSuggestions: [],
+      missingSuggestions: getFallbackSuggestions("experience"),
       rewritten: secondHalf,
     });
   }
@@ -253,7 +254,7 @@ function createFallbackEntry(
     title: title || undefined,
     original: original.trim(),
     improvements: "",
-    missingSuggestions: [],
+    missingSuggestions: getFallbackSuggestions("experience"),
     rewritten: rewritten.trim(),
   };
 }
@@ -287,7 +288,7 @@ export function createBlankEntry(index: number): RewriteEntry {
     dateRange: "",
     original: "",
     improvements: "",
-    missingSuggestions: [],
+    missingSuggestions: getFallbackSuggestions("experience"),
     rewritten: "",
   };
 }

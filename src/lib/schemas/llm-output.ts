@@ -91,10 +91,13 @@ export function normalizeAuditOutput(raw: unknown): {
 
 // ── Rewrite section output ──
 // Matches RewritePreview interface
+// HOTFIX-9c: Changed missingSuggestions from .min(1) to .min(0) to prevent
+// schema validation failures that cause entire sections to be SKIPPED.
+// The orchestrator's fallback guard handles empty arrays by injecting defaults.
 export const RewriteSectionOutput = z.object({
   original: z.string(),
   improvements: z.string().min(10).max(1000),
-  missingSuggestions: z.array(z.string()).min(1).max(6),
+  missingSuggestions: z.array(z.string()).min(0).max(6),
   rewritten: z.string().min(10),
 });
 
@@ -109,10 +112,11 @@ export const RewriteEntryOutput = z.object({
   rewritten: z.string().min(10),
 });
 
+// HOTFIX-9c: Changed missingSuggestions from .min(1) to .min(0) — same fix
 export const RewriteSectionWithEntriesOutput = z.object({
   original: z.string(),
   improvements: z.string().min(10).max(1000),
-  missingSuggestions: z.array(z.string()).min(1).max(6),
+  missingSuggestions: z.array(z.string()).min(0).max(6),
   rewritten: z.string().min(10),
   entries: z.array(RewriteEntryOutput).optional(),
 });

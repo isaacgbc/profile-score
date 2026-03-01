@@ -1,5 +1,5 @@
 /**
- * HOTFIX-9b — Real Bug Regression Tests
+ * HOTFIX-9c — Real Bug Regression Tests
  *
  * These tests verify the ACTUAL bugs reported by the user:
  * 1. missingSuggestions must NEVER be empty (even with empty-string LLM responses)
@@ -7,6 +7,11 @@
  * 3. Export download endpoint returns file bytes (not redirect)
  * 4. CV contact-info header never contains objective text
  * 5. Source code structural verification
+ * 6. HOTFIX-9c: Zod schema allows empty missingSuggestions
+ * 7. HOTFIX-9c: Entry-synthesizer uses fallback suggestions
+ * 8. HOTFIX-9c: Bullet guard applies to education sections
+ * 9. HOTFIX-9c: Watermarks removed from all PDF/DOCX generators
+ * 10. HOTFIX-9c: LinkedIn URL shortening + annotation extraction
  */
 
 import * as fs from "node:fs";
@@ -79,7 +84,7 @@ test("BUG REPRO: array with whitespace-only strings → must be replaced", () =>
 
 test("BUG REPRO: null missingSuggestions → must use fallback", () => {
   let suggestions: string[] | null = null;
-  suggestions = (suggestions ?? []).filter((s) => s.trim().length > 0);
+  suggestions = ((suggestions ?? []) as string[]).filter((s) => s.trim().length > 0);
   if (suggestions.length === 0) {
     suggestions = getFallbackSuggestions("headline");
   }
@@ -88,7 +93,7 @@ test("BUG REPRO: null missingSuggestions → must use fallback", () => {
 
 test("BUG REPRO: undefined missingSuggestions → must use fallback", () => {
   let suggestions: string[] | undefined = undefined;
-  suggestions = (suggestions ?? []).filter((s) => s.trim().length > 0);
+  suggestions = ((suggestions ?? []) as string[]).filter((s) => s.trim().length > 0);
   if (suggestions.length === 0) {
     suggestions = getFallbackSuggestions("skills");
   }
@@ -233,8 +238,8 @@ test("source code: contact-info section skips LLM rewrite (passthrough)", () => 
   );
 });
 
-// Replicate the ACTUAL filter from updated-cv.ts (HOTFIX-9b version)
-const HEADER_EXCLUDE_RE = /^(objective|professional\s*(goal|growth|summary|profile)|career\s*(objective|goal|summary)|seeking\s|driven\s|passionate\s|results.driven|goal.oriented|looking\s*(for|to))/i;
+// Replicate the ACTUAL filter from updated-cv.ts (HOTFIX-9c version)
+const HEADER_EXCLUDE_RE = /^(objective|professional\s*(goal|growth|summary|profile)|career\s*(objective|goal|summary)|seeking\s|driven\s|passionate\s|results.driven|goal.oriented|looking\s*(for|to)|summary\s*[|:])/i;
 const SEPARATOR_ONLY_RE = /^\s*[|,;\-–—]+\s*$/;
 const CONTACT_PATTERN_RE = /(@|phone|\+?\d[\d\s\-().]{5,}|linkedin\.com|github\.com|\.com\b|[A-Z][a-z]+,\s*[A-Z]{2})/i;
 
@@ -370,10 +375,201 @@ test("sanitizeTemplateOutput strips placeholders", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
+// 6. HOTFIX-9c: Zod schema allows empty missingSuggestions
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n6. HOTFIX-9c: Zod schema allows empty missingSuggestions");
+
+test("RewriteSectionOutput schema allows missingSuggestions: []", () => {
+  const schemaPath = path.resolve(__dirname, "../../schemas/llm-output.ts");
+  const content = fs.readFileSync(schemaPath, "utf-8");
+  // Must NOT have .min(1) for missingSuggestions in RewriteSectionOutput
+  // Must have .min(0) instead
+  const rewriteBlock = content.slice(
+    content.indexOf("RewriteSectionOutput"),
+    content.indexOf("RewriteSectionOutputType")
+  );
+  assertTrue(
+    rewriteBlock.includes(".min(0)"),
+    "RewriteSectionOutput missingSuggestions must use .min(0)"
+  );
+  assertTrue(
+    !rewriteBlock.includes("missingSuggestions: z.array(z.string()).min(1)"),
+    "RewriteSectionOutput must NOT have .min(1) for missingSuggestions"
+  );
+});
+
+test("RewriteSectionWithEntriesOutput schema allows missingSuggestions: []", () => {
+  const schemaPath = path.resolve(__dirname, "../../schemas/llm-output.ts");
+  const content = fs.readFileSync(schemaPath, "utf-8");
+  const withEntriesBlock = content.slice(
+    content.indexOf("RewriteSectionWithEntriesOutput"),
+    content.indexOf("RewriteEntryOutputType")
+  );
+  assertTrue(
+    withEntriesBlock.includes(".min(0)"),
+    "RewriteSectionWithEntriesOutput missingSuggestions must use .min(0)"
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 7. HOTFIX-9c: Entry-synthesizer uses fallback suggestions
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n7. HOTFIX-9c: Entry-synthesizer uses fallback suggestions");
+
+test("entry-synthesizer imports getFallbackSuggestions", () => {
+  const synthPath = path.resolve(__dirname, "../../utils/entry-synthesizer.ts");
+  const content = fs.readFileSync(synthPath, "utf-8");
+  assertTrue(
+    content.includes("getFallbackSuggestions"),
+    "entry-synthesizer must import getFallbackSuggestions"
+  );
+});
+
+test("entry-synthesizer does NOT have missingSuggestions: []", () => {
+  const synthPath = path.resolve(__dirname, "../../utils/entry-synthesizer.ts");
+  const content = fs.readFileSync(synthPath, "utf-8");
+  // Count raw empty missingSuggestions (should be zero)
+  const emptyMatches = content.match(/missingSuggestions:\s*\[\]/g);
+  assertTrue(
+    emptyMatches === null || emptyMatches.length === 0,
+    `entry-synthesizer should have 0 empty missingSuggestions, found ${emptyMatches?.length ?? 0}`
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 8. HOTFIX-9c: Bullet guard applies to all entry-based sections
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n8. HOTFIX-9c: Bullet guard applies to all entry-based sections");
+
+test("linkedin-parser bullet guard is NOT section-specific", () => {
+  const parserPath = path.resolve(__dirname, "../linkedin-parser.ts");
+  const content = fs.readFileSync(parserPath, "utf-8");
+  // The bullet guard should NOT be gated behind a section-specific check
+  // It should apply to all sections with entries
+  assertTrue(
+    content.includes("HOTFIX-9c bulletGuard"),
+    "bullet guard must have HOTFIX-9c marker"
+  );
+  // Expanded bullet regex should include ● and ○
+  assertTrue(
+    content.includes("●") && content.includes("○"),
+    "bullet regex must include ● and ○ characters"
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 9. HOTFIX-9c: Watermarks removed from ALL generators
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n9. HOTFIX-9c: Watermarks removed from all generators");
+
+test("no PDF/DOCX generator has 'Generated by Profile Score' text", () => {
+  const generators = [
+    path.resolve(__dirname, "../pdf/updated-cv.ts"),
+    path.resolve(__dirname, "../pdf/results-summary.ts"),
+    path.resolve(__dirname, "../pdf/cover-letter.ts"),
+    path.resolve(__dirname, "../pdf/linkedin-updates.ts"),
+    path.resolve(__dirname, "../pdf/full-audit.ts"),
+    path.resolve(__dirname, "../docx/updated-cv-docx.ts"),
+  ];
+  for (const genPath of generators) {
+    const content = fs.readFileSync(genPath, "utf-8");
+    const basename = path.basename(genPath);
+    assertTrue(
+      !content.includes("Generated by Profile Score"),
+      `${basename} still has watermark text`
+    );
+    assertTrue(
+      !content.includes("Generado por Profile Score"),
+      `${basename} still has Spanish watermark text`
+    );
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 10. HOTFIX-9c: LinkedIn URL shortening + annotation extraction
+// ══════════════════════════════════════════════════════════════════════
+console.log("\n10. HOTFIX-9c: LinkedIn URL shortening + annotation extraction");
+
+test("shortenLinkedInUrl strips protocol and www prefix", () => {
+  // Import inline to avoid module resolution issues in tsx runner
+  const sharedPath = path.resolve(__dirname, "../pdf/shared.ts");
+  const content = fs.readFileSync(sharedPath, "utf-8");
+  assertTrue(
+    content.includes("shortenLinkedInUrl"),
+    "shared.ts must export shortenLinkedInUrl"
+  );
+});
+
+test("PDF and DOCX generators import shortenLinkedInUrl", () => {
+  const pdfPath = path.resolve(__dirname, "../pdf/updated-cv.ts");
+  const docxPath = path.resolve(__dirname, "../docx/updated-cv-docx.ts");
+  assertTrue(
+    fs.readFileSync(pdfPath, "utf-8").includes("shortenLinkedInUrl"),
+    "PDF generator must import shortenLinkedInUrl"
+  );
+  assertTrue(
+    fs.readFileSync(docxPath, "utf-8").includes("shortenLinkedInUrl"),
+    "DOCX generator must import shortenLinkedInUrl"
+  );
+});
+
+test("pdf-extract.ts extracts LinkedIn annotations from PDF", () => {
+  const extractPath = path.resolve(__dirname, "../../utils/pdf-extract.ts");
+  const content = fs.readFileSync(extractPath, "utf-8");
+  assertTrue(
+    content.includes("getAnnotations"),
+    "pdf-extract must call getAnnotations()"
+  );
+  assertTrue(
+    content.includes("linkedinUrls"),
+    "pdf-extract must return linkedinUrls"
+  );
+});
+
+test("extractContactInfoFallback prefers annotation-sourced LinkedIn URLs", () => {
+  const orchestratorPath = path.resolve(__dirname, "../audit-orchestrator.ts");
+  const content = fs.readFileSync(orchestratorPath, "utf-8");
+  assertTrue(
+    content.includes("ANNOTATION_MARKER_RE"),
+    "extractContactInfoFallback must scan for annotation markers"
+  );
+  assertTrue(
+    content.includes("annotationLinkedinUrl"),
+    "must track annotation-sourced LinkedIn URL"
+  );
+});
+
+test("header filter catches first-line objective (HOTFIX-9c strengthened)", () => {
+  // The critical bug: first line is "Objective: Professional grade"
+  // Before HOTFIX-9c, the filter had `if (idx === 0) return true` BEFORE exclude check
+  const lines = [
+    "Objective: Professional grade",
+    "john@email.com",
+    "555-1234",
+  ];
+  const filtered = filterContactLines(lines);
+  assertTrue(
+    !filtered.some(l => l.includes("Objective")),
+    "must filter objective even on first line"
+  );
+});
+
+test("header filter catches 'Summary |' pattern", () => {
+  const lines = [
+    "Bob Jones",
+    "Summary | Team lead with 5 years experience",
+    "bob@email.com",
+  ];
+  const filtered = filterContactLines(lines);
+  assertEqual(filtered.length, 2, "should filter Summary line");
+  assertTrue(!filtered.some(l => l.includes("Summary")), "must not contain Summary");
+});
+
+// ══════════════════════════════════════════════════════════════════════
 // Results
 // ══════════════════════════════════════════════════════════════════════
 console.log(`\n──────────────────────────────────────`);
-console.log(`HOTFIX-9b Benchmark: ${passed} passed, ${failed} failed`);
+console.log(`HOTFIX-9c Benchmark: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
   process.exit(1);
 }

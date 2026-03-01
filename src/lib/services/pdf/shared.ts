@@ -66,6 +66,18 @@ export function sanitizeForPdf(text: string): string {
     .replace(/[^\x20-\x7E\xA0-\xFF]/g, "");        // strip anything else non-WinAnsi
 }
 
+/**
+ * HOTFIX-9c: Shorten full LinkedIn URLs to "linkedin.com/in/username" format.
+ * Strips protocol (https://), www prefix, and trailing slashes.
+ * Used in CV header contact lines for cleaner display.
+ */
+export function shortenLinkedInUrl(text: string): string {
+  return text.replace(
+    /https?:\/\/(?:www\.)?linkedin\.com\/in\/([\w-]+)\/?/gi,
+    "linkedin.com/in/$1"
+  );
+}
+
 /** Wrap text to fit within a max width. Returns array of lines. */
 export function wrapText(
   text: string,

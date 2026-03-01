@@ -1807,7 +1807,8 @@ function parseCvSections(cvText: string): Record<string, string> {
  * (e.g., PDF hyperlink text) and filter bare "LinkedIn" text without a URL.
  */
 function extractContactInfoFallback(text: string): string | null {
-  const lines = text.split("\n").slice(0, 20);
+  const allLines = text.split("\n");
+  const headerLines = allLines.slice(0, 20);
   const contactLines: string[] = [];
 
   const EMAIL_RE = /[\w.+-]+@[\w.-]+\.\w{2,}/;
@@ -1820,9 +1821,24 @@ function extractContactInfoFallback(text: string): string | null {
   // HOTFIX-9: Detect bare "LinkedIn" text without actual URL
   const BARE_LINKEDIN_RE = /^\s*linkedin\s*$/i;
 
-  let grabbedFirstLine = false;
+  // HOTFIX-9c: Scan ALL lines for annotation-sourced LinkedIn URLs
+  // pdf-extract.ts appends "LinkedIn: https://linkedin.com/in/..." at the end
+  // These are the REAL hyperlink targets from PDF annotations, which are more
+  // reliable than the garbled display text in the PDF text layer.
+  const ANNOTATION_MARKER_RE = /^LinkedIn:\s*(https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w-]+)/i;
+  let annotationLinkedinUrl: string | null = null;
+  for (let i = allLines.length - 1; i >= Math.max(0, allLines.length - 10); i--) {
+    const match = allLines[i].trim().match(ANNOTATION_MARKER_RE);
+    if (match) {
+      annotationLinkedinUrl = match[1];
+      break;
+    }
+  }
 
-  for (const line of lines) {
+  let grabbedFirstLine = false;
+  let hasLinkedinInHeader = false;
+
+  for (const line of headerLines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
@@ -1833,8 +1849,22 @@ function extractContactInfoFallback(text: string): string | null {
     // PDF parsers may render links as "(link)" or "[link]" or bare URLs
     const linkedinUrlMatch = trimmed.match(LINKEDIN_URL_RE);
     if (linkedinUrlMatch && !LINKEDIN_RE.test(trimmed.replace(linkedinUrlMatch[0], ""))) {
-      // Line contains a LinkedIn URL — use just the URL
-      contactLines.push(linkedinUrlMatch[0]);
+      // HOTFIX-9c: If we have an annotation URL, prefer it over the text-layer URL
+      if (annotationLinkedinUrl) {
+        contactLines.push(annotationLinkedinUrl);
+        hasLinkedinInHeader = true;
+      } else {
+        contactLines.push(linkedinUrlMatch[0]);
+        hasLinkedinInHeader = true;
+      }
+      continue;
+    }
+
+    // HOTFIX-9c: If line mentions LinkedIn but only has a garbled/partial URL,
+    // substitute with annotation-sourced URL if available
+    if (LINKEDIN_RE.test(trimmed) && annotationLinkedinUrl) {
+      contactLines.push(annotationLinkedinUrl);
+      hasLinkedinInHeader = true;
       continue;
     }
 
@@ -1844,6 +1874,7 @@ function extractContactInfoFallback(text: string): string | null {
       LINKEDIN_RE.test(trimmed) ||
       LOCATION_RE.test(trimmed)
     ) {
+      if (LINKEDIN_RE.test(trimmed)) hasLinkedinInHeader = true;
       contactLines.push(trimmed);
     }
     // Grab the very first non-empty line as potential name
@@ -1858,6 +1889,11 @@ function extractContactInfoFallback(text: string): string | null {
         contactLines.unshift(trimmed);
       }
     }
+  }
+
+  // HOTFIX-9c: If no LinkedIn URL was found in header but we have annotation URL, append it
+  if (!hasLinkedinInHeader && annotationLinkedinUrl) {
+    contactLines.push(annotationLinkedinUrl);
   }
 
   return contactLines.length >= 2 ? contactLines.join("\n") : null;

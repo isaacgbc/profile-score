@@ -729,9 +729,10 @@ export function parseEntriesFromSection(
   // preceding real entry. This prevents bullet lines from becoming standalone cards.
   const mergedEntries = mergeFragmentEntries(entries);
 
-  // HOTFIX-7: Explicit bullet guard for work-experience — bullets must never be standalone entries
-  if (sectionId === "work-experience" || sectionId === "experience") {
-    const bulletRe = /^\s*[-*•–]/;
+  // HOTFIX-7 + HOTFIX-9c: Explicit bullet guard for ALL entry-based sections
+  // Bullets must never be standalone entries — merge into parent
+  {
+    const bulletRe = /^\s*[-*•–●○◦▪]/;
     let hadBulletEntry = false;
     for (let i = mergedEntries.length - 1; i >= 1; i--) {
       if (bulletRe.test(mergedEntries[i].title) && !mergedEntries[i].dateRange) {
@@ -742,7 +743,7 @@ export function parseEntriesFromSection(
       }
     }
     if (hadBulletEntry) {
-      console.log(`[diag] HOTFIX-7 bulletGuard: merged bullet-only entries into parent (${sectionId})`);
+      console.log(`[diag] HOTFIX-9c bulletGuard: merged bullet-only entries into parent (${sectionId})`);
     }
   }
 
