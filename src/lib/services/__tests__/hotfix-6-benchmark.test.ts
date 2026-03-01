@@ -111,14 +111,21 @@ test("tiny section (< 30 chars) → 0", () => {
 });
 
 test("uses date signal (DATE_LINE_RE matches)", () => {
+  // HOTFIX-8: Expanded fixture to have realistic content length (sanity cap = ceil(chars/150))
   const withDates = `Software Engineer
+Google
 Jan 2020 - Present
+Led development of distributed systems and microservices architecture. Built scalable solutions for cloud infrastructure.
 
 Data Analyst
+Amazon
 Mar 2018 - Dec 2019
+Analyzed customer behavior data using Python and SQL. Created dashboards and automated reporting pipelines for the team.
 
 Intern
-Jun 2017 - Feb 2018`;
+Meta
+Jun 2017 - Feb 2018
+Contributed to frontend development using React and TypeScript. Participated in code reviews and sprint planning meetings.`;
   const count = estimateSectionEntryCount(withDates, "work-experience");
   assert(count >= 3, `Expected ≥3 from date signals, got ${count}`);
 });

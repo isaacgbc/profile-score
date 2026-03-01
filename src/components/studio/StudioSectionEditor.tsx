@@ -18,7 +18,7 @@ interface StudioSectionEditorProps {
   userRewritten?: string;
   onImprovementChange: (sectionId: string, text: string) => void;
   onOptimizedChange: (key: string, text: string) => void;
-  onRegenerate: (intent: "directions" | "draft") => void;
+  onRegenerate: (intent: "directions" | "draft", seeds?: string[]) => void;
   onReset: (sectionId: string) => void;
   onResetEntry: (sectionId: string, entryStableId: string) => void;
   onDeleteEntry?: (sectionId: string, entryStableId: string) => void;
@@ -179,16 +179,20 @@ export default function StudioSectionEditor({
   }
 
   function handleRegenClick() {
+    // HOTFIX-8: Pass missing suggestions as instruction seeds
+    const seeds = rewrite.missingSuggestions?.slice(0, 3);
     if (hasManualEdits) {
       setShowRegenConfirm(true);
     } else {
-      onRegenerate("directions");
+      onRegenerate("directions", seeds);
     }
   }
 
   function handleRegenConfirm(intent: "directions" | "draft") {
     setShowRegenConfirm(false);
-    onRegenerate(intent);
+    // HOTFIX-8: Pass missing suggestions as instruction seeds
+    const seeds = rewrite.missingSuggestions?.slice(0, 3);
+    onRegenerate(intent, seeds);
   }
 
   // ── LOCKED STATE ──

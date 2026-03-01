@@ -464,7 +464,8 @@
     "downloadFullAudit": "Download Audit Report",
     "downloadResultsSummary": "Download Summary",
     "downloadCoverLetter": "Download Cover Letter",
-    "downloadLinkedinUpdates": "Download LinkedIn Updates"
+    "downloadLinkedinUpdates": "Download LinkedIn Updates",
+    "exportDownloadNow": "Download now"
   },
   "progress": {
     "analyzing": "Analyzing your profile",

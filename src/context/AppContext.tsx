@@ -79,7 +79,7 @@ interface AppContextValue extends AppState {
   /** Reset a single entry to original LLM output */
   resetEntry: (sectionId: string, entryStableId: string) => void;
   /** Regenerate a section's optimized text using edited improvements */
-  regenerateSection: (sectionId: string, source: "linkedin" | "cv") => Promise<void>;
+  regenerateSection: (sectionId: string, source: "linkedin" | "cv", seeds?: string[]) => Promise<void>;
   /** Per-section regeneration loading state */
   regeneratingSection: string | null;
   /** HOTFIX-7: Per-section regeneration counts, timestamps, no-diff flags */
@@ -93,6 +93,9 @@ interface AppContextValue extends AppState {
   injectEntries: (sectionId: string, entries: import("@/lib/types").RewriteEntry[]) => void;
   /** Delete a single entry from results + clear its userOptimized key */
   deleteEntry: (sectionId: string, entryStableId: string) => void;
+  /** HOTFIX-8: Globally tracked deleted entry keys for placeholder gating */
+  deletedEntryIds: Set<string>;
+  addDeletedEntryId: (sectionId: string, stableId: string) => void;
   /** HOTFIX-4C: Update entry header fields (organization/title) */
   updateEntryHeader: (sectionId: string, entryStableId: string, field: "organization" | "title", value: string) => void;
   triggerUnlockAnimation: () => void;
@@ -199,6 +202,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // HOTFIX-8: Globally tracked deleted entry IDs for placeholder gating
+  const [deletedEntryIds, setDeletedEntryIds] = useState<Set<string>>(new Set());
+  const addDeletedEntryId = useCallback((sectionId: string, stableId: string) => {
+    setDeletedEntryIds((prev) => {
+      const next = new Set(prev);
+      next.add(`${sectionId}:${stableId}`);
+      return next;
+    });
+  }, []);
+
   // HOTFIX-URGENT-4: Inject synthesized entries into results for export flow
   const injectEntries = useCallback((sectionId: string, entries: import("@/lib/types").RewriteEntry[]) => {
     setResultsState((prev) => {
@@ -221,6 +234,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Delete a single entry from results and clear its userOptimized key
   const deleteEntry = useCallback((sectionId: string, entryStableId: string) => {
     const key = `${sectionId}:${entryStableId}`;
+    // HOTFIX-8: Track deleted entry globally for placeholder gating
+    addDeletedEntryId(sectionId, entryStableId);
     // Remove from userOptimized
     setUserOptimizedState((prev) => {
       const next = { ...prev };
@@ -689,7 +704,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const regenerateSection = useCallback(
-    async (sectionId: string, source: "linkedin" | "cv") => {
+    async (sectionId: string, source: "linkedin" | "cv", seeds?: string[]) => {
       if (!results) return;
 
       // HOTFIX-7: Cap at 3 regenerations per section
@@ -742,6 +757,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             locale: exportLocale,
             // HOTFIX-3: Include manual content for missing section recovery
             ...(manual ? { manualContent: manual } : {}),
+            // HOTFIX-8: Include AI suggestion seeds for regenerate context
+            ...(seeds?.length ? { instructionSeeds: seeds } : {}),
           }),
         });
 
@@ -1003,6 +1020,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setManualSection,
         injectEntries,
         deleteEntry,
+        deletedEntryIds,
+        addDeletedEntryId,
         updateEntryHeader,
         triggerUnlockAnimation,
         isFeatureUnlocked,

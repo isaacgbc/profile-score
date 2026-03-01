@@ -164,7 +164,7 @@ export default function ExportModuleCard({
                 size="sm"
                 onClick={() => onDownload(exportId)}
               >
-                {checkoutT[MODULE_DOWNLOAD_LABELS[moduleId]] ?? t.checkout.exportDownload}
+                {checkoutT.exportDownloadNow ?? t.checkout.exportDownload}
               </Button>
             ) : status === "failed" ? (
               <Button

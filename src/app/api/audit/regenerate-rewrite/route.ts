@@ -28,6 +28,8 @@ const RegenerateInput = z.object({
   locale: z.enum(["en", "es"]).optional(),
   /** HOTFIX-3: Manual content for sections missing from parsed input */
   manualContent: z.string().max(10_000).optional(),
+  /** HOTFIX-8: AI suggestion seeds for regenerate context */
+  instructionSeeds: z.array(z.string().max(200)).max(6).optional(),
 });
 
 export async function POST(request: Request) {
@@ -96,11 +98,16 @@ export async function POST(request: Request) {
       ? manualContent.trim()
       : originalContent;
 
+    // HOTFIX-8: Append instruction seeds to editing directives
+    const seedsText = parsed.data.instructionSeeds?.length
+      ? `\n\nPrevious AI suggestions for this section:\n${parsed.data.instructionSeeds.map((s) => `- ${s}`).join("\n")}`
+      : "";
+
     const systemPrompt = interpolatePrompt(prompt.content, {
       section_name: sectionName,
       source_type: source,
       original_content: effectiveOriginal.slice(0, 10_000),
-      editing_directives: editedImprovements.slice(0, 3_000),
+      editing_directives: editedImprovements.slice(0, 3_000) + seedsText,
       objective_context: objectiveContext?.slice(0, 1_500) ?? "Professional growth",
     });
 

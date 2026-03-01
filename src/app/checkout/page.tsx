@@ -93,9 +93,10 @@ export default function CheckoutPage() {
     selectedFeatures,
     results,
     manualSections,
+    deletedEntryIds,
   } = useApp();
 
-  const { getModuleState, createExport, downloadExport, retryExport } = useExport();
+  const { getModuleState, createExport, createExportAndDownload, downloadExport, retryExport } = useExport();
 
   // HOTFIX-URGENT: Log exportLocale carryover on checkout mount
   useEffect(() => {
@@ -261,25 +262,31 @@ export default function CheckoutPage() {
     const editedEntries = Object.keys(userOptimized).filter((k) => k.includes(":")).length;
 
     // Placeholder counting: use unified countSectionPlaceholders with correct entry stableIds
+    // HOTFIX-8: Pass deletedEntryIds to exclude deleted entries from visible count
     let sectionPlaceholderCount = 0;
     let entryPlaceholderCount = 0;
+    let hiddenPlaceholderCount = 0;
     for (const rw of allRewrites) {
       if (rw.locked) continue;
       const counts = countSectionPlaceholders(
         rw,
         userOptimized,
         userRewritten,
-        computeEntryStableId
+        computeEntryStableId,
+        deletedEntryIds
       );
       sectionPlaceholderCount += counts.sectionCount;
       entryPlaceholderCount += counts.entryCount;
+      hiddenPlaceholderCount += counts.hiddenCount;
     }
     const placeholderCount = sectionPlaceholderCount + entryPlaceholderCount;
 
-    // Diagnostics
+    // HOTFIX-8: Diagnostics with visible vs hidden vs gate counts
     console.log(
-      `[diag] checkout placeholders: sectionPlaceholderCount=${sectionPlaceholderCount}, ` +
-      `entryPlaceholderCount=${entryPlaceholderCount}, totalPlaceholderCount=${placeholderCount}`
+      `[diag] checkout placeholders: ` +
+      `placeholderVisibleCount=${placeholderCount}, ` +
+      `placeholderHiddenCount=${hiddenPlaceholderCount}, ` +
+      `placeholderCountUsedForGate=${placeholderCount}`
     );
 
     // HOTFIX-3: Count missing critical sections
@@ -300,7 +307,7 @@ export default function CheckoutPage() {
     }
 
     return { totalSections, editedSections, editedEntries, placeholderCount, sectionPlaceholderCount, entryPlaceholderCount, missingSections };
-  }, [results, userOptimized, userRewritten, inputMethod, manualSections]);
+  }, [results, userOptimized, userRewritten, inputMethod, manualSections, deletedEntryIds]);
 
   return (
     <div className="animate-fade-in">
@@ -456,9 +463,22 @@ export default function CheckoutPage() {
                         placeholdersBefore: valueSummary?.placeholderCount ?? 0,
                       },
                     });
-                    // HOTFIX-7: Export CTA telemetry (bypass path)
                     trackEvent("exportCtaClicked", { auditId: auditId ?? undefined, metadata: { moduleId: mod.id, format: fmt, isBypass: true } });
-                    handleGenerate(mod.id, fmt);
+                    if (!auditId) return;
+                    // HOTFIX-8: Bypass uses createExportAndDownload for auto-download
+                    createExportAndDownload({
+                      auditId,
+                      exportType: mod.id,
+                      format: fmt,
+                      language: exportLocale,
+                      planId: selectedPlan,
+                      adminToken,
+                      userEdits: {
+                        userImprovements: Object.keys(userImprovements).length > 0 ? userImprovements : undefined,
+                        userRewritten: Object.keys(userRewritten).length > 0 ? userRewritten : undefined,
+                        userOptimized: Object.keys(userOptimized).length > 0 ? userOptimized : undefined,
+                      },
+                    });
                   }}
                 />
               );

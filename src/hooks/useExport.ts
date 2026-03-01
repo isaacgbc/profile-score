@@ -29,6 +29,7 @@ interface CreateExportOpts {
 interface UseExportReturn {
   getModuleState: (moduleId: ExportModuleId) => ModuleState;
   createExport: (opts: CreateExportOpts) => Promise<void>;
+  createExportAndDownload: (opts: CreateExportOpts) => Promise<void>;
   downloadExport: (exportId: string) => void;
   retryExport: (opts: CreateExportOpts) => Promise<void>;
 }
@@ -116,6 +117,84 @@ export function useExport(): UseExportReturn {
     []
   );
 
+  // HOTFIX-8: Bypass export — create + auto-download in one action
+  const createExportAndDownload = useCallback(
+    async (opts: CreateExportOpts) => {
+      const { exportType, adminToken, userEdits, ...payload } = opts;
+
+      trackEvent("exportBypassClicked", { metadata: { exportType } });
+      trackEvent("exportJobStarted", { metadata: { exportType } });
+
+      setModuleStates((prev) => ({
+        ...prev,
+        [exportType]: { status: "processing", exportId: null, error: null },
+      }));
+
+      try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (adminToken) headers["x-admin-token"] = adminToken;
+
+        const res = await fetch("/api/exports/create", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ ...payload, exportType, userEdits }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          trackEvent("exportDownloadFailed", {
+            metadata: { exportType, reason: data.error ?? "http_error" },
+          });
+          setModuleStates((prev) => ({
+            ...prev,
+            [exportType]: {
+              status: "failed",
+              exportId: null,
+              error: data.error ?? data.reason ?? "Export failed",
+            },
+          }));
+          return;
+        }
+
+        trackEvent("exportJobCompleted", {
+          metadata: { exportType, exportId: data.exportId },
+        });
+
+        setModuleStates((prev) => ({
+          ...prev,
+          [exportType]: {
+            status: data.status as ExportStatus,
+            exportId: data.exportId,
+            error: data.error ?? null,
+          },
+        }));
+
+        // Auto-trigger download on success
+        if (data.exportId && data.status === "ready") {
+          trackEvent("exportDownloadTriggered", {
+            metadata: { exportType, exportId: data.exportId },
+          });
+          window.open(`/api/exports/${data.exportId}?download=true`, "_blank");
+        }
+      } catch {
+        trackEvent("exportDownloadFailed", {
+          metadata: { exportType, reason: "network_error" },
+        });
+        setModuleStates((prev) => ({
+          ...prev,
+          [exportType]: {
+            status: "failed",
+            exportId: null,
+            error: "Network error",
+          },
+        }));
+      }
+    },
+    []
+  );
+
   const downloadExport = useCallback((exportId: string) => {
     // HOTFIX-7: Export telemetry
     trackEvent("exportDownloadStarted", { metadata: { exportId } });
@@ -129,5 +208,5 @@ export function useExport(): UseExportReturn {
     [createExport]
   );
 
-  return { getModuleState, createExport, downloadExport, retryExport };
+  return { getModuleState, createExport, createExportAndDownload, downloadExport, retryExport };
 }

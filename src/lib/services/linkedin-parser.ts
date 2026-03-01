@@ -1015,8 +1015,13 @@ export function estimateSectionEntryCount(
     }
   }
 
-  // Use the maximum signal as the estimate
-  return Math.max(dateCount, Math.ceil(blockCount / 2), headingCount);
+  // HOTFIX-8: Use heading anchors and date anchors as primary signals
+  const rawMax = Math.max(dateCount, Math.ceil(blockCount / 2), headingCount);
+
+  // HOTFIX-8: Character-based sanity cap — a reasonable entry is >= 150 chars
+  const maxReasonableByChars = Math.ceil(sectionText.length / 150);
+
+  return Math.min(rawMax, maxReasonableByChars);
 }
 
 // ── LLM Structuring Pass ─────────────────────────────────

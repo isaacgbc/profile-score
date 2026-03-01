@@ -1716,6 +1716,50 @@ function parseCvSections(cvText: string): Record<string, string> {
   return sections;
 }
 
+/**
+ * HOTFIX-8: Fallback regex extractor for contact info when header is missing.
+ * Scans the first 20 lines for email, phone, LinkedIn URL patterns.
+ * Returns concatenated matches or null if nothing found.
+ */
+function extractContactInfoFallback(text: string): string | null {
+  const lines = text.split("\n").slice(0, 20);
+  const contactLines: string[] = [];
+
+  const EMAIL_RE = /[\w.+-]+@[\w.-]+\.\w{2,}/;
+  const PHONE_RE = /(\+?\d[\d\s\-().]{7,}\d)/;
+  const LINKEDIN_RE = /linkedin\.com\/in\/[\w-]+/i;
+  const LOCATION_RE = /^[A-Z][a-z]+(?:\s[A-Z][a-z]+)*,\s*[A-Z]{2}\s*\d{0,5}/;
+
+  let grabbedFirstLine = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (
+      EMAIL_RE.test(trimmed) ||
+      PHONE_RE.test(trimmed) ||
+      LINKEDIN_RE.test(trimmed) ||
+      LOCATION_RE.test(trimmed)
+    ) {
+      contactLines.push(trimmed);
+    }
+    // Grab the very first non-empty line as potential name
+    if (
+      !grabbedFirstLine &&
+      trimmed.length > 2 &&
+      trimmed.length < 60 &&
+      !/^(contact|experience|education|skills|summary)/i.test(trimmed)
+    ) {
+      grabbedFirstLine = true;
+      if (!contactLines.includes(trimmed)) {
+        contactLines.unshift(trimmed);
+      }
+    }
+  }
+
+  return contactLines.length >= 2 ? contactLines.join("\n") : null;
+}
+
 // ── Main orchestrator ───────────────────────────────────
 export async function generateAuditResults(
   input: AuditInput,
@@ -1971,6 +2015,17 @@ export async function generateAuditResults(
       ? parseCvSections(input.cvText)
       : {};
 
+  // HOTFIX-8: Fallback contact-info extractor for CV
+  if (!cvSections["contact-info"] && input.cvText && input.cvText.trim().length > 20) {
+    const contactFallback = extractContactInfoFallback(input.cvText);
+    if (contactFallback) {
+      cvSections["contact-info"] = contactFallback;
+      console.log(
+        `[diag] request=${requestId} | HOTFIX-8: contact-info recovered via fallback regex (${contactFallback.length} chars)`
+      );
+    }
+  }
+
   // ─── 1c. Heuristic language detection ──────────────────
   const combinedText = [
     input.linkedinText,
@@ -2144,6 +2199,22 @@ export async function generateAuditResults(
       const id =
         settled.status === "fulfilled" ? settled.value.id : "unknown";
       console.warn(`[fallback] Skipping section (no mock): ${id}`);
+      // HOTFIX-8: Never drop contact-info — keep raw text as score placeholder
+      if (id === "contact-info" && cvSections["contact-info"]) {
+        scoredCvSections.push({
+          id: "contact-info",
+          source: "cv",
+          score: 50,
+          maxScore: 100,
+          tier: "fair",
+          locked: false,
+          explanation: "Auto-retained from parsed CV",
+          improvementSuggestions: [],
+        });
+        console.log(
+          `[diag] request=${requestId} | HOTFIX-8: contact-info auto-retained after scoring failure`
+        );
+      }
     }
   }
 
@@ -2384,14 +2455,17 @@ export async function generateAuditResults(
         const heuristicCount = estimateSectionEntryCount(linkedinSections[sectionId], sectionId);
         const parsedCount = linkedinEntries[sectionId]?.length ?? 0;
         const mismatch = heuristicCount > parsedCount * 1.5 && heuristicCount >= 2;
+        // HOTFIX-8: Suppress alert when ratio is absurdly high (heuristic bug)
+        const ratio = heuristicCount / Math.max(1, parsedCount);
+        const isCredibleMismatch = mismatch && ratio <= 5.0;
         console.log(
           `[diag] request=${requestId} | COUNT_CROSSCHECK linkedin.${sectionId}: ` +
-          `heuristicCount=${heuristicCount}, parsedCount=${parsedCount}, mismatch=${mismatch}`
+          `heuristicCount=${heuristicCount}, parsedCount=${parsedCount}, mismatch=${mismatch}, ratio=${ratio.toFixed(1)}x, credible=${isCredibleMismatch}`
         );
-        if (mismatch && parsedCount > 0) {
+        if (isCredibleMismatch && parsedCount > 0) {
           console.warn(
             `[diag] request=${requestId} | COUNT_MISMATCH_ALERT linkedin.${sectionId}: ` +
-            `expected≈${heuristicCount}, parsed=${parsedCount}, ratio=${(heuristicCount / Math.max(1, parsedCount)).toFixed(1)}x`
+            `expected≈${heuristicCount}, parsed=${parsedCount}, ratio=${ratio.toFixed(1)}x`
           );
           trackServerEvent("count_mismatch_detected", {
             auditId: requestId,
@@ -2423,12 +2497,36 @@ export async function generateAuditResults(
           ? Math.round(((parsed.coveredLineCount ?? 0) / parsed.totalLineCount) * 100)
           : 100;
 
-        // D.7: Skip AI structuring when confidence is high
+        // D.7: Skip AI structuring when confidence is high AND entries exist
         if (parsed.confidence === "high" && parsed.entries.length > 0) {
           cvWorkExpStructurerSkipped = true;
           console.log(
             `[perf] request=${requestId} | cvWorkExp: structurer SKIPPED (confidence=high, entries=${parsed.entries.length}, coverage=${cvWorkExpCoverage}%)`
           );
+        } else if (parsed.entries.length === 0 && cvSections[sectionId].length > 100) {
+          // HOTFIX-8: Fallback — 0 entries regardless of confidence → try AI structurer
+          console.log(
+            `[diag] request=${requestId} | cvWorkExp: 0 entries (confidence=${parsed.confidence}), fallback to AI structurer`
+          );
+          try {
+            const { structureWorkExperience } = await import("./cv-work-exp-structurer");
+            const aiEntries = await structureWorkExperience(cvSections[sectionId], "cv");
+            if (aiEntries && aiEntries.length > 0) {
+              cvEntries[sectionId] = aiEntries;
+              cvWorkExpAiStructured = true;
+              cvWorkExpMergedCount = aiEntries.length;
+              console.log(
+                `[parser] HOTFIX-8 fallback: AI-structured ${aiEntries.length} entries from CV work-experience`
+              );
+              continue; // Skip normal acceptance logic
+            }
+          } catch (err) {
+            console.warn(
+              `[diag] cvWorkExp fallback AI structuring failed: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            );
+          }
         } else if (parsed.confidence === "low" && cvSections[sectionId].length > 100) {
           console.log(
             `[diag] request=${requestId} | cvWorkExp: low confidence (entries=${parsed.entries.length}), trying AI structuring`
@@ -2496,14 +2594,17 @@ export async function generateAuditResults(
         const heuristicCount = estimateSectionEntryCount(cvSections[sectionId], sectionId);
         const parsedCount = cvEntries[sectionId]?.length ?? 0;
         const mismatch = heuristicCount > parsedCount * 1.5 && heuristicCount >= 2;
+        // HOTFIX-8: Suppress alert when ratio is absurdly high (heuristic bug)
+        const ratio = heuristicCount / Math.max(1, parsedCount);
+        const isCredibleMismatch = mismatch && ratio <= 5.0;
         console.log(
           `[diag] request=${requestId} | COUNT_CROSSCHECK cv.${sectionId}: ` +
-          `heuristicCount=${heuristicCount}, parsedCount=${parsedCount}, mismatch=${mismatch}`
+          `heuristicCount=${heuristicCount}, parsedCount=${parsedCount}, mismatch=${mismatch}, ratio=${ratio.toFixed(1)}x, credible=${isCredibleMismatch}`
         );
-        if (mismatch && parsedCount > 0) {
+        if (isCredibleMismatch && parsedCount > 0) {
           console.warn(
             `[diag] request=${requestId} | COUNT_MISMATCH_ALERT cv.${sectionId}: ` +
-            `expected≈${heuristicCount}, parsed=${parsedCount}, ratio=${(heuristicCount / Math.max(1, parsedCount)).toFixed(1)}x`
+            `expected≈${heuristicCount}, parsed=${parsedCount}, ratio=${ratio.toFixed(1)}x`
           );
           trackServerEvent("count_mismatch_detected", {
             auditId: requestId,
@@ -2679,11 +2780,10 @@ export async function generateAuditResults(
 
     if (
       section.id === "work-experience" &&
-      cvWorkExpParserConfidence === "high" &&
       cvEntries[section.id] &&
       cvEntries[section.id].length > 0
     ) {
-      // Fast path: CV work-experience with high-confidence entries → Haiku
+      // HOTFIX-8: Fast path for CV work-experience with entries (any confidence) → Haiku
       cvFirstPassMode = "fast";
       rewritePromise = fastSectionRewriteWithEntries(
         section.id,

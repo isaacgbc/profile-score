@@ -261,10 +261,10 @@ export default function RewriteStudioPage() {
   );
 
   const handleRegenerate = useCallback(
-    (sectionId: string, intent: "directions" | "draft") => {
+    (sectionId: string, intent: "directions" | "draft", seeds?: string[]) => {
       // For intent "draft", send currentDraft as extra field (backward-compat: backend ignores it)
-      // For now, both intents use the same regenerateSection which sends userImprovements
-      regenerateSection(sectionId, activeSource);
+      // HOTFIX-8: Forward seeds (missing suggestions) for regenerate context
+      regenerateSection(sectionId, activeSource, seeds);
     },
     [regenerateSection, activeSource]
   );
@@ -475,8 +475,8 @@ export default function RewriteStudioPage() {
                       userRewritten={userRewritten[rewrite.sectionId]}
                       onImprovementChange={handleImprovementChange}
                       onOptimizedChange={handleOptimizedChange}
-                      onRegenerate={(intent) =>
-                        handleRegenerate(rewrite.sectionId, intent)
+                      onRegenerate={(intent, seeds) =>
+                        handleRegenerate(rewrite.sectionId, intent, seeds)
                       }
                       onReset={handleResetSection}
                       onResetEntry={handleResetEntry}
@@ -520,8 +520,8 @@ export default function RewriteStudioPage() {
                           userRewritten={userRewritten[rewrite.sectionId]}
                           onImprovementChange={handleImprovementChange}
                           onOptimizedChange={handleOptimizedChange}
-                          onRegenerate={(intent) =>
-                            handleRegenerate(rewrite.sectionId, intent)
+                          onRegenerate={(intent, seeds) =>
+                            handleRegenerate(rewrite.sectionId, intent, seeds)
                           }
                           onReset={handleResetSection}
                           onResetEntry={handleResetEntry}

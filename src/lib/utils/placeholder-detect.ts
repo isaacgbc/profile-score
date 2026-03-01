@@ -59,8 +59,9 @@ export function countSectionPlaceholders(
   },
   userOptimized: Record<string, string>,
   userRewritten?: Record<string, string>,
-  computeStableId?: (title: string, original: string) => string
-): { sectionCount: number; entryCount: number; total: number } {
+  computeStableId?: (title: string, original: string) => string,
+  deletedEntryKeys?: Set<string> // HOTFIX-8: Exclude deleted entries from count
+): { sectionCount: number; entryCount: number; total: number; hiddenCount: number } {
   // Section-level: userOptimized > userRewritten > rewrite.rewritten
   const sectionText =
     userOptimized[rewrite.sectionId] ??
@@ -70,6 +71,7 @@ export function countSectionPlaceholders(
 
   // Entry-level
   let entryCount = 0;
+  let hiddenCount = 0;
   if (rewrite.entries) {
     for (const entry of rewrite.entries) {
       const stableId = computeStableId
@@ -77,11 +79,16 @@ export function countSectionPlaceholders(
         : String(entry.entryTitle);
       const entryKey = `${rewrite.sectionId}:${stableId}`;
       const entryText = userOptimized[entryKey] ?? entry.rewritten;
+      // HOTFIX-8: Skip deleted entries — count them as hidden instead
+      if (deletedEntryKeys?.has(entryKey)) {
+        hiddenCount += countPlaceholders(entryText);
+        continue;
+      }
       entryCount += countPlaceholders(entryText);
     }
   }
 
-  return { sectionCount, entryCount, total: sectionCount + entryCount };
+  return { sectionCount, entryCount, total: sectionCount + entryCount, hiddenCount };
 }
 
 /**

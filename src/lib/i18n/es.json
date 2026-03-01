@@ -464,7 +464,8 @@
     "downloadFullAudit": "Descargar Informe de Auditoría",
     "downloadResultsSummary": "Descargar Resumen",
     "downloadCoverLetter": "Descargar Carta de Presentación",
-    "downloadLinkedinUpdates": "Descargar Actualizaciones de LinkedIn"
+    "downloadLinkedinUpdates": "Descargar Actualizaciones de LinkedIn",
+    "exportDownloadNow": "Descargar ahora"
   },
   "progress": {
     "analyzing": "Analizando tu perfil",
