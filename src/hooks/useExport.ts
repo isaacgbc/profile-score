@@ -183,10 +183,16 @@ export function useExport(): UseExportReturn {
             if (!downloadRes.ok)
               throw new Error(`Download HTTP ${downloadRes.status}`);
             const blob = await downloadRes.blob();
+
+            // HOTFIX-9b: Extract filename from Content-Disposition header
+            const disposition = downloadRes.headers.get("content-disposition");
+            const filenameMatch = disposition?.match(/filename="?([^";\n]+)"?/);
+            const filename = filenameMatch?.[1] ?? `${exportType}.${payload.format ?? "pdf"}`;
+
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `${exportType}.${payload.format ?? "pdf"}`;
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

@@ -325,7 +325,8 @@ export interface GenerationResult {
 }
 
 // ── Privacy: max input length per section ───────────────
-const MAX_SECTION_CHARS = 10_000;
+// HOTFIX-9b: Raised from 10K → 25K to prevent truncation of entry-heavy sections
+const MAX_SECTION_CHARS = 25_000;
 
 // HOTFIX-4: Truncation tracking for diagnostics
 interface TruncationEntry { sectionId: string; originalChars: number; keptChars: number }
@@ -817,8 +818,9 @@ async function rewriteSection(
           locked: false, // locking applied later
         };
 
-        // HOTFIX-9: Ensure missingSuggestions is never empty
-        if (!rewrite.missingSuggestions || rewrite.missingSuggestions.length === 0) {
+        // HOTFIX-9b: Ensure missingSuggestions is never empty (also filter empty strings)
+        rewrite.missingSuggestions = (rewrite.missingSuggestions ?? []).filter((s) => s.trim().length > 0);
+        if (rewrite.missingSuggestions.length === 0) {
           rewrite.missingSuggestions = getFallbackSuggestions(sectionId);
         }
 
@@ -1055,6 +1057,26 @@ async function rewriteSectionWithEntries(
           );
         }
 
+        // HOTFIX-9b: Append passthrough entries for any entries beyond the LLM cap
+        // This ensures ALL parsed entries appear in the final output
+        if (entries.length > firstPassCap) {
+          const remainingEntries: RewriteEntry[] = entries.slice(firstPassCap).map((e, i) => ({
+            entryIndex: firstPassCap + i,
+            entryTitle: [e.title, e.organization].filter(Boolean).join(" at ") || `Entry ${firstPassCap + i + 1}`,
+            organization: e.organization || undefined,
+            title: e.title || undefined,
+            dateRange: e.dateRange || undefined,
+            original: e.description,
+            improvements: "",
+            missingSuggestions: getFallbackSuggestions(sectionId),
+            rewritten: e.description, // passthrough: original = rewritten
+          }));
+          rewriteEntries.push(...remainingEntries);
+          console.log(
+            `[hotfix-9b] Appended ${remainingEntries.length} passthrough entries for ${sectionId} (total: ${rewriteEntries.length})`
+          );
+        }
+
         const rewrite: RewritePreview = {
           sectionId,
           source: promptKey.includes("linkedin") ? "linkedin" : "cv",
@@ -1066,14 +1088,16 @@ async function rewriteSectionWithEntries(
           entries: rewriteEntries.length > 0 ? rewriteEntries : undefined,
         };
 
-        // HOTFIX-9: Ensure missingSuggestions is never empty
-        if (!rewrite.missingSuggestions || rewrite.missingSuggestions.length === 0) {
+        // HOTFIX-9b: Ensure missingSuggestions is never empty (filter empty strings)
+        rewrite.missingSuggestions = (rewrite.missingSuggestions ?? []).filter((s) => s.trim().length > 0);
+        if (rewrite.missingSuggestions.length === 0) {
           rewrite.missingSuggestions = getFallbackSuggestions(sectionId);
         }
-        // HOTFIX-9: Ensure entry-level missingSuggestions are never empty
+        // HOTFIX-9b: Ensure entry-level missingSuggestions are never empty
         if (rewrite.entries) {
           for (const entry of rewrite.entries) {
-            if (!entry.missingSuggestions || entry.missingSuggestions.length === 0) {
+            entry.missingSuggestions = (entry.missingSuggestions ?? []).filter((s: string) => s.trim().length > 0);
+            if (entry.missingSuggestions.length === 0) {
               entry.missingSuggestions = getFallbackSuggestions(sectionId);
             }
           }
@@ -1270,6 +1294,25 @@ async function fastSectionRewriteWithEntries(
       };
     });
 
+    // HOTFIX-9b: Append passthrough entries for any entries beyond the LLM cap
+    if (entries.length > firstPassCap) {
+      const remainingEntries: RewriteEntry[] = entries.slice(firstPassCap).map((e, i) => ({
+        entryIndex: firstPassCap + i,
+        entryTitle: [e.title, e.organization].filter(Boolean).join(" at ") || `Entry ${firstPassCap + i + 1}`,
+        organization: e.organization || undefined,
+        title: e.title || undefined,
+        dateRange: e.dateRange || undefined,
+        original: e.description,
+        improvements: "",
+        missingSuggestions: getFallbackSuggestions(sectionId),
+        rewritten: e.description,
+      }));
+      rewriteEntries.push(...remainingEntries);
+      console.log(
+        `[hotfix-9b] fastPath: Appended ${remainingEntries.length} passthrough entries for ${sectionId}`
+      );
+    }
+
     const rewrite: RewritePreview = {
       sectionId,
       source: source as "linkedin" | "cv",
@@ -1281,13 +1324,15 @@ async function fastSectionRewriteWithEntries(
       entries: rewriteEntries.length > 0 ? rewriteEntries : undefined,
     };
 
-    // HOTFIX-9: Ensure missingSuggestions is never empty
-    if (!rewrite.missingSuggestions || rewrite.missingSuggestions.length === 0) {
+    // HOTFIX-9b: Ensure missingSuggestions is never empty (filter empty strings)
+    rewrite.missingSuggestions = (rewrite.missingSuggestions ?? []).filter((s) => s.trim().length > 0);
+    if (rewrite.missingSuggestions.length === 0) {
       rewrite.missingSuggestions = getFallbackSuggestions(sectionId);
     }
     if (rewrite.entries) {
       for (const entry of rewrite.entries) {
-        if (!entry.missingSuggestions || entry.missingSuggestions.length === 0) {
+        entry.missingSuggestions = (entry.missingSuggestions ?? []).filter((s: string) => s.trim().length > 0);
+        if (entry.missingSuggestions.length === 0) {
           entry.missingSuggestions = getFallbackSuggestions(sectionId);
         }
       }
@@ -1428,6 +1473,12 @@ async function fastRewriteSection(
       rewritten: stripNonFlagEmojis(parsed.data.rewritten),
       locked: false,
     };
+
+    // HOTFIX-9b: Ensure missingSuggestions is never empty (filter empty strings)
+    rewrite.missingSuggestions = (rewrite.missingSuggestions ?? []).filter((s) => s.trim().length > 0);
+    if (rewrite.missingSuggestions.length === 0) {
+      rewrite.missingSuggestions = getFallbackSuggestions(sectionId);
+    }
 
     // Anti-placeholder guard (same as rewriteSection)
     if (isMockRewrite(rewrite)) {
@@ -2830,7 +2881,22 @@ export async function generateAuditResults(
     // HOTFIX-CV-ONLY-ROUTING: Fast paths for CV sections
     let rewritePromise: Promise<{ rewrite: RewritePreview; modelUsed: string } | null>;
 
-    if (
+    // HOTFIX-9b: Skip LLM rewrite for contact-info — pass through original
+    // The generic rewrite prompt causes LLM to hallucinate objective/headline text
+    if (section.id === "contact-info") {
+      rewritePromise = Promise.resolve({
+        rewrite: {
+          sectionId: "contact-info",
+          source: "cv" as const,
+          original: content,
+          improvements: "",
+          missingSuggestions: getFallbackSuggestions("contact-info"),
+          rewritten: content,
+          locked: false,
+        },
+        modelUsed: "passthrough",
+      });
+    } else if (
       section.id === "work-experience" &&
       cvEntries[section.id] &&
       cvEntries[section.id].length > 0

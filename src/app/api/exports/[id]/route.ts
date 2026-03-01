@@ -31,9 +31,30 @@ export async function GET(
         );
       }
 
-      // Generate signed URL and redirect
+      // HOTFIX-9b: Proxy file bytes through API instead of 302 redirect
+      // This avoids CORS issues when client-side fetch follows cross-origin redirects
       const signedUrl = await getSignedUrl(exportRecord.fileUrl);
-      return NextResponse.redirect(signedUrl, 302);
+      const fileRes = await fetch(signedUrl);
+      if (!fileRes.ok) {
+        return NextResponse.json(
+          { error: "Failed to fetch export file" },
+          { status: 502 }
+        );
+      }
+
+      const fileBytes = await fileRes.arrayBuffer();
+      const contentType = fileRes.headers.get("content-type") ?? "application/octet-stream";
+      const ext = exportRecord.fileUrl.split(".").pop() ?? "pdf";
+      const filename = `${exportRecord.exportType}.${ext}`;
+
+      return new NextResponse(fileBytes, {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "Content-Length": String(fileBytes.byteLength),
+        },
+      });
     }
 
     // Return status info

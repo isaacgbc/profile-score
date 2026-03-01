@@ -123,14 +123,21 @@ export async function generateUpdatedCvPdf(
     const cleanedContact = sanitizeTemplateOutput(contactRewrite.rewritten);
     const contactLines = cleanedContact.split("\n").filter(Boolean);
 
-    // HOTFIX-9: Filter non-contact lines from header (objective, headline, etc.)
-    const HEADER_EXCLUDE_RE = /^(objective|professional\s*(goal|growth|summary)|career\s*(objective|goal))/i;
+    // HOTFIX-9b: Filter non-contact lines from header (objective, headline, etc.)
+    const HEADER_EXCLUDE_RE = /^(objective|professional\s*(goal|growth|summary|profile)|career\s*(objective|goal|summary)|seeking\s|driven\s|passionate\s|results.driven|goal.oriented|looking\s*(for|to))/i;
     const SEPARATOR_ONLY_RE = /^\s*[|,;\-–—]+\s*$/;
-    const filteredContactLines = contactLines.filter((line) => {
+    // Lines that look like contact info (email, phone, URL, location)
+    const CONTACT_PATTERN_RE = /(@|phone|\+?\d[\d\s\-().]{5,}|linkedin\.com|github\.com|\.com\b|[A-Z][a-z]+,\s*[A-Z]{2})/i;
+    const filteredContactLines = contactLines.filter((line, idx) => {
       const trimmed = line.trim();
       if (HEADER_EXCLUDE_RE.test(trimmed)) return false;
       if (SEPARATOR_ONLY_RE.test(trimmed)) return false;
       if (/^objective\s*[|:]/i.test(trimmed)) return false;
+      // First line is assumed to be the name — always keep
+      if (idx === 0) return true;
+      // For subsequent lines: if the line has no contact patterns and is longer
+      // than 80 chars, it's likely a description/objective, not contact info
+      if (trimmed.length > 80 && !CONTACT_PATTERN_RE.test(trimmed)) return false;
       return true;
     });
 
