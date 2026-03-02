@@ -48,7 +48,12 @@ export default function InputPage() {
   const hasLinkedin = userInput.linkedinText.trim().length > 20;
   // CV requires actual text content (from PDF extraction or paste)
   const hasCv = userInput.cvText.trim().length > 20;
-  const canContinue = hasLinkedin || hasCv;
+  const hasName = userInput.userName.trim().length >= 2;
+  const hasEmail = userEmail.trim().length > 0 && userEmail.includes("@") && userEmail.includes(".");
+  // Show upload cards based on audit type chosen in Features page
+  const showLinkedin = !userInput.method || userInput.method === "linkedin" || userInput.method === "both";
+  const showCv = !userInput.method || userInput.method === "cv" || userInput.method === "both";
+  const canContinue = hasName && hasEmail && (hasLinkedin || hasCv);
 
   function handleContinue() {
     if (!canContinue) {
@@ -56,17 +61,19 @@ export default function InputPage() {
       return;
     }
     setError("");
-    const method =
+
+    // Derive actual method from what was uploaded (handles partial uploads)
+    const derivedMethod =
       hasLinkedin && hasCv ? "both" : hasLinkedin ? "linkedin" : "cv";
 
     // ── Analytics: start_audit ──
     trackEvent("start_audit", {
-      sourceType: method,
+      sourceType: derivedMethod,
       locale: exportLocale,
     });
 
-    setUserInput({ method });
-    router.push("/features");
+    setUserInput({ method: derivedMethod });
+    router.push("/results");
   }
 
   // ── LinkedIn PDF upload handler ──
@@ -194,6 +201,29 @@ export default function InputPage() {
           </div>
         </div>
 
+        {/* Full Name (Required) */}
+        <div className="mb-6">
+          <label
+            htmlFor="userName"
+            className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5"
+          >
+            {(t.input as Record<string, string>).nameLabel ?? "Full Name"}{" "}
+            <span className="text-red-500">*</span>
+          </label>
+          <input
+            id="userName"
+            type="text"
+            value={userInput.userName}
+            onChange={(e) => setUserInput({ userName: e.target.value })}
+            placeholder={(t.input as Record<string, string>).namePlaceholder ?? "e.g., Jane Smith"}
+            className="w-full px-4 py-3 text-sm text-[var(--text-primary)] bg-white border border-[var(--border)] rounded-xl focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent placeholder:text-[var(--text-muted)] transition-shadow"
+            required
+          />
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            {(t.input as Record<string, string>).nameHelp ?? "Used in your CV export and cover letter."}
+          </p>
+        </div>
+
         {/* PDF Error Banner */}
         {pdfError && (
           <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-6">
@@ -212,8 +242,9 @@ export default function InputPage() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className={`grid ${showLinkedin && showCv ? "md:grid-cols-2" : ""} gap-4`}>
             {/* LinkedIn Card — PDF-first */}
+            {showLinkedin && (
             <Card
               variant={hasLinkedin ? "highlighted" : "default"}
               padding="md"
@@ -373,8 +404,10 @@ export default function InputPage() {
                 )}
               </div>
             </Card>
+            )}
 
             {/* CV Card */}
+            {showCv && (
             <Card
               variant={hasCv ? "highlighted" : "default"}
               padding="md"
@@ -498,6 +531,7 @@ export default function InputPage() {
                 </div>
               )}
             </Card>
+            )}
           </div>
 
           {/* Add other source hint */}
@@ -670,7 +704,7 @@ export default function InputPage() {
           </p>
         </div>
 
-        {/* Email (optional — used for checkout pre-fill and results delivery) */}
+        {/* Email (Required — used for checkout pre-fill and results delivery) */}
         <div className="mb-6">
           <label
             htmlFor="email"
@@ -678,7 +712,8 @@ export default function InputPage() {
           >
             <span className="inline-flex items-center gap-1.5">
               <MailIcon size={14} className="text-[var(--text-muted)]" />
-              {(t.input as Record<string, string>).emailLabel ?? "Your Email"}
+              {(t.input as Record<string, string>).emailLabelRequired ?? "Your Email"}{" "}
+              <span className="text-red-500">*</span>
             </span>
           </label>
           <input
@@ -688,7 +723,13 @@ export default function InputPage() {
             onChange={(e) => setUserEmail(e.target.value)}
             placeholder={(t.input as Record<string, string>).emailPlaceholder ?? "your@email.com"}
             className="w-full px-4 py-3 text-sm text-[var(--text-primary)] bg-white border border-[var(--border)] rounded-xl focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent placeholder:text-[var(--text-muted)] transition-shadow"
+            required
           />
+          {userEmail.length > 0 && !hasEmail && (
+            <p className="text-xs text-red-500 mt-1">
+              {(t.input as Record<string, string>).emailInvalid ?? "Please enter a valid email address."}
+            </p>
+          )}
           <p className="text-xs text-[var(--text-muted)] mt-1">
             {(t.input as Record<string, string>).emailHelp ?? "We'll use this to send you your results and pre-fill checkout. No spam, ever."}
           </p>
@@ -724,7 +765,7 @@ export default function InputPage() {
 
         {/* Navigation */}
         <div className="flex items-center justify-between gap-4">
-          <Link href="/">
+          <Link href="/features">
             <Button variant="ghost">{t.common.back}</Button>
           </Link>
           <Button onClick={handleContinue} disabled={!canContinue}>

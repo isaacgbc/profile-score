@@ -7,10 +7,10 @@ interface StepIndicatorProps {
   currentStep: JourneyStep;
 }
 
-// 5-step flow: Input → Configure → Score & Audit → Rewrite Studio → Export
+// 5-step flow: Choose Audit → Upload Docs → Score & Audit → Rewrite Studio → Export
 const steps: { key: JourneyStep; number: number }[] = [
-  { key: "input", number: 1 },
-  { key: "features", number: 2 },
+  { key: "features", number: 1 },
+  { key: "input", number: 2 },
   { key: "results", number: 3 },
   { key: "rewrite-studio", number: 4 },
   { key: "checkout", number: 5 },
@@ -18,8 +18,8 @@ const steps: { key: JourneyStep; number: number }[] = [
 
 const stepIndex: Record<JourneyStep, number> = {
   landing: -1,
-  input: 0,
-  features: 1,
+  features: 0,
+  input: 1,
   results: 2,
   "rewrite-studio": 3,
   checkout: 4,

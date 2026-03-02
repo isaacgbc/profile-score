@@ -27,6 +27,9 @@ interface CreateExportOpts {
 }
 
 interface UseExportReturn {
+  /** Get state for a specific module + format combo */
+  getModuleFormatState: (moduleId: ExportModuleId, format: ExportFormat) => ModuleState;
+  /** @deprecated — use getModuleFormatState instead. Returns aggregate state for backward compat. */
   getModuleState: (moduleId: ExportModuleId) => ModuleState;
   createExport: (opts: CreateExportOpts) => Promise<void>;
   createExportAndDownload: (opts: CreateExportOpts) => Promise<void>;
@@ -40,13 +43,35 @@ const DEFAULT_STATE: ModuleState = {
   error: null,
 };
 
+/** Composite key for per-format state tracking */
+function formatKey(moduleId: ExportModuleId, format: ExportFormat): string {
+  return `${moduleId}:${format}`;
+}
+
 export function useExport(): UseExportReturn {
   const [moduleStates, setModuleStates] = useState<
     Record<string, ModuleState>
   >({});
 
+  /** Per-format state: returns the state for a specific module + format combo */
+  const getModuleFormatState = useCallback(
+    (moduleId: ExportModuleId, format: ExportFormat): ModuleState => {
+      return moduleStates[formatKey(moduleId, format)] ?? DEFAULT_STATE;
+    },
+    [moduleStates]
+  );
+
+  /** Aggregate state (backward compat): returns the "most active" state across all formats */
   const getModuleState = useCallback(
     (moduleId: ExportModuleId): ModuleState => {
+      // Check all possible format keys for this module
+      const formats: ExportFormat[] = ["pdf", "docx"];
+      for (const fmt of formats) {
+        const key = formatKey(moduleId, fmt);
+        const state = moduleStates[key];
+        if (state && state.status !== "idle") return state;
+      }
+      // Fallback: check legacy key (moduleId without format)
       return moduleStates[moduleId] ?? DEFAULT_STATE;
     },
     [moduleStates]
@@ -54,14 +79,15 @@ export function useExport(): UseExportReturn {
 
   const createExport = useCallback(
     async (opts: CreateExportOpts) => {
-      const { exportType, adminToken, userEdits, ...payload } = opts;
+      const { exportType, format, adminToken, userEdits, ...payload } = opts;
+      const key = formatKey(exportType, format);
 
       // HOTFIX-7: Export telemetry
-      trackEvent("exportJobStarted", { metadata: { exportType } });
+      trackEvent("exportJobStarted", { metadata: { exportType, format } });
 
       setModuleStates((prev) => ({
         ...prev,
-        [exportType]: { status: "processing", exportId: null, error: null },
+        [key]: { status: "processing", exportId: null, error: null },
       }));
 
       try {
@@ -75,7 +101,7 @@ export function useExport(): UseExportReturn {
         const res = await fetch("/api/exports/create", {
           method: "POST",
           headers,
-          body: JSON.stringify({ ...payload, exportType, userEdits }),
+          body: JSON.stringify({ ...payload, exportType, format, userEdits }),
         });
 
         const data = await res.json();
@@ -83,7 +109,7 @@ export function useExport(): UseExportReturn {
         if (!res.ok) {
           setModuleStates((prev) => ({
             ...prev,
-            [exportType]: {
+            [key]: {
               status: "failed",
               exportId: null,
               error: data.error ?? data.reason ?? "Export failed",
@@ -93,11 +119,11 @@ export function useExport(): UseExportReturn {
         }
 
         // HOTFIX-7: Export telemetry
-        trackEvent("exportJobSucceeded", { metadata: { exportType, exportId: data.exportId } });
+        trackEvent("exportJobSucceeded", { metadata: { exportType, format, exportId: data.exportId } });
 
         setModuleStates((prev) => ({
           ...prev,
-          [exportType]: {
+          [key]: {
             status: data.status as ExportStatus,
             exportId: data.exportId,
             error: data.error ?? null,
@@ -106,7 +132,7 @@ export function useExport(): UseExportReturn {
       } catch {
         setModuleStates((prev) => ({
           ...prev,
-          [exportType]: {
+          [key]: {
             status: "failed",
             exportId: null,
             error: "Network error",
@@ -120,14 +146,15 @@ export function useExport(): UseExportReturn {
   // HOTFIX-8: Bypass export — create + auto-download in one action
   const createExportAndDownload = useCallback(
     async (opts: CreateExportOpts) => {
-      const { exportType, adminToken, userEdits, ...payload } = opts;
+      const { exportType, format, adminToken, userEdits, ...payload } = opts;
+      const key = formatKey(exportType, format);
 
-      trackEvent("exportBypassClicked", { metadata: { exportType } });
-      trackEvent("exportJobStarted", { metadata: { exportType } });
+      trackEvent("exportBypassClicked", { metadata: { exportType, format } });
+      trackEvent("exportJobStarted", { metadata: { exportType, format } });
 
       setModuleStates((prev) => ({
         ...prev,
-        [exportType]: { status: "processing", exportId: null, error: null },
+        [key]: { status: "processing", exportId: null, error: null },
       }));
 
       try {
@@ -139,17 +166,17 @@ export function useExport(): UseExportReturn {
         const res = await fetch("/api/exports/create", {
           method: "POST",
           headers,
-          body: JSON.stringify({ ...payload, exportType, userEdits }),
+          body: JSON.stringify({ ...payload, exportType, format, userEdits }),
         });
         const data = await res.json();
 
         if (!res.ok) {
           trackEvent("exportDownloadFailed", {
-            metadata: { exportType, reason: data.error ?? "http_error" },
+            metadata: { exportType, format, reason: data.error ?? "http_error" },
           });
           setModuleStates((prev) => ({
             ...prev,
-            [exportType]: {
+            [key]: {
               status: "failed",
               exportId: null,
               error: data.error ?? data.reason ?? "Export failed",
@@ -159,12 +186,12 @@ export function useExport(): UseExportReturn {
         }
 
         trackEvent("exportJobCompleted", {
-          metadata: { exportType, exportId: data.exportId },
+          metadata: { exportType, format, exportId: data.exportId },
         });
 
         setModuleStates((prev) => ({
           ...prev,
-          [exportType]: {
+          [key]: {
             status: data.status as ExportStatus,
             exportId: data.exportId,
             error: data.error ?? null,
@@ -174,7 +201,7 @@ export function useExport(): UseExportReturn {
         // HOTFIX-9d: Open export in new tab for preview (user can download from there)
         if (data.exportId && data.status === "ready") {
           trackEvent("exportDownloadTriggered", {
-            metadata: { exportType, exportId: data.exportId },
+            metadata: { exportType, format, exportId: data.exportId },
           });
           // Open in new tab with inline disposition — user sees preview, can download manually
           window.open(
@@ -182,16 +209,16 @@ export function useExport(): UseExportReturn {
             "_blank"
           );
           trackEvent("exportPreviewOpened", {
-            metadata: { exportType, exportId: data.exportId },
+            metadata: { exportType, format, exportId: data.exportId },
           });
         }
       } catch {
         trackEvent("exportDownloadFailed", {
-          metadata: { exportType, reason: "network_error" },
+          metadata: { exportType, format, reason: "network_error" },
         });
         setModuleStates((prev) => ({
           ...prev,
-          [exportType]: {
+          [key]: {
             status: "failed",
             exportId: null,
             error: "Network error",
@@ -216,5 +243,5 @@ export function useExport(): UseExportReturn {
     [createExport]
   );
 
-  return { getModuleState, createExport, createExportAndDownload, downloadExport, retryExport };
+  return { getModuleState, getModuleFormatState, createExport, createExportAndDownload, downloadExport, retryExport };
 }

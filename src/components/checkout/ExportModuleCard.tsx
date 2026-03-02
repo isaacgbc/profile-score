@@ -9,8 +9,15 @@ import {
   CheckIcon,
   LockIcon,
   LoaderIcon,
+  DownloadIcon,
 } from "@/components/ui/Icons";
 import type { ExportModuleId, ExportFormat, ExportStatus } from "@/lib/types";
+
+interface FormatState {
+  status: ExportStatus | "idle";
+  exportId: string | null;
+  error: string | null;
+}
 
 interface ExportModuleCardProps {
   moduleId: ExportModuleId;
@@ -19,22 +26,16 @@ interface ExportModuleCardProps {
   icon: React.ReactNode;
   unlocked: boolean;
   minPlanLabel: string | null;
-  moduleState: {
-    status: ExportStatus | "idle";
-    exportId: string | null;
-    error: string | null;
-  };
+  /** Per-format state accessor — each format button tracks its own state */
+  getFormatState: (format: ExportFormat) => FormatState;
   onGenerate: (format: ExportFormat) => void;
   onDownload: (exportId: string) => void;
   onRetry: (format: ExportFormat) => void;
   onUnlock: () => void;
   animDelay: number;
-  /** HOTFIX-3: Disable generation while placeholders remain */
+  /** Disable generation while placeholders or missing sections remain */
   disabled?: boolean;
   disabledReason?: string;
-  /** HOTFIX-5B: Allow bypass export (clean placeholders) — only for placeholder blocks, NOT missing sections */
-  canBypass?: boolean;
-  onBypassExport?: (format: ExportFormat) => void;
 }
 
 // Which modules support which formats
@@ -47,14 +48,7 @@ const MODULE_FORMATS: Record<ExportModuleId, ExportFormat[]> = {
   "cover-letter": ["pdf"],
 };
 
-// HOTFIX-6C: Module-specific download labels (i18n keys)
-const MODULE_DOWNLOAD_LABELS: Record<ExportModuleId, string> = {
-  "results-summary": "downloadResultsSummary",
-  "updated-cv": "downloadUpdatedCv",
-  "full-audit": "downloadFullAudit",
-  "cover-letter": "downloadCoverLetter",
-  "linkedin-updates": "downloadLinkedinUpdates",
-};
+export { MODULE_FORMATS };
 
 export default function ExportModuleCard({
   moduleId,
@@ -63,7 +57,7 @@ export default function ExportModuleCard({
   icon,
   unlocked,
   minPlanLabel,
-  moduleState,
+  getFormatState,
   onGenerate,
   onDownload,
   onRetry,
@@ -71,13 +65,13 @@ export default function ExportModuleCard({
   animDelay,
   disabled,
   disabledReason,
-  canBypass,
-  onBypassExport,
 }: ExportModuleCardProps) {
   const { t } = useI18n();
   const checkoutT = t.checkout as Record<string, string>;
   const formats = MODULE_FORMATS[moduleId];
-  const { status, exportId } = moduleState;
+
+  // Check if any format has a non-idle status (for the badge)
+  const hasActiveFormat = formats.some((fmt) => getFormatState(fmt).status !== "idle");
 
   return (
     <Card
@@ -108,8 +102,16 @@ export default function ExportModuleCard({
               {name}
             </h3>
             {unlocked ? (
-              status !== "idle" ? (
-                <ExportStatusBadge status={status} />
+              hasActiveFormat ? (
+                <ExportStatusBadge status={
+                  // Show aggregate: if any format is processing show that, else first non-idle
+                  formats.reduce<ExportStatus | "idle">((agg, fmt) => {
+                    const s = getFormatState(fmt).status;
+                    if (agg === "processing") return agg;
+                    if (s !== "idle") return s;
+                    return agg;
+                  }, "idle")
+                } />
               ) : (
                 <Badge variant="success">
                   <CheckIcon size={10} className="mr-0.5" />
@@ -130,65 +132,72 @@ export default function ExportModuleCard({
           </p>
         </div>
 
-        {/* Actions */}
+        {/* Actions — Per-format independent buttons */}
         {unlocked ? (
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            {disabled && disabledReason ? (
-              <div className="flex flex-col items-end gap-1.5">
-                <span className="text-xs text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded max-w-[200px] text-right">
-                  {disabledReason}
-                </span>
-                {/* HOTFIX-EXPORT-CTA: Always render a visible primary Button */}
-                {canBypass && onBypassExport ? (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => onBypassExport(formats[0])}
-                  >
-                    {checkoutT.exportBypassPrimary ?? "Export (clean placeholders)"}
-                  </Button>
-                ) : (
-                  <Button variant="primary" size="sm" disabled>
-                    {checkoutT.exportPrimary ?? "Export"}
-                  </Button>
-                )}
-              </div>
-            ) : status === "processing" ? (
-              <Button variant="primary" size="sm" disabled>
-                <LoaderIcon size={14} className="animate-spin mr-1" />
-                {t.checkout.exportGenerating}
-              </Button>
-            ) : status === "ready" && exportId ? (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => onDownload(exportId)}
-              >
-                {checkoutT.exportDownloadNow ?? t.checkout.exportDownload}
-              </Button>
-            ) : status === "failed" ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onRetry(formats[0])}
-              >
-                {t.checkout.exportRetry}
-              </Button>
-            ) : (
-              <div className="flex items-center gap-2">
-                {formats.map((fmt) => (
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            {disabled && disabledReason && (
+              <span className="text-xs text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded max-w-[200px] text-right">
+                {disabledReason}
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              {formats.map((fmt) => {
+                const fmtState = getFormatState(fmt);
+                const { status, exportId } = fmtState;
+
+                if (status === "processing") {
+                  return (
+                    <Button key={fmt} variant="primary" size="sm" disabled className="min-w-[70px]">
+                      <LoaderIcon size={14} className="animate-spin mr-1" />
+                      {fmt.toUpperCase()}
+                    </Button>
+                  );
+                }
+
+                if (status === "ready" && exportId) {
+                  return (
+                    <Button
+                      key={fmt}
+                      variant="primary"
+                      size="sm"
+                      onClick={() => onDownload(exportId)}
+                      className="min-w-[70px]"
+                    >
+                      <DownloadIcon size={14} className="mr-1" />
+                      {fmt.toUpperCase()}
+                    </Button>
+                  );
+                }
+
+                if (status === "failed") {
+                  return (
+                    <Button
+                      key={fmt}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onRetry(fmt)}
+                      className="min-w-[70px] text-red-600 border-red-200 hover:bg-red-50"
+                    >
+                      {checkoutT.exportRetry ?? "Retry"} {fmt.toUpperCase()}
+                    </Button>
+                  );
+                }
+
+                // idle — show format name button
+                return (
                   <Button
                     key={fmt}
                     variant={fmt === "pdf" ? "primary" : "outline"}
                     size="sm"
                     onClick={() => onGenerate(fmt)}
                     disabled={disabled}
+                    className="min-w-[70px]"
                   >
                     {fmt.toUpperCase()}
                   </Button>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
           </div>
         ) : (
           <Button

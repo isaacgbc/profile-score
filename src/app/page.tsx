@@ -236,7 +236,7 @@ export default function LandingPage() {
             style={{ animationDelay: "220ms" }}
           >
             <Link
-              href="/input"
+              href="/features"
               className="btn-gradient inline-flex items-center justify-center gap-2 font-medium px-7 py-3.5 text-base rounded-xl shadow-sm transition-all duration-200 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]"
             >
               {t.landing.cta}
@@ -575,7 +575,7 @@ export default function LandingPage() {
 
           {/* CTA below how-it-works */}
           <div className="text-center mt-14 animate-slide-up" style={{ animationDelay: "400ms" }}>
-            <Link href="/input">
+            <Link href="/features">
               <Button size="lg">
                 {t.landing.cta}
                 <ChevronRight />
@@ -616,7 +616,7 @@ export default function LandingPage() {
           </p>
 
           <div className="animate-slide-up" style={{ animationDelay: "140ms" }}>
-            <Link href="/input">
+            <Link href="/features">
               <Button size="lg">
                 {t.landing.cta}
                 <ChevronRight />

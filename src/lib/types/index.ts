@@ -12,8 +12,8 @@ export type JourneyStep =
 
 export const JOURNEY_STEPS: JourneyStep[] = [
   "landing",
-  "input",
   "features",
+  "input",
   "results",
   "rewrite-studio",
   "checkout",
@@ -25,6 +25,7 @@ export type TargetInputType = "url" | "pdf" | null;
 
 export interface UserInput {
   method: InputMethod | null;
+  userName: string;
   linkedinUrl: string;
   linkedinText: string;
   cvFileName: string | null;

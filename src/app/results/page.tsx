@@ -545,7 +545,7 @@ export default function ResultsPage() {
 
         {/* Back link */}
         <div className="text-center mt-4">
-          <Link href="/features">
+          <Link href="/input">
             <Button variant="ghost" size="sm">
               {t.common.back}
             </Button>

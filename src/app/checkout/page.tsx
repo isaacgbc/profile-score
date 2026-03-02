@@ -26,7 +26,7 @@ import {
 import { mockPlans } from "@/lib/mock/plans";
 import { mockExportModules } from "@/lib/mock/export-modules";
 import type { PlanId, ExportModuleId, ExportFormat, FeatureId } from "@/lib/types";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trackEvent, hasTrackedThisSession, markTrackedThisSession } from "@/lib/analytics/tracker";
 import { countSectionPlaceholders } from "@/lib/utils/placeholder-detect";
 import { computeEntryStableId } from "@/lib/utils/entry-id";
@@ -94,7 +94,9 @@ export default function CheckoutPage() {
     deletedEntryIds,
   } = useApp();
 
-  const { getModuleState, createExport, createExportAndDownload, downloadExport, retryExport } = useExport();
+  const { getModuleFormatState, createExport, createExportAndDownload, downloadExport, retryExport } = useExport();
+  const [bypassPlaceholders, setBypassPlaceholders] = useState(false);
+  const checkoutT = t.checkout as Record<string, string>;
 
   // HOTFIX-URGENT: Log exportLocale carryover on checkout mount
   useEffect(() => {
@@ -138,12 +140,13 @@ export default function CheckoutPage() {
     trackEvent("export_clicked", {
       auditId,
       planId: selectedPlan,
-      metadata: { moduleId, format, editedSectionCount, editedEntryCount, usedUserOptimized },
+      metadata: { moduleId, format, editedSectionCount, editedEntryCount, usedUserOptimized, isBypass: bypassPlaceholders },
     });
-    // HOTFIX-7: Export CTA telemetry
-    trackEvent("exportCtaClicked", { auditId, metadata: { moduleId, format, isBypass: false } });
+    trackEvent("exportCtaClicked", { auditId, metadata: { moduleId, format, isBypass: bypassPlaceholders } });
 
-    createExport({
+    const exportFn = bypassPlaceholders ? createExportAndDownload : createExport;
+
+    exportFn({
       auditId,
       exportType: moduleId,
       format,
@@ -391,9 +394,29 @@ export default function CheckoutPage() {
                 </div>
               </div>
               {valueSummary.placeholderCount > 0 && (
-                <p className="text-[10px] text-amber-600 text-center mt-3">
-                  {(t.checkout as Record<string, string>).placeholderHint ?? "Fill in [BRACKET] placeholders in Rewrite Studio before exporting for best results"}
-                </p>
+                <div className="flex flex-col items-center gap-2 mt-3">
+                  <p className="text-[10px] text-amber-600 text-center">
+                    {(t.checkout as Record<string, string>).placeholderHint ?? "Fill in [BRACKET] placeholders in Rewrite Studio before exporting for best results"}
+                  </p>
+                  {valueSummary.missingSections === 0 && (
+                    <button
+                      onClick={() => {
+                        // Signal that bypass is active — modules will export with cleaned placeholders
+                        setBypassPlaceholders(true);
+                      }}
+                      className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                        bypassPlaceholders
+                          ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                          : "bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300"
+                      }`}
+                    >
+                      {bypassPlaceholders
+                        ? (checkoutT.bypassActive ?? "✓ Placeholders will be cleaned on export")
+                        : (checkoutT.exportBypass ?? "Export anyway (clean placeholders)")
+                      }
+                    </button>
+                  )}
+                </div>
               )}
               {valueSummary.missingSections > 0 && (
                 <p className="text-[10px] text-red-600 text-center mt-2">
@@ -420,19 +443,15 @@ export default function CheckoutPage() {
                 ? getMinPlanForModule(mod.id)
                 : null;
 
-              // HOTFIX-3: Block export while unresolved placeholders or missing critical sections exist
-              const hasUnresolvedPlaceholders = (valueSummary?.placeholderCount ?? 0) > 0;
+              // Block export: missing sections always block; placeholders block unless bypass is active
               const hasMissingSections = (valueSummary?.missingSections ?? 0) > 0;
-              const isBlocked = hasUnresolvedPlaceholders || hasMissingSections;
+              const hasPlaceholders = (valueSummary?.placeholderCount ?? 0) > 0;
+              const isBlocked = hasMissingSections || (hasPlaceholders && !bypassPlaceholders);
               const blockReason = hasMissingSections
                 ? `Add ${valueSummary!.missingSections} missing critical section${valueSummary!.missingSections > 1 ? "s" : ""} in Rewrite Studio`
-                : hasUnresolvedPlaceholders
+                : (hasPlaceholders && !bypassPlaceholders)
                   ? `Resolve ${valueSummary!.placeholderCount} placeholder${valueSummary!.placeholderCount > 1 ? "s" : ""} before export`
                   : undefined;
-
-              // HOTFIX-5B: Allow bypass when only placeholders block (not missing sections)
-              // sanitizeTemplateOutput already strips placeholders in the export pipeline
-              const canBypass = hasUnresolvedPlaceholders && !hasMissingSections;
 
               return (
                 <ExportModuleCard
@@ -443,41 +462,14 @@ export default function CheckoutPage() {
                   icon={moduleIcons[mod.id]}
                   unlocked={unlocked}
                   minPlanLabel={minPlan}
-                  moduleState={getModuleState(mod.id)}
+                  getFormatState={(fmt) => getModuleFormatState(mod.id, fmt)}
                   onGenerate={(fmt) => handleGenerate(mod.id, fmt)}
                   onDownload={downloadExport}
                   onRetry={(fmt) => handleRetry(mod.id, fmt)}
                   onUnlock={() => setShowPricingModal(true)}
                   animDelay={idx * 60}
                   disabled={isBlocked}
-                  disabledReason={blockReason}
-                  canBypass={canBypass}
-                  onBypassExport={(fmt) => {
-                    trackEvent("export_bypass_used", {
-                      auditId: auditId ?? undefined,
-                      metadata: {
-                        moduleId: mod.id,
-                        format: fmt,
-                        placeholdersBefore: valueSummary?.placeholderCount ?? 0,
-                      },
-                    });
-                    trackEvent("exportCtaClicked", { auditId: auditId ?? undefined, metadata: { moduleId: mod.id, format: fmt, isBypass: true } });
-                    if (!auditId) return;
-                    // HOTFIX-8: Bypass uses createExportAndDownload for auto-download
-                    createExportAndDownload({
-                      auditId,
-                      exportType: mod.id,
-                      format: fmt,
-                      language: exportLocale,
-                      planId: selectedPlan,
-                      adminToken,
-                      userEdits: {
-                        userImprovements: Object.keys(userImprovements).length > 0 ? userImprovements : undefined,
-                        userRewritten: Object.keys(userRewritten).length > 0 ? userRewritten : undefined,
-                        userOptimized: Object.keys(userOptimized).length > 0 ? userOptimized : undefined,
-                      },
-                    });
-                  }}
+                  disabledReason={isBlocked ? blockReason : undefined}
                 />
               );
             })}

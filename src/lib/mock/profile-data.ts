@@ -2,6 +2,7 @@ import type { UserInput } from "../types";
 
 export const mockUserInput: UserInput = {
   method: "linkedin",
+  userName: "John Doe",
   linkedinUrl: "https://linkedin.com/in/johndoe-dev",
   linkedinText: `Software Developer at Tech Company
 
@@ -36,6 +37,7 @@ JavaScript, Python, SQL, HTML, CSS, React, Node.js, Git`,
 
 export const emptyUserInput: UserInput = {
   method: null,
+  userName: "",
   linkedinUrl: "",
   linkedinText: "",
   cvFileName: null,

@@ -61,6 +61,7 @@ interface AppContextValue extends AppState {
   setStep: (step: JourneyStep) => void;
   setUserInput: (input: Partial<UserInput>) => void;
   toggleFeature: (id: FeatureId) => void;
+  setSelectedFeatures: (features: FeatureId[]) => void;
   selectPlan: (id: PlanId) => void;
   setResults: (r: ProfileResult) => void;
   toggleAdmin: () => void;
@@ -704,6 +705,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const setSelectedFeaturesHandler = useCallback((features: FeatureId[]) => {
+    setSelectedFeatures(features);
+  }, []);
+
   // ── Re-apply plan locking to existing results (single source of truth) ──
   const reapplyPlanLocking = useCallback(
     (planId: PlanId, currentResults: ProfileResult): ProfileResult => {
@@ -1120,6 +1125,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setStep,
         setUserInput,
         toggleFeature,
+        setSelectedFeatures: setSelectedFeaturesHandler,
         selectPlan,
         setResults,
         toggleAdmin,
