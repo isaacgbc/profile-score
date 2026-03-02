@@ -140,18 +140,23 @@ export async function POST(request: Request) {
   const { event, saleId, product, customer, subscription, test: isTest } = payload;
 
   // Validate required fields
-  if (!event || !saleId || !product || !customer) {
+  if (!event || !product || !customer) {
     console.error("[Creala] Missing required fields in payload");
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  // payment_failed events may have empty saleId — generate a synthetic one
+  const effectiveSaleId = saleId || `synthetic_${event}_${Date.now()}`;
+
   // ── Idempotency: check if saleId already processed ──
-  const existing = await prisma.order.findUnique({
-    where: { saleId },
-  });
-  if (existing) {
-    console.log(`[Creala] Duplicate webhook ignored: saleId=${saleId}`);
-    return NextResponse.json({ status: "duplicate", saleId });
+  if (saleId) {
+    const existing = await prisma.order.findUnique({
+      where: { saleId: effectiveSaleId },
+    });
+    if (existing) {
+      console.log(`[Creala] Duplicate webhook ignored: saleId=${effectiveSaleId}`);
+      return NextResponse.json({ status: "duplicate", saleId: effectiveSaleId });
+    }
   }
 
   // ── Resolve plan ──
@@ -183,7 +188,7 @@ export async function POST(request: Request) {
       } else {
         reconciliationStatus = "pending";
         console.warn(
-          `[Creala] No user match for saleId=${saleId} email=${customer.email} — storing as pending`
+          `[Creala] No user match for saleId=${effectiveSaleId} email=${customer.email} — storing as pending`
         );
       }
     }
@@ -196,7 +201,7 @@ export async function POST(request: Request) {
   try {
     await prisma.order.create({
       data: {
-        saleId,
+        saleId: effectiveSaleId,
         event,
         userId: matchedUserId,
         customerId: customer.id,
@@ -276,7 +281,7 @@ export async function POST(request: Request) {
       userId: customer.id,
       planId: planId ?? undefined,
       metadata: {
-        saleId,
+        saleId: effectiveSaleId,
         productName: product.name,
         price: product.price,
         currency: product.currency,
@@ -289,8 +294,8 @@ export async function POST(request: Request) {
 
   // ── Log for operational visibility ──
   console.log(
-    `[Creala] ${event}: saleId=${saleId} customer=${customer.email} plan=${planId} price=${product.price} ${product.currency} test=${isTest}`
+    `[Creala] ${event}: saleId=${effectiveSaleId} customer=${customer.email} plan=${planId} price=${product.price} ${product.currency} test=${isTest}`
   );
 
-  return NextResponse.json({ status: "ok", saleId, planId });
+  return NextResponse.json({ status: "ok", saleId: effectiveSaleId, planId });
 }
