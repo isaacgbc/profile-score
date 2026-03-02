@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useI18n } from "@/context/I18nContext";
 import { useApp } from "@/context/AppContext";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
+import EmailCaptureModal from "@/components/ui/EmailCaptureModal";
 import { CheckIcon, XIcon } from "@/components/ui/Icons";
 import { mockPlans } from "@/lib/mock/plans";
 import { featureFlags } from "@/lib/feature-flags";
@@ -13,19 +15,16 @@ import { trackEvent } from "@/lib/analytics/tracker";
 
 /**
  * Crea.la checkout URLs — real payment links per plan.
+ * Append ?email= to pre-fill the customer email field when available.
  */
 const CREALA_CHECKOUT_URLS: Record<PlanId, string> = {
   starter: "https://pay.crea.la/b/eVqdR8eurfBAeG4cDA1VN3D",
   recommended: "https://pay.crea.la/b/5kQbJ0aeb3SS9lKbzw1VN3E",
-  pro: "https://pay.crea.la/b/4gM8wO2LJ61069ycDA1VN3H",
-  coach: "https://pay.crea.la/b/bJecN44TRexw69y0US1VN3I",
 };
 
 const planTranslationKeys: Record<PlanId, { name: string; desc: string }> = {
   starter: { name: "starterName", desc: "starterDesc" },
   recommended: { name: "recommendedName", desc: "recommendedDesc" },
-  pro: { name: "proName", desc: "proDesc" },
-  coach: { name: "coachName", desc: "coachDesc" },
 };
 
 const featureNameKeys: Record<FeatureId, string> = {
@@ -37,13 +36,46 @@ const featureNameKeys: Record<FeatureId, string> = {
 
 export default function PricingModal() {
   const { t } = useI18n();
-  const { selectedPlan, selectPlan, showPricingModal, setShowPricingModal } = useApp();
+  const {
+    selectedPlan,
+    selectPlan,
+    showPricingModal,
+    setShowPricingModal,
+    authUser,
+    userEmail,
+    setUserEmail,
+    auditId,
+  } = useApp();
+
+  // Pending plan selection — waiting for email capture
+  const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
 
   if (!showPricingModal) return null;
 
+  /** Get the best available email for the current user */
+  function getEmail(): string | null {
+    return authUser?.email || userEmail || null;
+  }
+
+  /** Redirect to Crea.la checkout with email pre-filled */
+  function redirectToCheckout(planId: PlanId, email: string | null) {
+    // Save current audit state to localStorage so it survives the redirect
+    if (auditId) {
+      try {
+        localStorage.setItem("ps_pendingAuditId", auditId);
+        localStorage.setItem("ps_pendingPlanId", planId);
+      } catch { /* localStorage full — fail silently */ }
+    }
+
+    const baseUrl = CREALA_CHECKOUT_URLS[planId];
+    const checkoutUrl = email
+      ? `${baseUrl}?email=${encodeURIComponent(email)}`
+      : baseUrl;
+    window.location.href = checkoutUrl;
+  }
+
   function handleSelectPlan(planId: PlanId) {
     selectPlan(planId); // applies unlock via reapplyPlanLocking
-    setShowPricingModal(false);
 
     // ── Analytics: checkout_started ──
     const plan = mockPlans.find((p) => p.id === planId);
@@ -57,15 +89,50 @@ export default function PricingModal() {
 
     // ── Payment redirect when enabled ──
     if (featureFlags.paymentsEnabled) {
-      window.location.href = CREALA_CHECKOUT_URLS[planId];
+      const email = getEmail();
+      if (!email) {
+        // No email available — show email capture modal first
+        setPendingPlanId(planId);
+        return;
+      }
+      setShowPricingModal(false);
+      redirectToCheckout(planId, email);
+    } else {
+      // When payments disabled: plan unlocks content locally, user stays on page
+      setShowPricingModal(false);
     }
-    // When payments disabled: plan unlocks content locally, user stays on page
+  }
+
+  /** Email captured — proceed to checkout */
+  function handleEmailCaptured(email: string) {
+    setUserEmail(email);
+    setPendingPlanId(null);
+    setShowPricingModal(false);
+
+    if (pendingPlanId) {
+      trackEvent("email_captured_before_checkout", {
+        planId: pendingPlanId,
+        metadata: { email },
+      });
+      redirectToCheckout(pendingPlanId, email);
+    }
+  }
+
+  // Show email capture modal if we need an email before checkout
+  if (pendingPlanId) {
+    return (
+      <EmailCaptureModal
+        isOpen={true}
+        onClose={() => setPendingPlanId(null)}
+        onSubmit={handleEmailCaptured}
+      />
+    );
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowPricingModal(false)} />
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6 sm:p-8 animate-slide-up">
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 sm:p-8 animate-slide-up">
         <button
           onClick={() => setShowPricingModal(false)}
           className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[var(--surface-secondary)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
@@ -79,7 +146,7 @@ export default function PricingModal() {
           <p className="text-sm text-[var(--text-secondary)]">{t.pricing.subtitle}</p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <div className="grid sm:grid-cols-2 gap-4 mb-6">
           {mockPlans.map((plan) => {
             const keys = planTranslationKeys[plan.id];
             const name = (t.pricing as Record<string, string>)[keys.name];

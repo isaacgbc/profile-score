@@ -56,8 +56,18 @@ export interface Feature {
 }
 
 // ─── Plans / Pricing ──────────────────────────────────
-export type PlanId = "starter" | "recommended" | "pro" | "coach";
+export type PlanId = "starter" | "recommended";
 export type PlanInterval = "one-time" | "monthly";
+
+/** Legacy plan IDs from the old 4-plan structure (backward compat for DB records) */
+export type LegacyPlanId = "pro" | "coach";
+export type AnyPlanId = PlanId | LegacyPlanId;
+
+/** Maps legacy 4-plan IDs to the new 2-plan equivalents */
+export const LEGACY_PLAN_MAP: Record<LegacyPlanId, PlanId> = {
+  pro: "recommended",
+  coach: "recommended",
+};
 
 export type ExportModuleId =
   | "results-summary"

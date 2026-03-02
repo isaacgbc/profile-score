@@ -230,7 +230,7 @@ async function runFixture(fixture: HardeningFixture): Promise<FixtureReport> {
         targetAudience: fixture.targetAudience,
         objectiveMode: fixture.objectiveMode,
         objectiveText: fixture.objectiveText,
-        planId: "coach",
+        planId: "recommended",
         isAdmin: true,
       },
       "en"

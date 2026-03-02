@@ -17,6 +17,7 @@ import {
   LinkIcon,
   SearchIcon,
   FileTextIcon,
+  MailIcon,
 } from "@/components/ui/Icons";
 import type { Locale } from "@/lib/types";
 import { trackEvent } from "@/lib/analytics/tracker";
@@ -26,7 +27,7 @@ const MAX_PROCESSABLE_CHARS = 15_000;
 
 export default function InputPage() {
   const { t } = useI18n();
-  const { userInput, setUserInput, exportLocale, setExportLocale } = useApp();
+  const { userInput, setUserInput, exportLocale, setExportLocale, userEmail, setUserEmail } = useApp();
   const router = useRouter();
 
   const [dragOver, setDragOver] = useState(false);
@@ -666,6 +667,30 @@ export default function InputPage() {
           )}
           <p className="text-xs text-[var(--text-muted)] mt-1.5">
             {t.input.objectiveHelp}
+          </p>
+        </div>
+
+        {/* Email (optional — used for checkout pre-fill and results delivery) */}
+        <div className="mb-6">
+          <label
+            htmlFor="email"
+            className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <MailIcon size={14} className="text-[var(--text-muted)]" />
+              {(t.input as Record<string, string>).emailLabel ?? "Your Email"}
+            </span>
+          </label>
+          <input
+            id="email"
+            type="email"
+            value={userEmail}
+            onChange={(e) => setUserEmail(e.target.value)}
+            placeholder={(t.input as Record<string, string>).emailPlaceholder ?? "your@email.com"}
+            className="w-full px-4 py-3 text-sm text-[var(--text-primary)] bg-white border border-[var(--border)] rounded-xl focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent placeholder:text-[var(--text-muted)] transition-shadow"
+          />
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            {(t.input as Record<string, string>).emailHelp ?? "We'll use this to send you your results and pre-fill checkout. No spam, ever."}
           </p>
         </div>
 

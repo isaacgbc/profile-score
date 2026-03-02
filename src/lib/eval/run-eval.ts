@@ -42,7 +42,7 @@ async function runFixture(fixture: EvalFixture): Promise<FixtureResult> {
         targetAudience: fixture.targetAudience,
         objectiveMode: "job",
         objectiveText: "",
-        planId: "coach", // Unlock everything for eval
+        planId: "recommended", // Unlock everything for eval
         isAdmin: true,
       },
       "en"

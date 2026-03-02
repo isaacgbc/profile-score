@@ -134,7 +134,7 @@ async function evalFixture(fixture: EvalFixture): Promise<FixtureEvalResult> {
         targetAudience: fixture.targetAudience,
         objectiveMode: fixture.objectiveMode ?? "job",
         objectiveText: fixture.objectiveText ?? "",
-        planId: "coach",
+        planId: "recommended",
         isAdmin: true,
         forceFresh: true, // Reproducibility: never use cache
       },

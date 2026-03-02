@@ -34,12 +34,12 @@ export async function GET(request: Request) {
           },
         });
 
-        // Owner allowlist: auto-set coach plan + active subscription
+        // Owner allowlist: auto-set recommended plan + active subscription
         if (isOwnerEmail(data.user.email)) {
           await prisma.user.update({
             where: { id: data.user.id },
             data: {
-              activePlanId: "coach",
+              activePlanId: "recommended",
               subscriptionStatus: "active",
               subscriptionExpiresAt: null, // permanent — no expiry
             },
@@ -69,10 +69,13 @@ export async function GET(request: Request) {
 
             // If order has a planId, update user subscription
             if (order.planId) {
+              // Map legacy plan IDs to new equivalents
+              const LEGACY_PLAN_REMAP: Record<string, string> = { pro: "recommended", coach: "recommended" };
+              const effectivePlanId = LEGACY_PLAN_REMAP[order.planId] ?? order.planId;
               await prisma.user.update({
                 where: { id: data.user.id },
                 data: {
-                  activePlanId: order.planId,
+                  activePlanId: effectivePlanId,
                   subscriptionStatus: "active",
                   subscriptionExpiresAt: order.nextBillingDate,
                 },

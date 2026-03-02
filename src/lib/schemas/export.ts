@@ -14,7 +14,7 @@ export const CreateExportInput = z.object({
   format: z.enum(["pdf", "docx"]),
   language: z.enum(["en", "es"]),
   planId: z
-    .enum(["starter", "recommended", "pro", "coach"])
+    .enum(["starter", "recommended", "pro", "coach"]) // includes legacy IDs for backward compat
     .nullable()
     .optional(),
   /** User edits from Rewrite Studio to merge into export */

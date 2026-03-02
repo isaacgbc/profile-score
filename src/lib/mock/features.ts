@@ -4,21 +4,21 @@ export const mockFeatures: Feature[] = [
   {
     id: "linkedin-audit",
     icon: "search",
-    includedInPlans: ["starter", "recommended", "pro", "coach"],
+    includedInPlans: ["starter", "recommended"],
   },
   {
     id: "cv-rewrite",
     icon: "file-text",
-    includedInPlans: ["recommended", "pro", "coach"],
+    includedInPlans: ["starter", "recommended"],
   },
   {
     id: "job-optimization",
     icon: "target",
-    includedInPlans: ["pro", "coach"],
+    includedInPlans: ["starter", "recommended"],
   },
   {
     id: "cover-letter",
     icon: "mail",
-    includedInPlans: ["coach"],
+    includedInPlans: ["recommended"],
   },
 ];

@@ -34,8 +34,6 @@ import { computeEntryStableId } from "@/lib/utils/entry-id";
 const planNameKeys: Record<PlanId, string> = {
   starter: "starterName",
   recommended: "recommendedName",
-  pro: "proName",
-  coach: "coachName",
 };
 
 const moduleTranslationKeys: Record<
@@ -73,7 +71,7 @@ const moduleIcons: Record<ExportModuleId, React.ReactNode> = {
 };
 
 // Plan order for tier comparison
-const planOrder: PlanId[] = ["starter", "recommended", "pro", "coach"];
+const planOrder: PlanId[] = ["starter", "recommended"];
 
 export default function CheckoutPage() {
   const { t } = useI18n();

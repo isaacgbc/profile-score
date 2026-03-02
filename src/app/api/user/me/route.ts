@@ -49,7 +49,7 @@ export async function GET() {
           // Auto-promote owner on first record creation
           ...(owner
             ? {
-                activePlanId: "coach",
+                activePlanId: "recommended",
                 subscriptionStatus: "active",
                 subscriptionExpiresAt: null,
               }
@@ -69,12 +69,12 @@ export async function GET() {
       if (owner) {
         console.log(`[Auth] owner_admin_auto_enabled (new user) for ${user.email}`);
       }
-    } else if (owner && (dbUser.activePlanId !== "coach" || dbUser.subscriptionStatus !== "active")) {
-      // Auto-promote existing owner record if not already coach/active
+    } else if (owner && (dbUser.activePlanId !== "recommended" || dbUser.subscriptionStatus !== "active")) {
+      // Auto-promote existing owner record if not already recommended/active
       dbUser = await prisma.user.update({
         where: { id: user.id },
         data: {
-          activePlanId: "coach",
+          activePlanId: "recommended",
           subscriptionStatus: "active",
           subscriptionExpiresAt: null,
         },
@@ -89,6 +89,18 @@ export async function GET() {
         },
       });
       console.log(`[Auth] owner_admin_auto_enabled (promoted) for ${user.email}`);
+    }
+
+    // Lazy migration: convert legacy plan IDs (pro, coach) to new equivalents
+    const LEGACY_PLAN_REMAP: Record<string, string> = { pro: "recommended", coach: "recommended" };
+    if (dbUser.activePlanId && LEGACY_PLAN_REMAP[dbUser.activePlanId]) {
+      const newPlanId = LEGACY_PLAN_REMAP[dbUser.activePlanId];
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { activePlanId: newPlanId },
+      });
+      dbUser = { ...dbUser, activePlanId: newPlanId };
+      console.log(`[Auth] lazy_plan_migration: ${dbUser.activePlanId} → ${newPlanId} for ${user.email}`);
     }
 
     return NextResponse.json({ ...dbUser, isOwner: owner });

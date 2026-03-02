@@ -3289,7 +3289,7 @@ export async function generateAuditResults(
   }
 
   const shouldGenerateCoverLetter =
-    (input.isAdmin || input.planId === "coach") && !coverLetterBudgetExceeded;
+    (input.isAdmin || input.planId === "recommended") && !coverLetterBudgetExceeded;
 
   if (shouldGenerateCoverLetter) {
     const keyStrengths = scoredLinkedinSections

@@ -23,8 +23,6 @@ const featureTranslationKeys: Record<FeatureId, { title: string; desc: string }>
 const planNameKeys: Record<PlanId, string> = {
   starter: "starterName",
   recommended: "recommendedName",
-  pro: "proName",
-  coach: "coachName",
 };
 
 export default function FeaturesPage() {

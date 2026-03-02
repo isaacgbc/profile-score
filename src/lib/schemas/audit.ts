@@ -3,7 +3,7 @@ import { z } from "zod";
 export const CreateAuditInput = z.object({
   results: z.record(z.string(), z.unknown()),
   planId: z
-    .enum(["starter", "recommended", "pro", "coach"])
+    .enum(["starter", "recommended", "pro", "coach"]) // includes legacy IDs for backward compat
     .nullable()
     .optional(),
   // Sanitized user input — only non-sensitive fields

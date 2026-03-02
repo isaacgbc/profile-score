@@ -38,23 +38,24 @@ interface CrealaWebhookPayload {
 }
 
 // ── Map Crea.la product names → internal planIds ─────────
-// Configure these once your products are created in Crea.la
 const PRODUCT_TO_PLAN: Record<string, string> = {
-  // "ProfileScore Starter": "starter",
-  // "ProfileScore Recommended": "recommended",
-  // "ProfileScore Pro": "pro",
-  // "ProfileScore Coach": "coach",
+  "ProfileScore Starter": "starter",
+  "ProfileScore Recommended": "recommended",
+  // Legacy mappings for any in-flight old orders
+  "ProfileScore Pro": "recommended",
+  "ProfileScore Coach": "recommended",
 };
 
 function resolvePlanId(productName: string, price: number): string | null {
   // First try exact product name mapping
   if (PRODUCT_TO_PLAN[productName]) return PRODUCT_TO_PLAN[productName];
 
-  // Fallback: match by price
+  // Fallback: match by price (2-plan structure: $5 starter, $10 recommended)
   if (price <= 5) return "starter";
-  if (price <= 9.99) return "recommended";
-  if (price <= 14.99) return "pro";
-  if (price <= 49.99) return "coach";
+  if (price <= 10) return "recommended";
+
+  // Legacy prices map to recommended
+  if (price <= 50) return "recommended";
 
   return null;
 }

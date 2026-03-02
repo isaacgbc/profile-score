@@ -3,22 +3,22 @@ import type { ExportModule } from "../types";
 export const mockExportModules: ExportModule[] = [
   {
     id: "results-summary",
-    includedInPlans: ["starter", "recommended", "pro", "coach"],
+    includedInPlans: ["starter", "recommended"],
   },
   {
     id: "full-audit",
-    includedInPlans: ["recommended", "pro", "coach"],
+    includedInPlans: ["starter", "recommended"],
   },
   {
     id: "updated-cv",
-    includedInPlans: ["recommended", "pro", "coach"],
+    includedInPlans: ["starter", "recommended"],
   },
   {
     id: "cover-letter",
-    includedInPlans: ["coach"],
+    includedInPlans: ["recommended"],
   },
   {
     id: "linkedin-updates",
-    includedInPlans: ["pro", "coach"],
+    includedInPlans: ["starter", "recommended"],
   },
 ];

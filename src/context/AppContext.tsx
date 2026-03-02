@@ -146,7 +146,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const userManuallySetLocaleRef = useRef(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [showEmailCaptureModal, setShowEmailCaptureModal] = useState(false);
-  const [userEmail, setUserEmail] = useState("");
+  const [userEmail, setUserEmailState] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("ps_userEmail") ?? "";
+    }
+    return "";
+  });
   const [userImprovements, setUserImprovements] = useState<Record<string, string>>({});
   const [userRewritten, setUserRewritten] = useState<Record<string, string>>({});
   const [userOptimized, setUserOptimizedState] = useState<Record<string, string>>({});
@@ -526,7 +531,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (data.isOwner) {
           setAuthUser((prev) => prev ? { ...prev, isOwner: true } : prev);
           setIsAdmin(true);
-          setSelectedPlan("coach" as PlanId);
+          setSelectedPlan("recommended" as PlanId);
           planAutoLoadedRef.current = true;
           console.log("[AppContext] owner_admin_auto_enabled");
 
@@ -542,12 +547,87 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
 
         if (data.activePlanId && data.subscriptionStatus === "active") {
-          setSelectedPlan(data.activePlanId as PlanId);
+          // Migrate legacy plan IDs on the fly (server also migrates DB lazily)
+          const LEGACY_REMAP: Record<string, string> = { pro: "recommended", coach: "recommended" };
+          const effectivePlan = LEGACY_REMAP[data.activePlanId] ?? data.activePlanId;
+          setSelectedPlan(effectivePlan as PlanId);
           planAutoLoadedRef.current = true;
         }
       })
       .catch(() => {});
   }, [authUser]);
+
+  // ── Post-payment restoration: recover audit state after Crea.la redirect ──
+  const paymentRestoredRef = useRef(false);
+  useEffect(() => {
+    if (paymentRestoredRef.current) return;
+    if (typeof window === "undefined") return;
+
+    const pendingAuditId = localStorage.getItem("ps_pendingAuditId");
+    const pendingPlanId = localStorage.getItem("ps_pendingPlanId");
+
+    if (!pendingAuditId) return;
+    paymentRestoredRef.current = true;
+
+    console.log("[AppContext] post-payment restore: fetching audit", pendingAuditId);
+
+    fetch(`/api/audits/${encodeURIComponent(pendingAuditId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((audit) => {
+        if (!audit?.results) {
+          console.warn("[AppContext] post-payment restore: audit not found or empty");
+          return;
+        }
+
+        // Restore results
+        const restoredResults = audit.results as ProfileResult;
+        setResultsState(restoredResults);
+        setAuditId(pendingAuditId);
+
+        // Restore plan
+        if (pendingPlanId) {
+          const LEGACY_REMAP: Record<string, string> = { pro: "recommended", coach: "recommended" };
+          const effectivePlan = LEGACY_REMAP[pendingPlanId] ?? pendingPlanId;
+          setSelectedPlan(effectivePlan as PlanId);
+        }
+
+        // Initialize user improvements from restored results
+        const initialImprovements: Record<string, string> = {};
+        [...restoredResults.linkedinRewrites, ...restoredResults.cvRewrites].forEach((r) => {
+          if (!r.locked) {
+            initialImprovements[r.sectionId] = r.improvements;
+          }
+        });
+        setUserImprovements(initialImprovements);
+
+        // Restore userInput from audit record if available
+        if (audit.userInput && typeof audit.userInput === "object") {
+          const ui = audit.userInput as Record<string, unknown>;
+          setUserInputState((prev) => ({
+            ...prev,
+            jobDescription: (ui.jobDescription as string) ?? prev.jobDescription,
+            targetAudience: (ui.targetAudience as string) ?? prev.targetAudience,
+            objectiveMode: (ui.objectiveMode as "job" | "objective") ?? prev.objectiveMode,
+            objectiveText: (ui.objectiveText as string) ?? prev.objectiveText,
+          }));
+        }
+
+        trackEvent("payment_restored", {
+          auditId: pendingAuditId,
+          planId: pendingPlanId,
+        });
+
+        console.log("[AppContext] post-payment restore: complete, plan=", pendingPlanId);
+      })
+      .catch((err) => {
+        console.error("[AppContext] post-payment restore failed:", err);
+      })
+      .finally(() => {
+        // Always clean up localStorage keys
+        localStorage.removeItem("ps_pendingAuditId");
+        localStorage.removeItem("ps_pendingPlanId");
+      });
+  }, []);
 
   /** User-facing locale setter: tracks manual override to prevent auto-detect clobber */
   const setExportLocale = useCallback((l: Locale) => {
@@ -566,6 +646,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       localStorage.setItem("ps_exportLocale", exportLocale);
     }
   }, [exportLocale]);
+
+  /** Persist user email to localStorage so it survives page navigations */
+  const setUserEmail = useCallback((email: string) => {
+    setUserEmailState(email);
+    if (typeof window !== "undefined") {
+      try { localStorage.setItem("ps_userEmail", email); } catch { /* full */ }
+    }
+  }, []);
 
   const signOut = useCallback(async () => {
     await supabaseRef.current.auth.signOut();
@@ -826,7 +914,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const isCoverLetterUnlocked = useCallback(() => {
     if (isAdmin) return true;
-    return selectedPlan === "coach";
+    return selectedPlan === "recommended";
   }, [isAdmin, selectedPlan]);
 
   const isExportModuleUnlocked = useCallback(

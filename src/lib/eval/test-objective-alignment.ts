@@ -71,7 +71,7 @@ async function testGrowthModeEN(): Promise<{ passed: boolean; evidence: string }
       targetAudience: "LinkedIn professionals",
       objectiveMode: "objective",
       objectiveText: "Increase my LinkedIn followers and thought leadership visibility",
-      planId: "coach",
+      planId: "recommended",
       isAdmin: true,
     },
     "en"
@@ -109,7 +109,7 @@ async function testJobModeEN(): Promise<{ passed: boolean; evidence: string }> {
       targetAudience: "Hiring managers",
       objectiveMode: "job",
       objectiveText: "",
-      planId: "coach",
+      planId: "recommended",
       isAdmin: true,
     },
     "en"
@@ -143,7 +143,7 @@ async function testGrowthModeES(): Promise<{ passed: boolean; evidence: string }
       targetAudience: "Profesionales de LinkedIn",
       objectiveMode: "objective",
       objectiveText: "Aumentar seguidores en LinkedIn y visibilidad de liderazgo de pensamiento",
-      planId: "coach",
+      planId: "recommended",
       isAdmin: true,
     },
     "es"
