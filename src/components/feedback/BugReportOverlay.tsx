@@ -21,11 +21,13 @@ export default function BugReportOverlay() {
     if (!description.trim()) return;
 
     trackEvent("bug_report_submitted", {
-      severity,
-      url: typeof window !== "undefined" ? window.location.pathname : "",
-      userAgent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 200) : "",
-      description: description.slice(0, 1000),
-      steps: steps.slice(0, 500),
+      metadata: {
+        severity,
+        reportUrl: typeof window !== "undefined" ? window.location.pathname : "",
+        browser: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 200) : "",
+        description: description.slice(0, 1000),
+        steps: steps.slice(0, 500),
+      },
     });
     setSubmitted(true);
   };

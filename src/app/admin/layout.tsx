@@ -120,6 +120,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             >
               Analytics
             </Link>
+            <Link
+              href="/admin/feedback"
+              className="text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--accent)]"
+            >
+              Feedback
+            </Link>
+            <Link
+              href="/admin/blog"
+              className="text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--accent)]"
+            >
+              Blog
+            </Link>
             <button
               onClick={() => {
                 sessionStorage.removeItem("adminToken");

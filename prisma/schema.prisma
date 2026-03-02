@@ -137,3 +137,25 @@ model AnalyticsEvent {
   @@index([sessionId])
   @@map("analytics_events")
 }
+
+model BlogPost {
+  id             String   @id @default(uuid())
+  slug           String   @unique
+  title          String
+  titleEs        String   @default("") @map("title_es")
+  description    String   @default("")
+  descriptionEs  String   @default("") @map("description_es")
+  content        String   @default("")
+  contentEs      String   @default("") @map("content_es")
+  author         String   @default("Profile Score Team")
+  tags           String[] @default([])
+  readingTimeMin Int      @default(5) @map("reading_time_min")
+  published      Boolean  @default(false)
+  publishedAt    DateTime @default(now()) @map("published_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([published])
+  @@index([publishedAt])
+  @@map("blog_posts")
+}

@@ -90,15 +90,31 @@ export default function Header() {
               </Link>
             ) : null}
 
-            {/* Admin prompts link */}
+            {/* Admin links */}
             {isAdmin && (
-              <Link
-                href="/admin/prompts"
-                className="hidden sm:flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium
-                  text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
-              >
-                Prompts
-              </Link>
+              <div className="hidden sm:flex items-center gap-1">
+                <Link
+                  href="/admin/prompts"
+                  className="px-2 py-1.5 rounded-lg text-xs font-medium
+                    text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
+                >
+                  Prompts
+                </Link>
+                <Link
+                  href="/admin/feedback"
+                  className="px-2 py-1.5 rounded-lg text-xs font-medium
+                    text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
+                >
+                  Feedback
+                </Link>
+                <Link
+                  href="/admin/blog"
+                  className="px-2 py-1.5 rounded-lg text-xs font-medium
+                    text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
+                >
+                  Blog
+                </Link>
+              </div>
             )}
 
             {/* Admin toggle (password-protected) */}
@@ -117,6 +133,15 @@ export default function Header() {
               <span className="w-1.5 h-1.5 rounded-full bg-current" />
               {isAdmin ? t.common.adminActive : t.common.admin}
             </button>
+
+            {/* Blog link */}
+            <Link
+              href="/blog"
+              className="hidden sm:flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium
+                text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
+            >
+              Blog
+            </Link>
 
             {/* Language switcher */}
             <div className="relative flex items-center">

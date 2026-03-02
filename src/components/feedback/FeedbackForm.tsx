@@ -22,10 +22,12 @@ export default function FeedbackForm() {
     if (rating === 0) return;
 
     trackEvent("feedback_submitted", {
-      rating,
-      useful: useful.slice(0, 500),
-      recommend: recommend ?? "skipped",
-      improve: improve.slice(0, 500),
+      metadata: {
+        rating,
+        useful: useful.slice(0, 500),
+        recommend: recommend ?? "skipped",
+        improve: improve.slice(0, 500),
+      },
     });
     setSubmitted(true);
   };
