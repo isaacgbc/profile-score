@@ -71,9 +71,7 @@ const EVENT_TO_ANALYTICS: Record<CrealaEvent, string> = {
 
 // ── HMAC SHA-256 signature verification ──────────────────
 // Per Crea.la docs: HMAC-SHA256(webhookSecret, rawRequestBody)
-// TODO: Signature verification is currently warn-only. Crea.la's computed
-// signatures don't match our HMAC output with the dashboard secret.
-// Re-enable strict mode once confirmed with Crea.la support.
+// Note: Each product has its own webhook secret (not the "General" one).
 async function verifySignature(
   rawBody: string,
   signature: string,
@@ -117,21 +115,17 @@ export async function POST(request: Request) {
   // ── Read raw body for signature verification ──
   const rawBody = await request.text();
 
-  // ── Verify signature (warn-only mode) ──
-  // Crea.la sends X-Webhook-Signature header with HMAC-SHA256.
-  // Currently warn-only because computed HMACs don't match Crea.la's —
-  // likely a signing-format issue on their end. Re-enable strict mode
-  // once confirmed with Crea.la support.
+  // ── Verify HMAC signature ──
   const signature = request.headers.get("x-webhook-signature") ?? "";
-  if (signature) {
-    const valid = await verifySignature(rawBody, signature, webhookSecret);
-    if (valid) {
-      console.log("[Creala] ✓ Signature verified");
-    } else {
-      console.warn("[Creala] ⚠ Signature mismatch (warn-only mode, proceeding)");
-    }
-  } else {
-    console.warn("[Creala] ⚠ No signature header present");
+  if (!signature) {
+    console.error("[Creala] Missing X-Webhook-Signature header");
+    return NextResponse.json({ error: "Missing signature" }, { status: 401 });
+  }
+
+  const valid = await verifySignature(rawBody, signature, webhookSecret);
+  if (!valid) {
+    console.error("[Creala] Invalid webhook signature");
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
   // ── Parse payload ──
