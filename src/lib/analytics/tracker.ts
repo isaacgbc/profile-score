@@ -15,6 +15,17 @@ export interface TrackPayload {
   sourceType?: "linkedin" | "cv" | "both";
   locale?: string;
   metadata?: Record<string, unknown>;
+  // Feedback form
+  rating?: number;
+  useful?: string;
+  recommend?: boolean | string;
+  improve?: string;
+  // Bug report
+  severity?: string;
+  url?: string;
+  userAgent?: string;
+  description?: string;
+  steps?: string;
 }
 
 // ── Sensitive key pattern (case-insensitive) ───────────

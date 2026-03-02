@@ -26,8 +26,9 @@ import {
 import { mockPlans } from "@/lib/mock/plans";
 import { mockExportModules } from "@/lib/mock/export-modules";
 import type { PlanId, ExportModuleId, ExportFormat, FeatureId } from "@/lib/types";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { trackEvent, hasTrackedThisSession, markTrackedThisSession } from "@/lib/analytics/tracker";
+import FeedbackForm from "@/components/feedback/FeedbackForm";
 import { countSectionPlaceholders } from "@/lib/utils/placeholder-detect";
 import { computeEntryStableId } from "@/lib/utils/entry-id";
 
@@ -96,7 +97,15 @@ export default function CheckoutPage() {
 
   const { getModuleFormatState, createExport, createExportAndDownload, downloadExport, retryExport } = useExport();
   const [bypassPlaceholders, setBypassPlaceholders] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const checkoutT = t.checkout as Record<string, string>;
+
+  // Show feedback form 2s after first export is triggered
+  const triggerFeedback = useCallback(() => {
+    if (showFeedback || feedbackTimer.current) return;
+    feedbackTimer.current = setTimeout(() => setShowFeedback(true), 2000);
+  }, [showFeedback]);
 
   // HOTFIX-URGENT: Log exportLocale carryover on checkout mount
   useEffect(() => {
@@ -159,6 +168,8 @@ export default function CheckoutPage() {
         userOptimized: usedUserOptimized ? userOptimized : undefined,
       },
     });
+
+    triggerFeedback();
   }
 
   function handleRetry(moduleId: ExportModuleId, format: ExportFormat) {
@@ -697,6 +708,13 @@ export default function CheckoutPage() {
             </div>
           </Card>
         </section>
+
+        {/* ─── Feedback Form (after first export) ─── */}
+        {showFeedback && (
+          <section className="mb-6 animate-slide-up">
+            <FeedbackForm />
+          </section>
+        )}
 
         {/* Trust signals */}
         <div className="flex flex-col items-center gap-2 mb-8">

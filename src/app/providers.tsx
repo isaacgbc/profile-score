@@ -6,6 +6,7 @@ import { AppProvider } from "@/context/AppContext";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import AdminBanner from "@/components/layout/AdminBanner";
+import BugReportOverlay from "@/components/feedback/BugReportOverlay";
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
@@ -16,6 +17,7 @@ export function Providers({ children }: { children: ReactNode }) {
           <Header />
           <main className="flex-1">{children}</main>
           <Footer />
+          <BugReportOverlay />
         </div>
       </AppProvider>
     </I18nProvider>
