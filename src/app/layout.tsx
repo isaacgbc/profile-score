@@ -52,7 +52,7 @@ export const metadata: Metadata = {
     title: "Profile Score — AI-Powered LinkedIn + CV Optimization",
     description:
       "Score your LinkedIn profile and CV instantly with AI. Get section-by-section audits, ATS-optimized rewrites, and professional exports.",
-    images: [{ url: "/brand/logo.png", width: 512, height: 512, alt: "Profile Score" }],
+    images: [{ url: "/brand/logo.png", width: 1000, height: 1000, alt: "Profile Score" }],
     type: "website",
     siteName: "Profile Score",
     locale: "en_US",
@@ -125,6 +125,7 @@ const jsonLd = {
       url: baseUrl,
       logo: `${baseUrl}/brand/logo.png`,
       description: "AI-powered LinkedIn and CV optimization platform.",
+      sameAs: ["https://www.linkedin.com/company/profilescore/"],
     },
     {
       "@type": "WebSite",

@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     description:
       "Analizá tu perfil de LinkedIn y CV con IA. Conseguí un score unificado y mejorá tu presencia profesional. Gratis para empezar.",
     url: baseUrl,
-    images: [{ url: "/brand/logo.png", width: 512, height: 512, alt: "Profile Score" }],
+    images: [{ url: "/brand/logo.png", width: 1000, height: 1000, alt: "Profile Score" }],
     type: "website",
   },
   twitter: {
