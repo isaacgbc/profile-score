@@ -57,9 +57,9 @@ export default function PricingModal() {
     return authUser?.email || userEmail || null;
   }
 
-  /** Redirect to Crea.la checkout with email pre-filled */
-  function redirectToCheckout(planId: PlanId, email: string | null) {
-    // Save current audit state to localStorage so it survives the redirect
+  /** Open Crea.la checkout in a new tab (user keeps their results visible) */
+  function openCheckout(planId: PlanId, email: string | null) {
+    // Safety net: save audit state in case user closes this tab
     if (auditId) {
       try {
         localStorage.setItem("ps_pendingAuditId", auditId);
@@ -71,7 +71,7 @@ export default function PricingModal() {
     const checkoutUrl = email
       ? `${baseUrl}?email=${encodeURIComponent(email)}`
       : baseUrl;
-    window.location.href = checkoutUrl;
+    window.open(checkoutUrl, "_blank", "noopener");
   }
 
   function handleSelectPlan(planId: PlanId) {
@@ -95,8 +95,8 @@ export default function PricingModal() {
         setPendingPlanId(planId);
         return;
       }
+      openCheckout(planId, email);
       setShowPricingModal(false);
-      redirectToCheckout(planId, email);
     } else {
       // When payments disabled: plan unlocks content locally, user stays on page
       setShowPricingModal(false);
@@ -114,7 +114,7 @@ export default function PricingModal() {
         planId: pendingPlanId,
         metadata: { email },
       });
-      redirectToCheckout(pendingPlanId, email);
+      openCheckout(pendingPlanId, email);
     }
   }
 
