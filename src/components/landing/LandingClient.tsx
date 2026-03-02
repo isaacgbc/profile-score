@@ -9,8 +9,11 @@ import StatsRow from "./StatsRow";
 import ValueCards from "./ValueCards";
 import ATSWarning from "./ATSWarning";
 import FeaturesGrid from "./FeaturesGrid";
+import WhySection from "./WhySection";
 import ComparisonSection from "./ComparisonSection";
+import CompetitorTable from "./CompetitorTable";
 import SocialProofSection from "./SocialProofSection";
+import CaseStudiesSection from "./CaseStudiesSection";
 import TrustMarquee from "./TrustMarquee";
 import HowItWorksSection from "./HowItWorksSection";
 import FAQSection from "./FAQSection";
@@ -33,8 +36,11 @@ export default function LandingClient() {
       <ValueCards />
       <ATSWarning />
       <FeaturesGrid />
+      <WhySection />
       <ComparisonSection />
+      <CompetitorTable />
       <SocialProofSection />
+      <CaseStudiesSection />
       <TrustMarquee />
       <HowItWorksSection />
       <FAQSection />

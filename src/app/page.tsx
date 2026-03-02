@@ -4,20 +4,23 @@ import LandingClient from "@/components/landing/LandingClient";
 const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "https://profilescore.app";
 
 export const metadata: Metadata = {
+  title: "ProfileScore – Score de tu perfil LinkedIn y CV | Gratis",
+  description:
+    "Analizá tu perfil de LinkedIn y CV con IA. Conseguí un score unificado y mejorá tu presencia profesional. Gratis para empezar.",
   alternates: { canonical: "/" },
   openGraph: {
-    title: "Profile Score — AI-Powered LinkedIn + CV Optimization",
+    title: "ProfileScore – Score de tu perfil LinkedIn y CV | Gratis",
     description:
-      "Score your LinkedIn profile and CV instantly with AI. Get section-by-section audits, ATS-optimized rewrites, and professional exports.",
+      "Analizá tu perfil de LinkedIn y CV con IA. Conseguí un score unificado y mejorá tu presencia profesional. Gratis para empezar.",
     url: baseUrl,
     images: [{ url: "/brand/logo.png", width: 512, height: 512, alt: "Profile Score" }],
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Profile Score — AI-Powered LinkedIn + CV Optimization",
+    title: "ProfileScore – Score de tu perfil LinkedIn y CV | Gratis",
     description:
-      "Score your LinkedIn profile and CV instantly with AI. Get section-by-section audits, ATS-optimized rewrites, and professional exports.",
+      "Analizá tu perfil de LinkedIn y CV con IA. Conseguí un score unificado y mejorá tu presencia profesional. Gratis para empezar.",
     images: ["/brand/logo.png"],
   },
 };
