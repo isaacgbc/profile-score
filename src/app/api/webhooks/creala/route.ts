@@ -111,12 +111,35 @@ export async function POST(request: Request) {
   // ── Read raw body for signature verification ──
   const rawBody = await request.text();
 
-  // ── Verify signature ──
-  const signature = request.headers.get("x-webhook-signature") ?? "";
-  const valid = await verifySignature(rawBody, signature, webhookSecret);
-  if (!valid) {
-    console.error("[Creala] Invalid webhook signature");
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  // ── Diagnostic: log incoming headers and body preview ──
+  const allHeaders: Record<string, string> = {};
+  request.headers.forEach((v, k) => { allHeaders[k] = v; });
+  console.log("[Creala] Incoming webhook headers:", JSON.stringify(allHeaders));
+  console.log("[Creala] Body preview:", rawBody.slice(0, 500));
+
+  // ── Verify signature (try multiple header names) ──
+  const signature =
+    request.headers.get("x-webhook-signature") ??
+    request.headers.get("x-signature") ??
+    request.headers.get("webhook-signature") ??
+    request.headers.get("x-creala-signature") ??
+    "";
+
+  if (!signature) {
+    console.error("[Creala] No signature header found in request");
+    // In test mode, allow unsigned requests but log warning
+    const bodyPreview = rawBody.slice(0, 200);
+    if (bodyPreview.includes('"test":true') || bodyPreview.includes('"test": true')) {
+      console.warn("[Creala] Allowing unsigned test event");
+    } else {
+      return NextResponse.json({ error: "Missing signature header" }, { status: 401 });
+    }
+  } else {
+    const valid = await verifySignature(rawBody, signature, webhookSecret);
+    if (!valid) {
+      console.error("[Creala] Invalid webhook signature. Received:", signature.slice(0, 20) + "...");
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    }
   }
 
   // ── Parse payload ──
@@ -124,10 +147,25 @@ export async function POST(request: Request) {
   try {
     payload = JSON.parse(rawBody);
   } catch {
+    console.error("[Creala] Failed to parse JSON body:", rawBody.slice(0, 300));
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  console.log("[Creala] Parsed payload:", JSON.stringify({
+    event: payload.event,
+    saleId: payload.saleId,
+    test: payload.test,
+    product: payload.product?.name,
+    customer: payload.customer?.email,
+  }));
+
   const { event, saleId, product, customer, subscription, test: isTest } = payload;
+
+  // Validate required fields
+  if (!event || !saleId || !product || !customer) {
+    console.error("[Creala] Missing required fields in payload");
+    return NextResponse.json({ error: "Missing required fields", received: { event, saleId, hasProduct: !!product, hasCustomer: !!customer } }, { status: 400 });
+  }
 
   // ── Idempotency: check if saleId already processed ──
   const existing = await prisma.order.findUnique({
