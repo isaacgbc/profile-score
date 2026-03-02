@@ -629,6 +629,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
+  // ── Re-fetch plan when user returns to this tab (e.g. after paying in new tab) ──
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.hidden || !authUser) return;
+
+      // Quick check: did the server-side plan change since we last loaded?
+      fetch("/api/user/me")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data?.activePlanId || data.subscriptionStatus !== "active") return;
+
+          const LEGACY_REMAP: Record<string, string> = { pro: "recommended", coach: "recommended" };
+          const serverPlan = (LEGACY_REMAP[data.activePlanId] ?? data.activePlanId) as PlanId;
+
+          // Only update if server has a plan the client doesn't have yet
+          if (serverPlan && serverPlan !== selectedPlan) {
+            setSelectedPlan(serverPlan);
+            planAutoLoadedRef.current = true;
+            console.log("[AppContext] plan refreshed on tab focus:", serverPlan);
+          }
+        })
+        .catch(() => {});
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [authUser, selectedPlan]);
+
   /** User-facing locale setter: tracks manual override to prevent auto-detect clobber */
   const setExportLocale = useCallback((l: Locale) => {
     userManuallySetLocaleRef.current = true;
