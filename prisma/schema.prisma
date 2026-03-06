@@ -138,6 +138,32 @@ model AnalyticsEvent {
   @@map("analytics_events")
 }
 
+model ErrorLog {
+  id          String   @id @default(uuid())
+  level       String   @default("error") // error | warn | fatal
+  source      String   // e.g. "api/audit/generate", "api/audit/stream", "api/exports/create"
+  message     String
+  stack       String?
+  code        String?  // e.g. "GENERATION_FAILED", "RATE_LIMITED", "CIRCUIT_OPEN"
+  statusCode  Int?     @map("status_code")
+  requestId   String?  @map("request_id")
+  userId      String?  @map("user_id")
+  ip          String?
+  userAgent   String?  @map("user_agent")
+  locale      String?
+  inputMeta   Json?    @map("input_meta") // sanitized input metadata (no PII, just sizes/flags)
+  resolved    Boolean  @default(false)
+  notes       String?  // admin notes about the bug
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([level])
+  @@index([source])
+  @@index([code])
+  @@index([resolved])
+  @@index([createdAt])
+  @@map("error_logs")
+}
+
 model BlogPost {
   id             String   @id @default(uuid())
   slug           String   @unique

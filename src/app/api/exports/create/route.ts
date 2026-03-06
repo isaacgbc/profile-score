@@ -6,6 +6,7 @@ import { isServerAdmin } from "@/lib/services/admin-guard";
 import { exportRateLimiter } from "@/lib/services/rate-limiter";
 import { generateExport } from "@/lib/services/export-generator";
 import { uploadExport } from "@/lib/db/storage";
+import { logError, extractRequestMeta } from "@/lib/services/error-logger";
 import type { ExportModuleId, ExportFormat, ProfileResult } from "@/lib/types";
 import type { ExportUserInput } from "@/lib/services/export-generator";
 import { computeEntryStableId } from "@/lib/utils/entry-id";
@@ -176,6 +177,19 @@ export async function POST(request: Request) {
         data: { status: "failed", errorMessage },
       });
 
+      const { ip: reqIp, userAgent } = extractRequestMeta(request);
+      logError({
+        level: "error",
+        source: "api/exports/create",
+        message: errorMessage,
+        error: genErr,
+        code: "EXPORT_FAILED",
+        statusCode: 500,
+        ip: reqIp,
+        userAgent,
+        inputMeta: { auditId, exportType, format, language },
+      });
+
       return NextResponse.json({
         exportId: exportRecord.id,
         status: "failed",
@@ -183,7 +197,17 @@ export async function POST(request: Request) {
       });
     }
   } catch (err) {
-    console.error("POST /api/exports/create error:", err);
+    const { ip: reqIp, userAgent } = extractRequestMeta(request);
+    logError({
+      level: "error",
+      source: "api/exports/create",
+      message: err instanceof Error ? err.message : "Export creation failed",
+      error: err,
+      code: "EXPORT_FAILED",
+      statusCode: 500,
+      ip: reqIp,
+      userAgent,
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

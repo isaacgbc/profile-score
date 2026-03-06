@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateAuditResults } from "@/lib/services/audit-orchestrator";
 import { validateAndPrepareInput } from "../generate/shared";
+import { logError, extractRequestMeta } from "@/lib/services/error-logger";
 import type { Locale, PlanId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -73,7 +74,17 @@ export async function POST(request: Request) {
 
         await send("complete", { results: result.results, meta: result.meta });
       } catch (err) {
-        console.error("POST /api/audit/stream generation error:", err);
+        const { ip, userAgent } = extractRequestMeta(request);
+        logError({
+          level: "error",
+          source: "api/audit/stream",
+          message: err instanceof Error ? err.message : "Stream generation failed",
+          error: err,
+          code: "STREAM_FAILED",
+          statusCode: 500,
+          ip,
+          userAgent,
+        });
         await send("error", {
           error: err instanceof Error ? err.message : "Generation failed. Please try again.",
         });
@@ -101,7 +112,17 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
-    console.error("POST /api/audit/stream error:", err);
+    const { ip, userAgent } = extractRequestMeta(request);
+    logError({
+      level: "error",
+      source: "api/audit/stream",
+      message: err instanceof Error ? err.message : "Stream setup failed",
+      error: err,
+      code: "STREAM_FAILED",
+      statusCode: 500,
+      ip,
+      userAgent,
+    });
     return NextResponse.json(
       { error: "Generation failed. Please try again." },
       { status: 500 }

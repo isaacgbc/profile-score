@@ -7,6 +7,7 @@ import {
   completeProgress,
   failProgress,
 } from "@/lib/services/progress-store";
+import { logError, extractRequestMeta } from "@/lib/services/error-logger";
 import type { Locale, PlanId } from "@/lib/types";
 
 const ENABLE_PROGRESS_REGISTRY =
@@ -101,7 +102,17 @@ export async function POST(request: Request) {
       throw err;
     }
   } catch (err) {
-    console.error("POST /api/audit/generate error:", err);
+    const { ip, userAgent } = extractRequestMeta(request);
+    logError({
+      level: "error",
+      source: "api/audit/generate",
+      message: err instanceof Error ? err.message : "Generation failed",
+      error: err,
+      code: "GENERATION_FAILED",
+      statusCode: 500,
+      ip,
+      userAgent,
+    });
     return NextResponse.json(
       { error: "Generation failed. Please try again." },
       { status: 500 }

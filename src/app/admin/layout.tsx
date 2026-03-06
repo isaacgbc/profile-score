@@ -127,6 +127,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               Feedback
             </Link>
             <Link
+              href="/admin/errors"
+              className="text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--accent)]"
+            >
+              Errors
+            </Link>
+            <Link
               href="/admin/blog"
               className="text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--accent)]"
             >
