@@ -1262,6 +1262,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setIsGenerating(true);
       setGenerationError(null);
 
+      // Read Apify preparsed sections from sessionStorage (written by input page on scrape success)
+      let preparsedLinkedinSections: Record<string, string> | undefined;
+      let preparsedLinkedinEntries:
+        | Record<string, Record<string, unknown>[]>
+        | undefined;
+      let linkedinProfileSource: "paste" | "apify" | "pdf" | undefined;
+      try {
+        const raw = sessionStorage.getItem("__ps_preparsedLinkedinSections");
+        const src = sessionStorage.getItem("__ps_linkedinProfileSource");
+        if (raw) {
+          preparsedLinkedinSections = JSON.parse(raw);
+          // Clear after reading so re-audits from paste don't reuse stale Apify data
+          sessionStorage.removeItem("__ps_preparsedLinkedinSections");
+          sessionStorage.removeItem("__ps_linkedinProfileSource");
+        }
+        const rawEntries = sessionStorage.getItem(
+          "__ps_preparsedLinkedinEntries",
+        );
+        if (rawEntries) {
+          preparsedLinkedinEntries = JSON.parse(rawEntries);
+          sessionStorage.removeItem("__ps_preparsedLinkedinEntries");
+        }
+        if (src === "apify" || src === "paste" || src === "pdf") {
+          linkedinProfileSource = src;
+        }
+      } catch {
+        // sessionStorage unavailable — fall through to standard text path
+      }
+
       const inputPayload = {
         linkedinText: userInput.linkedinText,
         cvText: userInput.cvText || undefined,
@@ -1276,6 +1305,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         appLocale: locale,
         forceFresh: options?.forceFresh ?? false,
         isPdfSource: !!(userInput.linkedinText && !userInput.linkedinUrl),
+        preparsedLinkedinSections,
+        preparsedLinkedinEntries,
+        linkedinProfileSource,
       };
 
       // Sprint 2.2: Use poll-based progress (works on Vercel Hobby/Lambda)
