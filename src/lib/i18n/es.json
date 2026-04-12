@@ -271,7 +271,10 @@
     "linkedinDesc": "Sube tu exportación PDF de LinkedIn para mejores resultados",
     "linkedinPdfUpload": "Subir PDF de LinkedIn",
     "linkedinPdfDesc": "Ve a tu perfil de LinkedIn → Más → Guardar como PDF",
-    "linkedinUrlPlaceholder": "https://linkedin.com/in/tu-perfil",
+    "linkedinUrlPrimaryLabel": "Pega la URL de tu perfil de LinkedIn",
+    "linkedinUrlHelp": "Analizaremos tu perfil completo en segundos",
+    "useCvAlternativeTitle": "¿Prefieres subir tu CV?",
+    "linkedinUrlPlaceholder": "https://linkedin.com/in/tunombre",
     "linkedinTextPlaceholder": "O pega el texto completo de tu perfil de LinkedIn aquí...",
     "linkedinProvided": "Perfil de LinkedIn añadido",
     "pdfScanError": "Este PDF parece ser una imagen escaneada. Por favor sube un PDF con texto, o pega el texto de tu perfil abajo.",
@@ -581,6 +584,7 @@
   "progress": {
     "analyzing": "Analizando tu perfil",
     "sectionsComplete": "secciones completadas",
+    "stageScraping": "Analizando tu perfil de LinkedIn...",
     "stageExtractingInput": "Leyendo tu perfil...",
     "stageStructuring": "Estructurando tu perfil...",
     "stageAuditing": "Puntuando tus secciones...",
@@ -679,5 +683,26 @@
     "privacy": "Política de Privacidad",
     "terms": "Términos de Servicio",
     "allRightsReserved": "Todos los derechos reservados."
+  },
+  "apify": {
+    "error": {
+      "private": "Este perfil de LinkedIn es privado. Hazlo público o sube tu CV.",
+      "invalidUrl": "Esa URL no parece un perfil de LinkedIn. Prueba con https://linkedin.com/in/tunombre",
+      "rateLimit": "Estamos recibiendo muchas solicitudes. Inténtalo de nuevo en un minuto.",
+      "downtime": "El análisis de LinkedIn no está disponible ahora. Puedes subir tu CV.",
+      "quotaExceeded": "Has usado tu escaneo gratuito. Actualiza para obtener escaneos ilimitados por $5.",
+      "generic": "No pudimos analizar ese perfil. Inténtalo de nuevo.",
+      "disabled": "El análisis de LinkedIn no está disponible temporalmente."
+    },
+    "dashboard": {
+      "remaining": "Escaneos restantes: {count}",
+      "unlimited": "Escaneos ilimitados",
+      "label": "Escaneos de LinkedIn"
+    },
+    "actions": {
+      "retry": "Intentar de nuevo",
+      "switchToCv": "Subir CV en su lugar",
+      "upgrade": "Actualizar plan"
+    }
   }
 }

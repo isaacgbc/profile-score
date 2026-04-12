@@ -271,7 +271,10 @@
     "linkedinDesc": "Upload your LinkedIn PDF export for the best results",
     "linkedinPdfUpload": "Upload LinkedIn PDF Export",
     "linkedinPdfDesc": "Go to your LinkedIn profile → More → Save to PDF",
-    "linkedinUrlPlaceholder": "https://linkedin.com/in/your-profile",
+    "linkedinUrlPrimaryLabel": "Paste your LinkedIn profile URL",
+    "linkedinUrlHelp": "We'll analyze your full profile in seconds",
+    "useCvAlternativeTitle": "Prefer to upload your CV instead?",
+    "linkedinUrlPlaceholder": "https://linkedin.com/in/yourname",
     "linkedinTextPlaceholder": "Or paste your full LinkedIn profile text here...",
     "linkedinProvided": "LinkedIn profile added",
     "pdfScanError": "This PDF appears to be a scanned image. Please upload a text-based PDF, or paste your profile text below.",
@@ -581,6 +584,7 @@
   "progress": {
     "analyzing": "Analyzing your profile",
     "sectionsComplete": "sections complete",
+    "stageScraping": "Analyzing your LinkedIn profile...",
     "stageExtractingInput": "Reading your profile...",
     "stageStructuring": "Structuring your profile...",
     "stageAuditing": "Scoring your sections...",
@@ -679,5 +683,26 @@
     "privacy": "Privacy Policy",
     "terms": "Terms of Service",
     "allRightsReserved": "All rights reserved."
+  },
+  "apify": {
+    "error": {
+      "private": "This LinkedIn profile is private. Make it public or upload your CV.",
+      "invalidUrl": "That doesn't look like a LinkedIn profile URL. Try https://linkedin.com/in/yourname",
+      "rateLimit": "We're getting lots of requests. Please try again in a minute.",
+      "downtime": "LinkedIn scraping is temporarily unavailable. You can upload your CV instead.",
+      "quotaExceeded": "You've used your free scan. Upgrade to unlimited scans for $5.",
+      "generic": "We couldn't analyze that profile. Please try again.",
+      "disabled": "LinkedIn scanning is temporarily unavailable."
+    },
+    "dashboard": {
+      "remaining": "Scans remaining: {count}",
+      "unlimited": "Unlimited scans",
+      "label": "LinkedIn scans"
+    },
+    "actions": {
+      "retry": "Try again",
+      "switchToCv": "Upload CV instead",
+      "upgrade": "Upgrade plan"
+    }
   }
 }
