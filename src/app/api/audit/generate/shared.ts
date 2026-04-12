@@ -50,6 +50,10 @@ export const GenerateAuditInput = z.object({
   isPdfSource: z.boolean().default(false),
   /** Phase 1: Pre-parsed LinkedIn sections from Apify formatter — bypasses Stage 2 parser */
   preparsedLinkedinSections: z.record(z.string(), z.string()).optional(),
+  /** Structured Apify entries — bypasses entry re-parsing when present */
+  preparsedLinkedinEntries: z
+    .record(z.string(), z.array(z.record(z.string(), z.unknown())))
+    .optional(),
   /** Phase 1: Source of LinkedIn profile data */
   linkedinProfileSource: z.enum(["paste", "apify", "pdf"]).optional(),
   /** Sprint 2.2: Client-generated requestId for poll-based progress tracking */
