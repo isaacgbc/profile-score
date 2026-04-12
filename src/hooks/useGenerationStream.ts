@@ -19,6 +19,7 @@ export interface GenerationMeta {
   fallbackCount: number;
   hasFallback: boolean;
   degraded: boolean;
+  degradationLevel?: "none" | "partial" | "severe";
   failureReasons: string[];
   detectedLanguage?: string;
   languageConfidence?: number;
@@ -61,6 +62,12 @@ export interface GenerateStreamInput {
   locale: string;
   forceFresh?: boolean;
   isPdfSource?: boolean;
+  /** Apify preparsed sections — bypasses Stage 2 parsing when present */
+  preparsedLinkedinSections?: Record<string, string>;
+  /** Structured Apify entries — bypasses entry re-parsing when present */
+  preparsedLinkedinEntries?: Record<string, Record<string, unknown>[]>;
+  /** Source of linkedin data: paste, apify, or pdf */
+  linkedinProfileSource?: "paste" | "apify" | "pdf";
 }
 
 /**
@@ -94,7 +101,9 @@ export function useGenerationStream() {
         });
 
         if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: "Generation failed" }));
+          const err = await res
+            .json()
+            .catch(() => ({ error: "Generation failed" }));
           setState((prev) => ({
             ...prev,
             isStreaming: false,
@@ -175,7 +184,10 @@ export function useGenerationStream() {
                   isStreaming: false,
                   isComplete: true,
                   percent: 100,
-                  finalResults: data as { results: ProfileResult; meta: GenerationMeta },
+                  finalResults: data as {
+                    results: ProfileResult;
+                    meta: GenerationMeta;
+                  },
                 }));
               } else if (eventType === "error") {
                 setState((prev) => ({
@@ -210,7 +222,8 @@ export function useGenerationStream() {
         setState((prev) => ({
           ...prev,
           isStreaming: false,
-          error: err instanceof Error ? err.message : "Stream connection failed",
+          error:
+            err instanceof Error ? err.message : "Stream connection failed",
         }));
       }
     })();

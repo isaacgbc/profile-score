@@ -18,6 +18,7 @@ export interface GenerationMeta {
   fallbackCount: number;
   hasFallback: boolean;
   degraded: boolean;
+  degradationLevel?: "none" | "partial" | "severe";
   failureReasons: string[];
   detectedLanguage?: string;
   languageConfidence?: number;
@@ -60,6 +61,12 @@ export interface GenerateInput {
   locale: string;
   forceFresh?: boolean;
   isPdfSource?: boolean;
+  /** Apify preparsed sections — bypasses Stage 2 parsing when present */
+  preparsedLinkedinSections?: Record<string, string>;
+  /** Structured Apify entries — bypasses entry re-parsing when present */
+  preparsedLinkedinEntries?: Record<string, Record<string, unknown>[]>;
+  /** Source of linkedin data: paste, apify, or pdf */
+  linkedinProfileSource?: "paste" | "apify" | "pdf";
 }
 
 const POLL_INTERVAL_MS = 1500; // Poll every 1.5s
@@ -119,9 +126,10 @@ export function useProgressPolling() {
           label: data.label ?? prev.label,
           totalSections: data.totalSections ?? prev.totalSections,
           // Use the full array from server (accumulative)
-          completedSections: data.completedSections?.length > prev.completedSections.length
-            ? data.completedSections
-            : prev.completedSections,
+          completedSections:
+            data.completedSections?.length > prev.completedSections.length
+              ? data.completedSections
+              : prev.completedSections,
         };
 
         if (data.error) {
@@ -157,7 +165,7 @@ export function useProgressPolling() {
       // Start polling immediately
       pollTimerRef.current = setInterval(
         () => pollProgress(requestId),
-        POLL_INTERVAL_MS
+        POLL_INTERVAL_MS,
       );
 
       // Fire the POST (blocks until generation completes)
@@ -219,7 +227,7 @@ export function useProgressPolling() {
         }
       })();
     },
-    [pollProgress, stopPolling]
+    [pollProgress, stopPolling],
   );
 
   const abort = useCallback(() => {
