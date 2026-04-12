@@ -40,7 +40,17 @@ ProfileScore.io v1 shipped with LinkedIn-paste and CV-upload audit flows, full C
   - **WS3 — UX Flow Update**: landing page URL input, "Analizando tu perfil de LinkedIn..." loading state, enhanced results page, CV upload preserved as alternative
   - **WS4 — Cost Management**: per-user Apify usage tracking in Supabase, tier-based quotas, dashboard remaining-scrapes display
 
-**Plans**: TBD (to be decomposed by /gsd-plan-phase)
+**Plans**: 11 plans across 7 waves
 
 Plans:
-- [ ] 01-01: TBD — see `.planning/active/phase-01-apify-linkedin/PLAN.md` after planning
+- [ ] 01-01-PLAN.md (wave 0) — Test infra (vitest) + Zod schemas + i18n keys EN/ES + 3 fixtures + env vars
+- [ ] 01-02-PLAN.md (wave 0) — Prisma schema: 3 new models (LinkedInProfileCache, AnonymousApifyUsage, ApifyUsageLog) + 3 User fields + BLOCKING db push
+- [ ] 01-03-PLAN.md (wave 1) — URL normalizer + cache service (24h TTL) + fingerprint hasher + Prisma mock
+- [ ] 01-04-PLAN.md (wave 1) — apify-client install + scraper service with circuit breaker + dedicated rate limiter (3/min)
+- [ ] 01-05-PLAN.md (wave 1) — LinkedIn profile formatter (JSON → section record + markdown) + HarvestProfile type re-export
+- [ ] 01-06-PLAN.md (wave 2) — Apify quota service: free/paid/anon checks + consume + getQuotaState + usage log
+- [ ] 01-08-PLAN.md (wave 2) — Orchestrator Stage 2 bypass (preparsedLinkedinSections) + preflight apify prompt variants + seed 4 new PromptRegistry rows
+- [ ] 01-07-PLAN.md (wave 3) — POST /api/scrape-linkedin route (maxDuration=60) + Creala webhook 1-line quota reset + regression tests
+- [ ] 01-09-PLAN.md (wave 4) — LinkedinUrlPrimaryInput component + /input page redesign + GenerationProgress scraping step + useLinkedinScrape hook
+- [ ] 01-10-PLAN.md (wave 5) — AppContext apify state + ApifyQuotaChip component on /results
+- [ ] 01-11-PLAN.md (wave 6) — End-to-end integration test + manual smoke checkpoint covering all 9 success criteria

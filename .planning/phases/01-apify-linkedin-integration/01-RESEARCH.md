@@ -819,31 +819,26 @@ All strings must be added to BOTH files in the same task (CLAUDE.md critical rul
 
 **If this table is empty:** Not applicable — 10 assumptions remain pending Wave 0 verification. A1 and A4 are the two highest-risk; both can be resolved with a single probe call against a known public profile.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All 5 open questions were resolved during planning (see Plan 01-01 through 01-11). Resolutions locked below for traceability.
 
 1. **Which Vercel Hobby `maxDuration` ceiling applies to `/api/scrape-linkedin`?**
-   - What we know: `maxDuration = 120` is set on `/api/audit/stream`. Hobby plan documented ceilings vary.
-   - What's unclear: Whether 60s is safely below the Hobby limit for a non-stream POST route.
-   - Recommendation: Start with `maxDuration = 60`, measure p95 in staging, bump to 90 or migrate to async if needed.
+   - **RESOLVED:** 60s — used in Plan 01-07 (`export const maxDuration = 60`). Empirical Vercel staging validation is deferred to Plan 01-11 manual smoke checkpoint (p95 measurement after first production scrapes).
 
 2. **Should the scrape call route through `/api/audit/stream` instead of a separate `/api/scrape-linkedin`?**
-   - What we know: D-03 locks `/api/scrape-linkedin` as a separate route.
-   - What's unclear: Whether bundling "scrape + audit" in one streaming call (120s ceiling) is simpler.
-   - Recommendation: Respect D-03 — separate route. Rationale: scrape cache hit avoids the audit round-trip entirely; keeping them separate enables quota decrement independence.
+   - **RESOLVED:** Separate route (respects D-03). Rationale locked: cache hit avoids audit round-trip entirely; quota decrement independence. See Plan 01-07 Task 1.
 
 3. **How does the client know the quota remaining BEFORE clicking "Analyze"?**
-   - What we know: Dashboard chip shows it after first scrape.
-   - What's unclear: First-time visitor gets no signal until they try.
-   - Recommendation: Add a `GET /api/scrape-linkedin/quota` endpoint that returns `{ remaining: number | null, plan: "free" | "starter" | "recommended" }`. Not locked in decisions — propose as Claude's discretion addition. Allows pre-flight UI hints.
+   - **RESOLVED:** Deferred to v2. Quota is surfaced post-scrape via the POST response body + existing dashboard chip (D-24). First-time visitor gets no pre-flight signal in v1 — acceptable because the free tier allows 1 scrape and the error UX (402 response) is localized. A `GET /api/scrape-linkedin/quota` endpoint can be added later without schema changes.
 
 4. **Wave 0 probe: who runs the first real Apify call to capture the fixture?**
-   - What we know: Isaac is sole dev.
-   - Recommendation: A Wave 0 task explicitly runs ONE scrape against `https://linkedin.com/in/isaacgbc` (or any known-public profile), saves output as `fixtures/apify-profile-sample.json`, and uses it to drive Zod schema + formatter unit tests. This resolves A1 + A2 + A3 + A4 in a single shot.
+   - **RESOLVED:** Isaac. Plan 01-01 Task 5 is a blocking checkpoint that: (1) creates Apify account, (2) enables billing, (3) generates API token, (4) adds to `.env.local` AND Vercel env vars, (5) runs ONE probe scrape against a known public profile, (6) saves JSON as `src/lib/services/__tests__/fixtures/apify-profile-sample.json`. Resolves A1 + A2 + A3 + A4 in a single shot.
 
 5. **Should the existing paste flow still accept LinkedIn PDF uploads?**
-   - What we know: D-20 says URL becomes primary, CV becomes secondary toggle.
-   - What's unclear: Does LinkedIn-PDF-upload flow disappear entirely or hide behind a second toggle?
-   - Recommendation: Preserve LinkedIn-PDF as a fallback option inside the "upload CV instead" toggle (label: "LinkedIn PDF or CV"). Zero code deletion, just rewrite labels — preserves v1 capability for edge cases.
+   - **RESOLVED:** Preserved. Plan 01-09 Task 2 keeps the existing paste/PDF upload inside the `<details>` "Prefer to upload your CV instead?" toggle. Zero code deletion — only label rewrites. Preserves v1 edge-case support.
+
+**Test framework decision** (separate from the 5 questions, also resolved): vitest installed in Plan 01-01 Task 1. Rationale: phase adds 11 new services with well-defined I/O that benefit from a proper runner; existing tsx-script convention was judged too high-toil for the new surface area.
 
 ## Environment Availability
 
