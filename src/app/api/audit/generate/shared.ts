@@ -48,6 +48,10 @@ export const GenerateAuditInput = z.object({
   appLocale: z.enum(["en", "es"]).default("en"),
   forceFresh: z.boolean().default(false),
   isPdfSource: z.boolean().default(false),
+  /** Phase 1: Pre-parsed LinkedIn sections from Apify formatter — bypasses Stage 2 parser */
+  preparsedLinkedinSections: z.record(z.string(), z.string()).optional(),
+  /** Phase 1: Source of LinkedIn profile data */
+  linkedinProfileSource: z.enum(["paste", "apify", "pdf"]).optional(),
   /** Sprint 2.2: Client-generated requestId for poll-based progress tracking */
   progressRequestId: z.string().max(40).optional(),
 });
@@ -80,14 +84,14 @@ export interface ValidatedInput {
  * Returns validated, rate-limited input or a NextResponse error.
  */
 export async function validateAndPrepareInput(
-  request: Request
+  request: Request,
 ): Promise<ValidatedInput | NextResponse> {
   // ── Hard cap: total body size ──
   const contentLength = request.headers.get("content-length");
   if (contentLength && parseInt(contentLength) > MAX_BODY_BYTES) {
     return NextResponse.json(
       { error: "Request body too large", maxBytes: MAX_BODY_BYTES },
-      { status: 413 }
+      { status: 413 },
     );
   }
 
@@ -97,7 +101,7 @@ export async function validateAndPrepareInput(
   if (!result.success) {
     return NextResponse.json(
       { error: "Invalid input", details: result.error.flatten() },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -110,20 +114,32 @@ export async function validateAndPrepareInput(
 
   if (linkedinBytes > MAX_LINKEDIN_BYTES) {
     return NextResponse.json(
-      { error: "LinkedIn text too large", maxBytes: MAX_LINKEDIN_BYTES, actualBytes: linkedinBytes },
-      { status: 413 }
+      {
+        error: "LinkedIn text too large",
+        maxBytes: MAX_LINKEDIN_BYTES,
+        actualBytes: linkedinBytes,
+      },
+      { status: 413 },
     );
   }
   if (cvBytes > MAX_CV_BYTES) {
     return NextResponse.json(
-      { error: "CV text too large", maxBytes: MAX_CV_BYTES, actualBytes: cvBytes },
-      { status: 413 }
+      {
+        error: "CV text too large",
+        maxBytes: MAX_CV_BYTES,
+        actualBytes: cvBytes,
+      },
+      { status: 413 },
     );
   }
   if (jobDescBytes > MAX_JOB_DESC_BYTES) {
     return NextResponse.json(
-      { error: "Job description too large", maxBytes: MAX_JOB_DESC_BYTES, actualBytes: jobDescBytes },
-      { status: 413 }
+      {
+        error: "Job description too large",
+        maxBytes: MAX_JOB_DESC_BYTES,
+        actualBytes: jobDescBytes,
+      },
+      { status: 413 },
     );
   }
 
@@ -133,16 +149,28 @@ export async function validateAndPrepareInput(
   const daily = dailyLimiter.check(ip);
   if (!daily.allowed) {
     return NextResponse.json(
-      { error: "Daily generation limit reached. Try again tomorrow.", quota: "50/day" },
-      { status: 429, headers: { "Retry-After": String(daily.retryAfter ?? 3600) } }
+      {
+        error: "Daily generation limit reached. Try again tomorrow.",
+        quota: "50/day",
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(daily.retryAfter ?? 3600) },
+      },
     );
   }
 
   const hourly = hourlyLimiter.check(ip);
   if (!hourly.allowed) {
     return NextResponse.json(
-      { error: "Hourly generation limit reached. Try again later.", quota: "20/hour" },
-      { status: 429, headers: { "Retry-After": String(hourly.retryAfter ?? 600) } }
+      {
+        error: "Hourly generation limit reached. Try again later.",
+        quota: "20/hour",
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(hourly.retryAfter ?? 600) },
+      },
     );
   }
 
@@ -150,7 +178,10 @@ export async function validateAndPrepareInput(
   if (!burst.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please wait a moment.", quota: "5/min" },
-      { status: 429, headers: { "Retry-After": String(burst.retryAfter ?? 60) } }
+      {
+        status: 429,
+        headers: { "Retry-After": String(burst.retryAfter ?? 60) },
+      },
     );
   }
 
@@ -159,21 +190,40 @@ export async function validateAndPrepareInput(
   if (cbStats.state !== "CLOSED") {
     console.warn(
       `[generate] Circuit breaker ${cbStats.state} | ` +
-      `hardFailures=${cbStats.hardFailures} transient=${cbStats.transientFailures} ` +
-      `total=${cbStats.totalCalls} rate=${(cbStats.hardFailureRate * 100).toFixed(1)}% | ` +
-      `cooldown=${cbStats.cooldownRemainingMs}ms | ` +
-      `lastOpenReason=${cbStats.lastOpenReason}`
+        `hardFailures=${cbStats.hardFailures} transient=${cbStats.transientFailures} ` +
+        `total=${cbStats.totalCalls} rate=${(cbStats.hardFailureRate * 100).toFixed(1)}% | ` +
+        `cooldown=${cbStats.cooldownRemainingMs}ms | ` +
+        `lastOpenReason=${cbStats.lastOpenReason}`,
     );
   }
 
-  // ── Validate minimum input ──
-  const hasLinkedin = parsed.linkedinText.trim().length > 20;
-  const hasCv = parsed.cvText !== undefined && parsed.cvText.trim().length > 20;
+  // ── Validate minimum input (Phase 2.2: upgraded from 20 chars to 50 chars + 15 words) ──
+  const MIN_INPUT_CHARS = 50;
+  const MIN_INPUT_WORDS = 15;
+  function meetsMinimumInput(text: string): boolean {
+    const trimmed = text.trim();
+    if (trimmed.length < MIN_INPUT_CHARS) return false;
+    const wordCount = trimmed
+      .split(/\s+/)
+      .filter((w: string) => w.length > 0).length;
+    return wordCount >= MIN_INPUT_WORDS;
+  }
 
-  if (!hasLinkedin && !hasCv) {
+  const hasLinkedin = meetsMinimumInput(parsed.linkedinText);
+  const hasCv = parsed.cvText !== undefined && meetsMinimumInput(parsed.cvText);
+  // Phase 1: Apify path provides pre-parsed sections instead of raw text
+  const hasPreparsed =
+    parsed.preparsedLinkedinSections &&
+    Object.keys(parsed.preparsedLinkedinSections).length > 0;
+
+  if (!hasLinkedin && !hasCv && !hasPreparsed) {
     return NextResponse.json(
-      { error: "Please upload a LinkedIn PDF or CV, or paste your profile text to analyze." },
-      { status: 400 }
+      {
+        error:
+          "Your input is too short for analysis. Please provide more content (at least 50 characters and 15 words).",
+        code: "INPUT_TOO_SHORT",
+      },
+      { status: 400 },
     );
   }
 
@@ -187,7 +237,9 @@ export async function validateAndPrepareInput(
     if (!effectiveIsAdmin) {
       try {
         const supabase = await createClient();
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         if (user && isOwnerEmail(user.email)) {
           effectiveIsAdmin = true;
         }
@@ -197,7 +249,9 @@ export async function validateAndPrepareInput(
     }
 
     if (!effectiveIsAdmin) {
-      console.warn(`[generate] Client sent isAdmin=true but no valid admin cookie or allowlisted session`);
+      console.warn(
+        `[generate] Client sent isAdmin=true but no valid admin cookie or allowlisted session`,
+      );
     }
   }
 

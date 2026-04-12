@@ -31,7 +31,9 @@ export async function POST(request: Request) {
       const send = async (event: string, data: unknown) => {
         try {
           await writer.write(
-            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+            encoder.encode(
+              `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+            ),
           );
         } catch {
           // Writer may be closed if client disconnected
@@ -51,25 +53,27 @@ export async function POST(request: Request) {
             isAdmin: effectiveIsAdmin,
             forceFresh: parsed.forceFresh,
             isPdfSource: parsed.isPdfSource,
+            preparsedLinkedinSections: parsed.preparsedLinkedinSections,
+            linkedinProfileSource: parsed.linkedinProfileSource,
           },
           parsed.locale as Locale,
           (parsed.appLocale as Locale) ?? (parsed.locale as Locale),
           // Progress callback → SSE events (flushed immediately via writer.write)
           (progress: unknown) => {
             send("progress", progress);
-          }
+          },
         );
 
         // P0-1: Route-level diagnostic log
         console.log(
           `[route] /api/audit/stream | ` +
-          `status=200 | ` +
-          `duration=${result.meta.durationMs}ms | ` +
-          `model=${result.meta.modelUsed} | ` +
-          `fallbacks=${result.meta.fallbackCount} | ` +
-          `degraded=${result.meta.degraded} | ` +
-          `sections=${result.meta.sectionCountGenerated} | ` +
-          `failures=[${result.meta.failureReasons.join(",")}]`
+            `status=200 | ` +
+            `duration=${result.meta.durationMs}ms | ` +
+            `model=${result.meta.modelUsed} | ` +
+            `fallbacks=${result.meta.fallbackCount} | ` +
+            `degraded=${result.meta.degraded} | degradationLevel=${result.meta.degradationLevel} | ` +
+            `sections=${result.meta.sectionCountGenerated} | ` +
+            `failures=[${result.meta.failureReasons.join(",")}]`,
         );
 
         await send("complete", { results: result.results, meta: result.meta });
@@ -78,7 +82,8 @@ export async function POST(request: Request) {
         logError({
           level: "error",
           source: "api/audit/stream",
-          message: err instanceof Error ? err.message : "Stream generation failed",
+          message:
+            err instanceof Error ? err.message : "Stream generation failed",
           error: err,
           code: "STREAM_FAILED",
           statusCode: 500,
@@ -86,7 +91,10 @@ export async function POST(request: Request) {
           userAgent,
         });
         await send("error", {
-          error: err instanceof Error ? err.message : "Generation failed. Please try again.",
+          error:
+            err instanceof Error
+              ? err.message
+              : "Generation failed. Please try again.",
         });
       } finally {
         try {
@@ -125,7 +133,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(
       { error: "Generation failed. Please try again." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

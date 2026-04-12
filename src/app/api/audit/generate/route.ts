@@ -48,6 +48,8 @@ export async function POST(request: Request) {
           isAdmin: effectiveIsAdmin,
           forceFresh: parsed.forceFresh,
           isPdfSource: parsed.isPdfSource,
+          preparsedLinkedinSections: parsed.preparsedLinkedinSections,
+          linkedinProfileSource: parsed.linkedinProfileSource,
         },
         parsed.locale as Locale,
         (parsed.appLocale as Locale) ?? (parsed.locale as Locale),
@@ -56,7 +58,7 @@ export async function POST(request: Request) {
           ? (progress) => {
               updateProgress(requestId, progress);
             }
-          : undefined
+          : undefined,
       );
 
       // Sprint 2.2: Mark generation as complete in progress store
@@ -64,7 +66,7 @@ export async function POST(request: Request) {
         completeProgress(
           requestId,
           result.results,
-          result.meta as unknown as Record<string, unknown>
+          result.meta as unknown as Record<string, unknown>,
         );
       }
 
@@ -76,9 +78,9 @@ export async function POST(request: Request) {
           `duration=${result.meta.durationMs}ms | ` +
           `model=${result.meta.modelUsed} | ` +
           `fallbacks=${result.meta.fallbackCount} | ` +
-          `degraded=${result.meta.degraded} | ` +
+          `degraded=${result.meta.degraded} | degradationLevel=${result.meta.degradationLevel} | ` +
           `sections=${result.meta.sectionCountGenerated} | ` +
-          `failures=[${result.meta.failureReasons.join(",")}]`
+          `failures=[${result.meta.failureReasons.join(",")}]`,
       );
 
       return NextResponse.json({
@@ -115,7 +117,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(
       { error: "Generation failed. Please try again." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
