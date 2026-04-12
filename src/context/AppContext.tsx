@@ -20,6 +20,8 @@ import type {
   Locale,
   ExportModuleId,
   GenerationMetaClient,
+  HarvestProfile,
+  ApifyQuotaState,
 } from "@/lib/types";
 import { emptyUserInput } from "@/lib/mock/profile-data";
 import { mockPlans } from "@/lib/mock/plans";
@@ -30,6 +32,10 @@ import { computeEntryStableId } from "@/lib/utils/entry-id";
 import {
   getUnlockedLinkedinIds,
   getUnlockedCvIds,
+  getUnlockedLinkedinRewriteIds,
+  getUnlockedCvRewriteIds,
+  getFreePreviewSectionIds,
+  getFreePreviewRewriteIds,
   isCoverLetterUnlockedForPlan,
 } from "@/lib/services/unlock-matrix";
 import {
@@ -38,9 +44,24 @@ import {
 } from "@/hooks/useGenerationStream";
 import { useProgressPolling } from "@/hooks/useProgressPolling";
 import type { ProgressStage } from "@/lib/services/audit-orchestrator";
+import { scrapeLinkedinRequestSchema } from "@/lib/schemas/linkedin-profile";
 
-const ENABLE_PROGRESSIVE = process.env.NEXT_PUBLIC_ENABLE_PROGRESSIVE === "true";
+const ENABLE_PROGRESSIVE =
+  process.env.NEXT_PUBLIC_ENABLE_PROGRESSIVE === "true";
 const USE_POLL_PROGRESS = process.env.NEXT_PUBLIC_USE_POLL_PROGRESS === "true";
+
+/** Phase 01: Apify error code → i18n key mapping (module-level for stable reference) */
+const APIFY_ERROR_I18N: Record<string, string> = {
+  APIFY_INVALID_URL: "apify.error.invalidUrl",
+  APIFY_PROFILE_PRIVATE: "apify.error.private",
+  APIFY_RATE_LIMITED: "apify.error.rateLimit",
+  APIFY_CIRCUIT_OPEN: "apify.error.downtime",
+  APIFY_DOWNTIME: "apify.error.downtime",
+  APIFY_QUOTA_EXCEEDED: "apify.error.quotaExceeded",
+  APIFY_SCRAPE_FAILED: "apify.error.generic",
+  APIFY_DISABLED: "apify.error.disabled",
+  APIFY_TOKEN_MISSING: "apify.error.generic",
+};
 
 /** Lightweight user info from our Prisma User model */
 export interface AppUser {
@@ -80,7 +101,11 @@ interface AppContextValue extends AppState {
   /** Reset a single entry to original LLM output */
   resetEntry: (sectionId: string, entryStableId: string) => void;
   /** Regenerate a section's optimized text using edited improvements */
-  regenerateSection: (sectionId: string, source: "linkedin" | "cv", seeds?: string[]) => Promise<void>;
+  regenerateSection: (
+    sectionId: string,
+    source: "linkedin" | "cv",
+    seeds?: string[],
+  ) => Promise<void>;
   /** Per-section regeneration loading state */
   regeneratingSection: string | null;
   /** HOTFIX-7: Per-section regeneration counts, timestamps, no-diff flags */
@@ -91,14 +116,22 @@ interface AppContextValue extends AppState {
   manualSections: Record<string, string>;
   setManualSection: (sectionId: string, content: string) => void;
   /** HOTFIX-URGENT-4: Inject synthesized/manual entries into a rewrite section */
-  injectEntries: (sectionId: string, entries: import("@/lib/types").RewriteEntry[]) => void;
+  injectEntries: (
+    sectionId: string,
+    entries: import("@/lib/types").RewriteEntry[],
+  ) => void;
   /** Delete a single entry from results + clear its userOptimized key */
   deleteEntry: (sectionId: string, entryStableId: string) => void;
   /** HOTFIX-8: Globally tracked deleted entry keys for placeholder gating */
   deletedEntryIds: Set<string>;
   addDeletedEntryId: (sectionId: string, stableId: string) => void;
   /** HOTFIX-4C: Update entry header fields (organization/title) */
-  updateEntryHeader: (sectionId: string, entryStableId: string, field: "organization" | "title", value: string) => void;
+  updateEntryHeader: (
+    sectionId: string,
+    entryStableId: string,
+    field: "organization" | "title",
+    value: string,
+  ) => void;
   triggerUnlockAnimation: () => void;
   isFeatureUnlocked: (featureId: FeatureId) => boolean;
   isSectionLocked: (sectionId: string) => boolean;
@@ -111,6 +144,14 @@ interface AppContextValue extends AppState {
   progressLabel: string;
   completedSections: SectionPair[];
   totalExpectedSections: number;
+  /** Phase 01: Apify LinkedIn scrape state (centralized from useLinkedinScrape) */
+  scrapedProfile: HarvestProfile | null;
+  scrapeStatus: "idle" | "scraping" | "done" | "error";
+  scrapeErrorKey: string | null;
+  scrapeErrorCode: string | null;
+  apifyQuota: ApifyQuotaState | null;
+  triggerLinkedinScrape: (url: string) => Promise<void>;
+  resetLinkedinScrape: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -138,7 +179,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("ps_exportLocale");
       if (stored === "en" || stored === "es") {
-        console.log(`[diag] exportLocaleCarryover step1=init step2=init source=persisted value=${stored}`);
+        console.log(
+          `[diag] exportLocaleCarryover step1=init step2=init source=persisted value=${stored}`,
+        );
         return stored;
       }
     }
@@ -153,47 +196,83 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     return "";
   });
-  const [userImprovements, setUserImprovements] = useState<Record<string, string>>({});
-  const [userRewritten, setUserRewritten] = useState<Record<string, string>>({});
-  const [userOptimized, setUserOptimizedState] = useState<Record<string, string>>({});
-  const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
+  const [userImprovements, setUserImprovements] = useState<
+    Record<string, string>
+  >({});
+  const [userRewritten, setUserRewritten] = useState<Record<string, string>>(
+    {},
+  );
+  const [userOptimized, setUserOptimizedState] = useState<
+    Record<string, string>
+  >({});
+  const [regeneratingSection, setRegeneratingSection] = useState<string | null>(
+    null,
+  );
   // HOTFIX-7: Regeneration tracking — cap, timestamps, no-diff detection
-  const [regenerationCounts, setRegenerationCounts] = useState<Record<string, number>>({});
-  const [regenerationTimestamps, setRegenerationTimestamps] = useState<Record<string, number>>({});
-  const [lastRegenerateNoDiff, setLastRegenerateNoDiff] = useState<Record<string, boolean>>({});
-  const [unlockAnimationTriggered, setUnlockAnimationTriggered] = useState(false);
+  const [regenerationCounts, setRegenerationCounts] = useState<
+    Record<string, number>
+  >({});
+  const [regenerationTimestamps, setRegenerationTimestamps] = useState<
+    Record<string, number>
+  >({});
+  const [lastRegenerateNoDiff, setLastRegenerateNoDiff] = useState<
+    Record<string, boolean>
+  >({});
+  const [unlockAnimationTriggered, setUnlockAnimationTriggered] =
+    useState(false);
   const [auditId, setAuditId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
-  const [generationMeta, setGenerationMeta] = useState<GenerationMetaClient | null>(null);
+  const [generationMeta, setGenerationMeta] =
+    useState<GenerationMetaClient | null>(null);
+
+  // ── Phase 01: Apify LinkedIn scrape state (centralized) ──
+  const [scrapedProfile, setScrapedProfile] = useState<HarvestProfile | null>(
+    null,
+  );
+  const [scrapeStatus, setScrapeStatus] = useState<
+    "idle" | "scraping" | "done" | "error"
+  >("idle");
+  const [scrapeErrorKey, setScrapeErrorKey] = useState<string | null>(null);
+  const [scrapeErrorCode, setScrapeErrorCode] = useState<string | null>(null);
+  const [apifyQuota, setApifyQuota] = useState<ApifyQuotaState | null>(null);
 
   // HOTFIX-3: Manual section recovery state
   // HOTFIX-5B: Persist to localStorage so contact info survives reload
-  const [manualSections, setManualSections] = useState<Record<string, string>>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem("ps_manualSections");
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed && typeof parsed === "object") {
-            console.log(`[diag] manualSections restored from localStorage: ${Object.keys(parsed).join(", ")}`);
-            return parsed as Record<string, string>;
+  const [manualSections, setManualSections] = useState<Record<string, string>>(
+    () => {
+      if (typeof window !== "undefined") {
+        try {
+          const stored = localStorage.getItem("ps_manualSections");
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed && typeof parsed === "object") {
+              console.log(
+                `[diag] manualSections restored from localStorage: ${Object.keys(parsed).join(", ")}`,
+              );
+              return parsed as Record<string, string>;
+            }
           }
+        } catch {
+          // Ignore parse errors
         }
-      } catch {
-        // Ignore parse errors
       }
-    }
-    return {};
-  });
+      return {};
+    },
+  );
   const setManualSection = useCallback((sectionId: string, content: string) => {
     setManualSections((prev) => {
       // HOTFIX-7: Never overwrite non-empty contact info with empty/shorter content
       if (sectionId === "contact-info" && prev["contact-info"]) {
         const existing = prev["contact-info"].trim();
         const incoming = content.trim();
-        if (existing.length > 0 && (incoming.length === 0 || incoming.length < existing.length * 0.5)) {
-          console.log(`[diag] HOTFIX-7 contactGuard: blocked overwrite of contact-info (existing=${existing.length}, incoming=${incoming.length})`);
+        if (
+          existing.length > 0 &&
+          (incoming.length === 0 || incoming.length < existing.length * 0.5)
+        ) {
+          console.log(
+            `[diag] HOTFIX-7 contactGuard: blocked overwrite of contact-info (existing=${existing.length}, incoming=${incoming.length})`,
+          );
           return prev; // Block overwrite
         }
       }
@@ -209,70 +288,89 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // HOTFIX-8: Globally tracked deleted entry IDs for placeholder gating
-  const [deletedEntryIds, setDeletedEntryIds] = useState<Set<string>>(new Set());
-  const addDeletedEntryId = useCallback((sectionId: string, stableId: string) => {
-    setDeletedEntryIds((prev) => {
-      const next = new Set(prev);
-      next.add(`${sectionId}:${stableId}`);
-      return next;
-    });
-  }, []);
+  const [deletedEntryIds, setDeletedEntryIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const addDeletedEntryId = useCallback(
+    (sectionId: string, stableId: string) => {
+      setDeletedEntryIds((prev) => {
+        const next = new Set(prev);
+        next.add(`${sectionId}:${stableId}`);
+        return next;
+      });
+    },
+    [],
+  );
 
   // HOTFIX-URGENT-4: Inject synthesized entries into results for export flow
-  const injectEntries = useCallback((sectionId: string, entries: import("@/lib/types").RewriteEntry[]) => {
-    setResultsState((prev) => {
-      if (!prev) return prev;
-      const updateRewrites = (rwArr: ProfileResult["linkedinRewrites"]) =>
-        rwArr.map((r) => {
-          if (r.sectionId !== sectionId) return r;
-          // Only inject if current entries are empty or ≤1
-          if (r.entries && r.entries.length > 1) return r;
-          return { ...r, entries };
-        });
-      return {
-        ...prev,
-        linkedinRewrites: updateRewrites(prev.linkedinRewrites),
-        cvRewrites: updateRewrites(prev.cvRewrites),
-      };
-    });
-  }, []);
+  const injectEntries = useCallback(
+    (sectionId: string, entries: import("@/lib/types").RewriteEntry[]) => {
+      setResultsState((prev) => {
+        if (!prev) return prev;
+        const updateRewrites = (rwArr: ProfileResult["linkedinRewrites"]) =>
+          rwArr.map((r) => {
+            if (r.sectionId !== sectionId) return r;
+            // Only inject if current entries are empty or ≤1
+            if (r.entries && r.entries.length > 1) return r;
+            return { ...r, entries };
+          });
+        return {
+          ...prev,
+          linkedinRewrites: updateRewrites(prev.linkedinRewrites),
+          cvRewrites: updateRewrites(prev.cvRewrites),
+        };
+      });
+    },
+    [],
+  );
 
   // Delete a single entry from results and clear its userOptimized key
-  const deleteEntry = useCallback((sectionId: string, entryStableId: string) => {
-    const key = `${sectionId}:${entryStableId}`;
-    // HOTFIX-8: Track deleted entry globally for placeholder gating
-    addDeletedEntryId(sectionId, entryStableId);
-    // Remove from userOptimized
-    setUserOptimizedState((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-    // Remove entry from results using computeEntryStableId for matching
-    setResultsState((prev) => {
-      if (!prev) return prev;
-      const filterEntries = (rwArr: ProfileResult["linkedinRewrites"]) =>
-        rwArr.map((r) => {
-          if (r.sectionId !== sectionId || !r.entries) return r;
-          return {
-            ...r,
-            entries: r.entries.filter((e) => {
-              const eStableId = computeEntryStableId(e.entryTitle, e.original);
-              return eStableId !== entryStableId;
-            }),
-          };
-        });
-      return {
-        ...prev,
-        linkedinRewrites: filterEntries(prev.linkedinRewrites),
-        cvRewrites: filterEntries(prev.cvRewrites),
-      };
-    });
-  }, []);
+  const deleteEntry = useCallback(
+    (sectionId: string, entryStableId: string) => {
+      const key = `${sectionId}:${entryStableId}`;
+      // HOTFIX-8: Track deleted entry globally for placeholder gating
+      addDeletedEntryId(sectionId, entryStableId);
+      // Remove from userOptimized
+      setUserOptimizedState((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      // Remove entry from results using computeEntryStableId for matching
+      setResultsState((prev) => {
+        if (!prev) return prev;
+        const filterEntries = (rwArr: ProfileResult["linkedinRewrites"]) =>
+          rwArr.map((r) => {
+            if (r.sectionId !== sectionId || !r.entries) return r;
+            return {
+              ...r,
+              entries: r.entries.filter((e) => {
+                const eStableId = computeEntryStableId(
+                  e.entryTitle,
+                  e.original,
+                );
+                return eStableId !== entryStableId;
+              }),
+            };
+          });
+        return {
+          ...prev,
+          linkedinRewrites: filterEntries(prev.linkedinRewrites),
+          cvRewrites: filterEntries(prev.cvRewrites),
+        };
+      });
+    },
+    [],
+  );
 
   // HOTFIX-4C: Update entry header fields (organization/title) in results
   const updateEntryHeader = useCallback(
-    (sectionId: string, entryStableId: string, field: "organization" | "title", value: string) => {
+    (
+      sectionId: string,
+      entryStableId: string,
+      field: "organization" | "title",
+      value: string,
+    ) => {
       setResultsState((prev) => {
         if (!prev) return prev;
         const updateRewrites = (rwArr: ProfileResult["linkedinRewrites"]) =>
@@ -281,7 +379,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             return {
               ...r,
               entries: r.entries.map((e) => {
-                const eStableId = computeEntryStableId(e.entryTitle, e.original);
+                const eStableId = computeEntryStableId(
+                  e.entryTitle,
+                  e.original,
+                );
                 if (eStableId !== entryStableId) return e;
                 return { ...e, [field]: value };
               }),
@@ -294,7 +395,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         };
       });
     },
-    []
+    [],
   );
 
   // Sprint 2: Progressive generation stream (SSE — works on Pro/Enterprise)
@@ -319,6 +420,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setResultsState(generatedResults);
       setIsGenerating(false);
+      // BUG FIX: Clear any transient error when valid results arrive
+      setGenerationError(null);
 
       if (meta) {
         setGenerationMeta({
@@ -328,7 +431,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           durationMs: meta.durationMs,
           fallbackCount: meta.fallbackCount ?? 0,
           degraded: meta.degraded ?? false,
+          degradationLevel:
+            meta.degradationLevel ?? (meta.degraded ? "severe" : "none"),
           failureReasons: meta.failureReasons ?? [],
+          coreFailureCount:
+            ((meta as Record<string, unknown>).coreFailureCount as number) ?? 0,
           detectedLanguage: meta.detectedLanguage as "en" | "es" | undefined,
           languageConfidence: meta.languageConfidence,
         });
@@ -340,7 +447,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           meta.detectedLanguage !== "unknown" &&
           (meta.languageConfidence ?? 0) >= 0.7
         ) {
-          console.log(`[diag] exportLocaleCarryover source=auto value=${meta.detectedLanguage}`);
+          console.log(
+            `[diag] exportLocaleCarryover source=auto value=${meta.detectedLanguage}`,
+          );
           setExportLocaleRaw(meta.detectedLanguage as "en" | "es");
         }
       }
@@ -376,7 +485,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Initialize user improvements
       const initialImprovements: Record<string, string> = {};
-      [...generatedResults.linkedinRewrites, ...generatedResults.cvRewrites].forEach((r) => {
+      [
+        ...generatedResults.linkedinRewrites,
+        ...generatedResults.cvRewrites,
+      ].forEach((r) => {
         if (!r.locked) {
           initialImprovements[r.sectionId] = r.improvements;
         }
@@ -385,16 +497,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       resetStream();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamState.isComplete, streamState.finalResults]);
 
   // Sprint 2: Sync stream error into generation error
+  // BUG FIX: Only set error if no results exist — transient errors shouldn't block valid results
   useEffect(() => {
-    if (streamState.error && !streamState.isStreaming) {
+    if (streamState.error && !streamState.isStreaming && !results) {
       setGenerationError(streamState.error);
       setIsGenerating(false);
     }
-  }, [streamState.error, streamState.isStreaming]);
+  }, [streamState.error, streamState.isStreaming, results]);
 
   // Sprint 2.2: Sync poll completion into results state
   useEffect(() => {
@@ -404,6 +517,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setResultsState(generatedResults);
       setIsGenerating(false);
+      // BUG FIX: Clear any transient error when valid results arrive
+      setGenerationError(null);
 
       if (meta) {
         setGenerationMeta({
@@ -413,7 +528,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           durationMs: meta.durationMs,
           fallbackCount: meta.fallbackCount ?? 0,
           degraded: meta.degraded ?? false,
+          degradationLevel:
+            meta.degradationLevel ?? (meta.degraded ? "severe" : "none"),
           failureReasons: meta.failureReasons ?? [],
+          coreFailureCount:
+            ((meta as Record<string, unknown>).coreFailureCount as number) ?? 0,
           detectedLanguage: meta.detectedLanguage as "en" | "es" | undefined,
           languageConfidence: meta.languageConfidence,
         });
@@ -425,7 +544,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           meta.detectedLanguage !== "unknown" &&
           (meta.languageConfidence ?? 0) >= 0.7
         ) {
-          console.log(`[diag] exportLocaleCarryover source=auto value=${meta.detectedLanguage}`);
+          console.log(
+            `[diag] exportLocaleCarryover source=auto value=${meta.detectedLanguage}`,
+          );
           setExportLocaleRaw(meta.detectedLanguage as "en" | "es");
         }
       }
@@ -461,7 +582,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Initialize user improvements
       const initialImprovements: Record<string, string> = {};
-      [...generatedResults.linkedinRewrites, ...generatedResults.cvRewrites].forEach((r) => {
+      [
+        ...generatedResults.linkedinRewrites,
+        ...generatedResults.cvRewrites,
+      ].forEach((r) => {
         if (!r.locked) {
           initialImprovements[r.sectionId] = r.improvements;
         }
@@ -470,16 +594,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       resetPoll();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollState.isComplete, pollState.finalResults]);
 
   // Sprint 2.2: Sync poll error into generation error
+  // BUG FIX: Only set error if no results exist — transient errors shouldn't block valid results
   useEffect(() => {
-    if (pollState.error && !pollState.isPolling) {
+    if (pollState.error && !pollState.isPolling && !results) {
       setGenerationError(pollState.error);
       setIsGenerating(false);
     }
-  }, [pollState.error, pollState.isPolling]);
+  }, [pollState.error, pollState.isPolling, results]);
 
   // ── Auth: listen for session changes + fetch user ──
   useEffect(() => {
@@ -499,21 +624,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (session?.user) {
-          setAuthUser({
-            id: session.user.id,
-            email: session.user.email ?? "",
-            name: session.user.user_metadata?.full_name ?? null,
-            avatarUrl: session.user.user_metadata?.avatar_url ?? null,
-          });
-        } else {
-          setAuthUser(null);
-          planAutoLoadedRef.current = false;
-        }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setAuthUser({
+          id: session.user.id,
+          email: session.user.email ?? "",
+          name: session.user.user_metadata?.full_name ?? null,
+          avatarUrl: session.user.user_metadata?.avatar_url ?? null,
+        });
+      } else {
+        setAuthUser(null);
+        planAutoLoadedRef.current = false;
       }
-    );
+    });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -530,7 +655,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         // Owner allowlist: auto-enable admin + coach plan
         if (data.isOwner) {
-          setAuthUser((prev) => prev ? { ...prev, isOwner: true } : prev);
+          setAuthUser((prev) => (prev ? { ...prev, isOwner: true } : prev));
           setIsAdmin(true);
           setSelectedPlan("recommended" as PlanId);
           planAutoLoadedRef.current = true;
@@ -539,7 +664,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // Issue admin session cookie so admin API routes pass assertAdmin()
           fetch("/api/admin/verify-owner", { method: "POST" })
             .then((r) => {
-              if (r.ok) console.log("[AppContext] admin session cookie set for owner");
+              if (r.ok)
+                console.log("[AppContext] admin session cookie set for owner");
               else console.warn("[AppContext] verify-owner failed:", r.status);
             })
             .catch(() => {});
@@ -549,8 +675,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         if (data.activePlanId && data.subscriptionStatus === "active") {
           // Migrate legacy plan IDs on the fly (server also migrates DB lazily)
-          const LEGACY_REMAP: Record<string, string> = { pro: "recommended", coach: "recommended" };
-          const effectivePlan = LEGACY_REMAP[data.activePlanId] ?? data.activePlanId;
+          const LEGACY_REMAP: Record<string, string> = {
+            pro: "recommended",
+            coach: "recommended",
+          };
+          const effectivePlan =
+            LEGACY_REMAP[data.activePlanId] ?? data.activePlanId;
           setSelectedPlan(effectivePlan as PlanId);
           planAutoLoadedRef.current = true;
         }
@@ -570,13 +700,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!pendingAuditId) return;
     paymentRestoredRef.current = true;
 
-    console.log("[AppContext] post-payment restore: fetching audit", pendingAuditId);
+    console.log(
+      "[AppContext] post-payment restore: fetching audit",
+      pendingAuditId,
+    );
 
     fetch(`/api/audits/${encodeURIComponent(pendingAuditId)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((audit) => {
         if (!audit?.results) {
-          console.warn("[AppContext] post-payment restore: audit not found or empty");
+          console.warn(
+            "[AppContext] post-payment restore: audit not found or empty",
+          );
           return;
         }
 
@@ -587,14 +722,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         // Restore plan
         if (pendingPlanId) {
-          const LEGACY_REMAP: Record<string, string> = { pro: "recommended", coach: "recommended" };
+          const LEGACY_REMAP: Record<string, string> = {
+            pro: "recommended",
+            coach: "recommended",
+          };
           const effectivePlan = LEGACY_REMAP[pendingPlanId] ?? pendingPlanId;
           setSelectedPlan(effectivePlan as PlanId);
         }
 
         // Initialize user improvements from restored results
         const initialImprovements: Record<string, string> = {};
-        [...restoredResults.linkedinRewrites, ...restoredResults.cvRewrites].forEach((r) => {
+        [
+          ...restoredResults.linkedinRewrites,
+          ...restoredResults.cvRewrites,
+        ].forEach((r) => {
           if (!r.locked) {
             initialImprovements[r.sectionId] = r.improvements;
           }
@@ -606,9 +747,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const ui = audit.userInput as Record<string, unknown>;
           setUserInputState((prev) => ({
             ...prev,
-            jobDescription: (ui.jobDescription as string) ?? prev.jobDescription,
-            targetAudience: (ui.targetAudience as string) ?? prev.targetAudience,
-            objectiveMode: (ui.objectiveMode as "job" | "objective") ?? prev.objectiveMode,
+            jobDescription:
+              (ui.jobDescription as string) ?? prev.jobDescription,
+            targetAudience:
+              (ui.targetAudience as string) ?? prev.targetAudience,
+            objectiveMode:
+              (ui.objectiveMode as "job" | "objective") ?? prev.objectiveMode,
             objectiveText: (ui.objectiveText as string) ?? prev.objectiveText,
           }));
         }
@@ -618,7 +762,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           planId: pendingPlanId,
         });
 
-        console.log("[AppContext] post-payment restore: complete, plan=", pendingPlanId);
+        console.log(
+          "[AppContext] post-payment restore: complete, plan=",
+          pendingPlanId,
+        );
       })
       .catch((err) => {
         console.error("[AppContext] post-payment restore failed:", err);
@@ -639,23 +786,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       fetch("/api/user/me")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
-          if (!data?.activePlanId || data.subscriptionStatus !== "active") return;
+          if (!data?.activePlanId || data.subscriptionStatus !== "active")
+            return;
 
-          const LEGACY_REMAP: Record<string, string> = { pro: "recommended", coach: "recommended" };
-          const serverPlan = (LEGACY_REMAP[data.activePlanId] ?? data.activePlanId) as PlanId;
+          const LEGACY_REMAP: Record<string, string> = {
+            pro: "recommended",
+            coach: "recommended",
+          };
+          const serverPlan = (LEGACY_REMAP[data.activePlanId] ??
+            data.activePlanId) as PlanId;
 
           // Only update if server has a plan the client doesn't have yet
           if (serverPlan && serverPlan !== selectedPlan) {
             setSelectedPlan(serverPlan);
             planAutoLoadedRef.current = true;
-            console.log("[AppContext] plan refreshed on tab focus:", serverPlan);
+            console.log(
+              "[AppContext] plan refreshed on tab focus:",
+              serverPlan,
+            );
           }
         })
         .catch(() => {});
     }
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [authUser, selectedPlan]);
 
   /** User-facing locale setter: tracks manual override to prevent auto-detect clobber */
@@ -680,8 +836,65 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setUserEmail = useCallback((email: string) => {
     setUserEmailState(email);
     if (typeof window !== "undefined") {
-      try { localStorage.setItem("ps_userEmail", email); } catch { /* full */ }
+      try {
+        localStorage.setItem("ps_userEmail", email);
+      } catch {
+        /* full */
+      }
     }
+  }, []);
+
+  // ── Phase 01: Apify scrape dispatchers ──
+  const triggerLinkedinScrape = useCallback(async (rawUrl: string) => {
+    setScrapeStatus("scraping");
+    setScrapeErrorKey(null);
+    setScrapeErrorCode(null);
+    setScrapedProfile(null);
+
+    // Client-side Zod pre-check (cheap, avoids a round-trip)
+    const parsed = scrapeLinkedinRequestSchema.safeParse({ url: rawUrl });
+    if (!parsed.success) {
+      setScrapeStatus("error");
+      setScrapeErrorCode("APIFY_INVALID_URL");
+      setScrapeErrorKey("apify.error.invalidUrl");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/scrape-linkedin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: parsed.data.url }),
+      });
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const code =
+          typeof body?.error === "string" ? body.error : "APIFY_SCRAPE_FAILED";
+        setScrapeStatus("error");
+        setScrapeErrorCode(code);
+        setScrapeErrorKey(APIFY_ERROR_I18N[code] ?? "apify.error.generic");
+        return;
+      }
+
+      setScrapedProfile(body.profile as HarvestProfile);
+      setApifyQuota({
+        remaining: body.quotaRemaining ?? null,
+        plan: body.plan ?? "free",
+      });
+      setScrapeStatus("done");
+    } catch {
+      setScrapeStatus("error");
+      setScrapeErrorCode("APIFY_SCRAPE_FAILED");
+      setScrapeErrorKey("apify.error.generic");
+    }
+  }, []);
+
+  const resetLinkedinScrape = useCallback(() => {
+    setScrapeStatus("idle");
+    setScrapedProfile(null);
+    setScrapeErrorKey(null);
+    setScrapeErrorCode(null);
   }, []);
 
   const signOut = useCallback(async () => {
@@ -701,7 +914,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const toggleFeature = useCallback((id: FeatureId) => {
     setSelectedFeatures((prev) =>
-      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id],
     );
   }, []);
 
@@ -713,34 +926,68 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const reapplyPlanLocking = useCallback(
     (planId: PlanId, currentResults: ProfileResult): ProfileResult => {
       const adminOverride = isAdmin;
-      const ulLi = getUnlockedLinkedinIds(
-        currentResults.linkedinSections.map((s) => s.id),
+      const liIds = currentResults.linkedinSections.map((s) => s.id);
+      const cvIds = currentResults.cvSections.map((s) => s.id);
+
+      const ulLi = getUnlockedLinkedinIds(liIds, planId, adminOverride);
+      const ulCv = getUnlockedCvIds(cvIds, planId, adminOverride);
+
+      // Rewrite-level unlocking (separate from section-level for free tier)
+      const ulLiRw = getUnlockedLinkedinRewriteIds(
+        currentResults.linkedinRewrites.map((r) => r.sectionId),
         planId,
-        adminOverride
+        adminOverride,
       );
-      const ulCv = getUnlockedCvIds(
-        currentResults.cvSections.map((s) => s.id),
+      const ulCvRw = getUnlockedCvRewriteIds(
+        currentResults.cvRewrites.map((r) => r.sectionId),
         planId,
-        adminOverride
+        adminOverride,
       );
+
+      // Free preview flags: only set when planId is null (upgrading clears them)
+      const isFree = !planId && !adminOverride;
+      const fpLi = isFree
+        ? new Set(getFreePreviewSectionIds(liIds))
+        : new Set<string>();
+      const fpCv = isFree
+        ? new Set(getFreePreviewSectionIds(cvIds))
+        : new Set<string>();
+      const fpLiRw = isFree
+        ? new Set(
+            getFreePreviewRewriteIds(
+              currentResults.linkedinRewrites.map((r) => r.sectionId),
+            ),
+          )
+        : new Set<string>();
+      const fpCvRw = isFree
+        ? new Set(
+            getFreePreviewRewriteIds(
+              currentResults.cvRewrites.map((r) => r.sectionId),
+            ),
+          )
+        : new Set<string>();
 
       return {
         ...currentResults,
         linkedinSections: currentResults.linkedinSections.map((s) => ({
           ...s,
           locked: !ulLi.includes(s.id),
+          freePreview: fpLi.has(s.id),
         })),
         cvSections: currentResults.cvSections.map((s) => ({
           ...s,
           locked: !ulCv.includes(s.id),
+          freePreview: fpCv.has(s.id),
         })),
         linkedinRewrites: currentResults.linkedinRewrites.map((r) => ({
           ...r,
-          locked: !ulLi.includes(r.sectionId),
+          locked: !ulLiRw.includes(r.sectionId),
+          freePreview: fpLiRw.has(r.sectionId),
         })),
         cvRewrites: currentResults.cvRewrites.map((r) => ({
           ...r,
-          locked: !ulCv.includes(r.sectionId),
+          locked: !ulCvRw.includes(r.sectionId),
+          freePreview: fpCvRw.has(r.sectionId),
         })),
         coverLetter: currentResults.coverLetter
           ? {
@@ -750,7 +997,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : null,
       };
     },
-    [isAdmin]
+    [isAdmin],
   );
 
   const selectPlan = useCallback(
@@ -762,7 +1009,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // ── Analytics: plan_selected ──
       trackEvent("plan_selected", { planId: id });
     },
-    [reapplyPlanLocking]
+    [reapplyPlanLocking],
   );
 
   const setResults = useCallback((r: ProfileResult) => {
@@ -810,9 +1057,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return next;
     });
     // HOTFIX-7: Reset regeneration tracking on section reset
-    setRegenerationCounts((prev) => { const next = { ...prev }; delete next[sectionId]; return next; });
-    setRegenerationTimestamps((prev) => { const next = { ...prev }; delete next[sectionId]; return next; });
-    setLastRegenerateNoDiff((prev) => { const next = { ...prev }; delete next[sectionId]; return next; });
+    setRegenerationCounts((prev) => {
+      const next = { ...prev };
+      delete next[sectionId];
+      return next;
+    });
+    setRegenerationTimestamps((prev) => {
+      const next = { ...prev };
+      delete next[sectionId];
+      return next;
+    });
+    setLastRegenerateNoDiff((prev) => {
+      const next = { ...prev };
+      delete next[sectionId];
+      return next;
+    });
   }, []);
 
   const resetEntry = useCallback((sectionId: string, entryStableId: string) => {
@@ -831,7 +1090,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // HOTFIX-7: Cap at 3 regenerations per section
       const currentCount = regenerationCounts[sectionId] ?? 0;
       if (currentCount >= 3) {
-        console.warn(`[regenerate] Section ${sectionId} has reached max 3 regenerations`);
+        console.warn(
+          `[regenerate] Section ${sectionId} has reached max 3 regenerations`,
+        );
         return;
       }
 
@@ -846,7 +1107,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // HOTFIX-3: If no rewrite exists, check for manual content (missing section recovery)
         const manual = manualSections[sectionId];
         if (!rewrite && !manual) {
-          console.warn(`[regenerate] No rewrite or manual content found for ${sectionId}`);
+          console.warn(
+            `[regenerate] No rewrite or manual content found for ${sectionId}`,
+          );
           return;
         }
 
@@ -858,8 +1121,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         // Build objective context from user input
         const objectiveContext = [
-          userInput.jobDescription ? `Target role: ${userInput.jobDescription.slice(0, 500)}` : "",
-          userInput.targetAudience ? `Audience: ${userInput.targetAudience}` : "",
+          userInput.jobDescription
+            ? `Target role: ${userInput.jobDescription.slice(0, 500)}`
+            : "",
+          userInput.targetAudience
+            ? `Audience: ${userInput.targetAudience}`
+            : "",
           userInput.objectiveText ? `Goal: ${userInput.objectiveText}` : "",
         ]
           .filter(Boolean)
@@ -873,7 +1140,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             source,
             originalContent: rewrite?.original ?? manual ?? "",
             editedImprovements:
-              userImprovements[sectionId] ?? rewrite?.improvements ?? "Rewrite and improve this section professionally.",
+              userImprovements[sectionId] ??
+              rewrite?.improvements ??
+              "Rewrite and improve this section professionally.",
             objectiveContext: objectiveContext || undefined,
             locale: exportLocale,
             // HOTFIX-3: Include manual content for missing section recovery
@@ -887,12 +1156,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const data = await res.json();
           if (data.rewritten) {
             // HOTFIX-7: No-diff detection — compare with previous text
-            const previousText = userRewritten[sectionId] ?? rewrite?.rewritten ?? "";
+            const previousText =
+              userRewritten[sectionId] ?? rewrite?.rewritten ?? "";
             const isNoDiff = data.rewritten.trim() === previousText.trim();
 
-            setRegenerationTimestamps((prev) => ({ ...prev, [sectionId]: Date.now() }));
-            setLastRegenerateNoDiff((prev) => ({ ...prev, [sectionId]: isNoDiff }));
-            setRegenerationCounts((prev) => ({ ...prev, [sectionId]: (prev[sectionId] ?? 0) + 1 }));
+            setRegenerationTimestamps((prev) => ({
+              ...prev,
+              [sectionId]: Date.now(),
+            }));
+            setLastRegenerateNoDiff((prev) => ({
+              ...prev,
+              [sectionId]: isNoDiff,
+            }));
+            setRegenerationCounts((prev) => ({
+              ...prev,
+              [sectionId]: (prev[sectionId] ?? 0) + 1,
+            }));
 
             if (!isNoDiff) {
               setUserRewritten((prev) => ({
@@ -912,7 +1191,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
           }
         } else {
-          const err = await res.json().catch(() => ({ error: "Unknown error" }));
+          const err = await res
+            .json()
+            .catch(() => ({ error: "Unknown error" }));
           console.error(`[regenerate] Failed: ${err.error}`);
         }
       } catch (err) {
@@ -921,7 +1202,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setRegeneratingSection(null);
       }
     },
-    [results, isAdmin, userInput, userImprovements, userRewritten, exportLocale, manualSections, regenerationCounts]
+    [
+      results,
+      isAdmin,
+      userInput,
+      userImprovements,
+      userRewritten,
+      exportLocale,
+      manualSections,
+      regenerationCounts,
+    ],
   );
 
   const isFeatureUnlocked = useCallback(
@@ -929,20 +1219,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (isAdmin) return true;
       return selectedFeatures.includes(featureId);
     },
-    [isAdmin, selectedFeatures]
+    [isAdmin, selectedFeatures],
   );
 
   const isSectionLocked = useCallback(
     (sectionId: string) => {
       if (isAdmin) return false;
       if (!results) return true;
-      const linkedinSection = results.linkedinSections.find((s) => s.id === sectionId);
+      const linkedinSection = results.linkedinSections.find(
+        (s) => s.id === sectionId,
+      );
       if (linkedinSection) return linkedinSection.locked;
       const cvSection = results.cvSections.find((s) => s.id === sectionId);
       if (cvSection) return cvSection.locked;
       return true;
     },
-    [isAdmin, results]
+    [isAdmin, results],
   );
 
   const isCoverLetterUnlocked = useCallback(() => {
@@ -957,141 +1249,166 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const plan = mockPlans.find((p) => p.id === selectedPlan);
       return plan?.exportModules.includes(moduleId) ?? false;
     },
-    [isAdmin, selectedPlan]
+    [isAdmin, selectedPlan],
   );
 
-  const generateResults = useCallback(async (options?: { forceFresh?: boolean }) => {
-    // Skip regeneration if results already exist and no force-fresh requested
-    if (results && !options?.forceFresh) {
-      console.log("[generateResults] skipping — results already in state");
-      return;
-    }
-    setIsGenerating(true);
-    setGenerationError(null);
+  const generateResults = useCallback(
+    async (options?: { forceFresh?: boolean }) => {
+      // Skip regeneration if results already exist and no force-fresh requested
+      if (results && !options?.forceFresh) {
+        console.log("[generateResults] skipping — results already in state");
+        return;
+      }
+      setIsGenerating(true);
+      setGenerationError(null);
 
-    const inputPayload = {
-      linkedinText: userInput.linkedinText,
-      cvText: userInput.cvText || undefined,
-      jobDescription: userInput.jobDescription,
-      targetAudience: userInput.targetAudience,
-      objectiveMode: userInput.objectiveMode,
-      objectiveText: userInput.objectiveText,
-      planId: selectedPlan,
-      isAdmin,
-      locale: exportLocale,
-      /** HOTFIX-2: App UI locale for scoring comments (separate from export locale) */
-      appLocale: locale,
-      forceFresh: options?.forceFresh ?? false,
-      isPdfSource: !!(userInput.linkedinText && !userInput.linkedinUrl),
-    };
+      const inputPayload = {
+        linkedinText: userInput.linkedinText,
+        cvText: userInput.cvText || undefined,
+        jobDescription: userInput.jobDescription,
+        targetAudience: userInput.targetAudience,
+        objectiveMode: userInput.objectiveMode,
+        objectiveText: userInput.objectiveText,
+        planId: selectedPlan,
+        isAdmin,
+        locale: exportLocale,
+        /** HOTFIX-2: App UI locale for scoring comments (separate from export locale) */
+        appLocale: locale,
+        forceFresh: options?.forceFresh ?? false,
+        isPdfSource: !!(userInput.linkedinText && !userInput.linkedinUrl),
+      };
 
-    // Sprint 2.2: Use poll-based progress (works on Vercel Hobby/Lambda)
-    if (USE_POLL_PROGRESS) {
-      startPollGeneration(inputPayload);
-      // The poll state is synced via the useEffect above
-      // isGenerating stays true until poll completes or errors
-      return;
-    }
-
-    // Sprint 2: Use SSE streaming path (requires Vercel Pro/Enterprise)
-    if (ENABLE_PROGRESSIVE && !USE_POLL_PROGRESS) {
-      startStream(inputPayload);
-      // The stream state is synced via the useEffect above
-      // isGenerating stays true until stream completes or errors
-      return;
-    }
-
-    // Classic fetch path (fallback when progressive is disabled)
-    try {
-      const res = await fetch("/api/audit/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(inputPayload),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Generation failed" }));
-        throw new Error(err.error || `Server error (${res.status})`);
+      // Sprint 2.2: Use poll-based progress (works on Vercel Hobby/Lambda)
+      if (USE_POLL_PROGRESS) {
+        startPollGeneration(inputPayload);
+        // The poll state is synced via the useEffect above
+        // isGenerating stays true until poll completes or errors
+        return;
       }
 
-      const data = await res.json();
-      const generatedResults: ProfileResult = data.results;
+      // Sprint 2: Use SSE streaming path (requires Vercel Pro/Enterprise)
+      if (ENABLE_PROGRESSIVE && !USE_POLL_PROGRESS) {
+        startStream(inputPayload);
+        // The stream state is synced via the useEffect above
+        // isGenerating stays true until stream completes or errors
+        return;
+      }
 
-      setResultsState(generatedResults);
-
-      // Store generation metadata (for fallback/degraded warning display)
-      if (data.meta) {
-        setGenerationMeta({
-          modelUsed: data.meta.modelUsed,
-          promptVersionsUsed: data.meta.promptVersionsUsed,
-          hasFallback: data.meta.hasFallback ?? data.meta.fallbackCount > 0,
-          durationMs: data.meta.durationMs,
-          fallbackCount: data.meta.fallbackCount ?? 0,
-          degraded: data.meta.degraded ?? false,
-          failureReasons: data.meta.failureReasons ?? [],
-          detectedLanguage: data.meta.detectedLanguage,
-          languageConfidence: data.meta.languageConfidence,
+      // Classic fetch path (fallback when progressive is disabled)
+      try {
+        const res = await fetch("/api/audit/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(inputPayload),
         });
 
-        // Auto-set export locale from detected language (unless user manually chose)
-        if (
-          !userManuallySetLocaleRef.current &&
-          data.meta.detectedLanguage &&
-          data.meta.detectedLanguage !== "unknown" &&
-          data.meta.languageConfidence >= 0.7
-        ) {
-          console.log(`[diag] exportLocaleCarryover source=auto value=${data.meta.detectedLanguage}`);
-          setExportLocaleRaw(data.meta.detectedLanguage as "en" | "es");
+        if (!res.ok) {
+          const err = await res
+            .json()
+            .catch(() => ({ error: "Generation failed" }));
+          throw new Error(err.error || `Server error (${res.status})`);
         }
-      } else {
-        setGenerationMeta(null);
-      }
 
-      // Persist results server-side for export generation
-      fetch("/api/audits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          results: generatedResults,
-          planId: selectedPlan,
-          userInput: {
-            jobDescription: userInput.jobDescription,
-            targetAudience: userInput.targetAudience,
-            objectiveMode: userInput.objectiveMode,
-            objectiveText: userInput.objectiveText,
-          },
-          generationMeta: data.meta ?? null,
-        }),
-      })
-        .then((r) => r.json())
-        .then((persistData) => {
-          if (persistData.auditId) {
-            setAuditId(persistData.auditId);
-            trackEvent("audit_completed", {
-              auditId: persistData.auditId,
-              planId: selectedPlan,
-              sourceType: userInput.method ?? undefined,
-            });
+        const data = await res.json();
+        const generatedResults: ProfileResult = data.results;
+
+        setResultsState(generatedResults);
+
+        // Store generation metadata (for fallback/degraded warning display)
+        if (data.meta) {
+          setGenerationMeta({
+            modelUsed: data.meta.modelUsed,
+            promptVersionsUsed: data.meta.promptVersionsUsed,
+            hasFallback: data.meta.hasFallback ?? data.meta.fallbackCount > 0,
+            durationMs: data.meta.durationMs,
+            fallbackCount: data.meta.fallbackCount ?? 0,
+            degraded: data.meta.degraded ?? false,
+            degradationLevel:
+              data.meta.degradationLevel ??
+              (data.meta.degraded ? "severe" : "none"),
+            failureReasons: data.meta.failureReasons ?? [],
+            coreFailureCount: data.meta.coreFailureCount ?? 0,
+            detectedLanguage: data.meta.detectedLanguage,
+            languageConfidence: data.meta.languageConfidence,
+          });
+
+          // Auto-set export locale from detected language (unless user manually chose)
+          if (
+            !userManuallySetLocaleRef.current &&
+            data.meta.detectedLanguage &&
+            data.meta.detectedLanguage !== "unknown" &&
+            data.meta.languageConfidence >= 0.7
+          ) {
+            console.log(
+              `[diag] exportLocaleCarryover source=auto value=${data.meta.detectedLanguage}`,
+            );
+            setExportLocaleRaw(data.meta.detectedLanguage as "en" | "es");
           }
-        })
-        .catch(() => {});
-
-      // Initialize user improvements from generated data
-      const initialImprovements: Record<string, string> = {};
-      [...generatedResults.linkedinRewrites, ...generatedResults.cvRewrites].forEach((r) => {
-        if (!r.locked) {
-          initialImprovements[r.sectionId] = r.improvements;
+        } else {
+          setGenerationMeta(null);
         }
-      });
-      setUserImprovements(initialImprovements);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Generation failed. Please try again.";
-      setGenerationError(message);
-      console.error("generateResults error:", message);
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [results, userInput, selectedPlan, isAdmin, exportLocale, startStream, startPollGeneration]);
+
+        // Persist results server-side for export generation
+        fetch("/api/audits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            results: generatedResults,
+            planId: selectedPlan,
+            userInput: {
+              jobDescription: userInput.jobDescription,
+              targetAudience: userInput.targetAudience,
+              objectiveMode: userInput.objectiveMode,
+              objectiveText: userInput.objectiveText,
+            },
+            generationMeta: data.meta ?? null,
+          }),
+        })
+          .then((r) => r.json())
+          .then((persistData) => {
+            if (persistData.auditId) {
+              setAuditId(persistData.auditId);
+              trackEvent("audit_completed", {
+                auditId: persistData.auditId,
+                planId: selectedPlan,
+                sourceType: userInput.method ?? undefined,
+              });
+            }
+          })
+          .catch(() => {});
+
+        // Initialize user improvements from generated data
+        const initialImprovements: Record<string, string> = {};
+        [
+          ...generatedResults.linkedinRewrites,
+          ...generatedResults.cvRewrites,
+        ].forEach((r) => {
+          if (!r.locked) {
+            initialImprovements[r.sectionId] = r.improvements;
+          }
+        });
+        setUserImprovements(initialImprovements);
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Generation failed. Please try again.";
+        setGenerationError(message);
+        console.error("generateResults error:", message);
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [
+      results,
+      userInput,
+      selectedPlan,
+      isAdmin,
+      exportLocale,
+      startStream,
+      startPollGeneration,
+    ],
+  );
 
   return (
     <AppContext.Provider
@@ -1153,10 +1470,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
         generateResults,
         // Sprint 2.2: Expose progress from active path (poll takes priority over stream)
         progressStage: USE_POLL_PROGRESS ? pollState.stage : streamState.stage,
-        progressPercent: USE_POLL_PROGRESS ? pollState.percent : streamState.percent,
+        progressPercent: USE_POLL_PROGRESS
+          ? pollState.percent
+          : streamState.percent,
         progressLabel: USE_POLL_PROGRESS ? pollState.label : streamState.label,
-        completedSections: USE_POLL_PROGRESS ? pollState.completedSections : streamState.completedSections,
-        totalExpectedSections: USE_POLL_PROGRESS ? pollState.totalSections : streamState.totalSections,
+        completedSections: USE_POLL_PROGRESS
+          ? pollState.completedSections
+          : streamState.completedSections,
+        totalExpectedSections: USE_POLL_PROGRESS
+          ? pollState.totalSections
+          : streamState.totalSections,
+        // Phase 01: Apify LinkedIn scrape state
+        scrapedProfile,
+        scrapeStatus,
+        scrapeErrorKey,
+        scrapeErrorCode,
+        apifyQuota,
+        triggerLinkedinScrape,
+        resetLinkedinScrape,
       }}
     >
       {children}
