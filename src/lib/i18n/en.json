@@ -38,7 +38,11 @@
     "readMore": "Read more",
     "readLess": "Read less",
     "showMore": "Show more",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "pricing": "Pricing",
+    "blog": "Blog"
   },
   "sectionLabels": {
     "headline": "Headline",
@@ -260,7 +264,12 @@
     "case3Actions": "Complete profile rewrite with client-focused positioning. Added thought leadership content strategy.",
     "case3Result": "2 inbound client inquiries in the first month",
     "case3Metric": "2 client inquiries in month 1",
-    "casesPlaceholderNote": "ProfileScore user? Share your case."
+    "casesPlaceholderNote": "ProfileScore user? Share your case.",
+    "valueReinforcement": "If your LinkedIn profile and resume aren't optimized for AI-powered screening, you're losing opportunities before a human ever sees your application.",
+    "heroCta": "Score My Profile Free",
+    "compareFeatureHeader": "Feature",
+    "compareFeature6": "ATS keyword matching",
+    "compareFeature7": "Job application tracking"
   },
   "input": {
     "title": "Share Your Profile",
@@ -275,6 +284,8 @@
     "linkedinUrlHelp": "We'll analyze your full profile in seconds",
     "useCvAlternativeTitle": "Prefer to upload your CV instead?",
     "linkedinUrlPlaceholder": "https://linkedin.com/in/yourname",
+    "analyze": "Analyze",
+    "analyzing": "Analyzing...",
     "linkedinTextPlaceholder": "Or paste your full LinkedIn profile text here...",
     "linkedinProvided": "LinkedIn profile added",
     "pdfScanError": "This PDF appears to be a scanned image. Please upload a text-based PDF, or paste your profile text below.",
@@ -320,7 +331,37 @@
     "exportLangLabel": "Export language",
     "exportLangHelp": "Your results and rewrites will be generated in this language.",
     "charsOverLimit": "chars over limit",
-    "charsProcessed": "Only the first {max} characters will be processed"
+    "charsProcessed": "Only the first {max} characters will be processed",
+    "guards": {
+      "urlAsText": "It looks like you pasted a URL. Please paste the full text of your profile instead — we can't analyze a link.",
+      "tooShort": "Your text is too short for a meaningful analysis. Please paste your full profile (at least 50 characters).",
+      "tooFewWords": "Your text needs more content for a meaningful analysis. Please paste your full profile (at least 15 words).",
+      "notLinkedinFormat": "This doesn't look like a LinkedIn profile export. Make sure you pasted the full export, not just a section.",
+      "duplicateInput": "Your LinkedIn and CV text appear to be the same. For best results, provide different sources.",
+      "docxNoExtraction": "DOCX text extraction isn't available yet. For best results, paste your CV text directly or upload a PDF.",
+      "jobPdfNoExtraction": "Job description PDF extraction isn't available yet. Please paste the job description text instead.",
+      "qualityLow": "Low input quality — results may be less accurate",
+      "qualityMedium": "Moderate input quality",
+      "qualityHigh": "Good input quality",
+      "inputTooShortServer": "Your input is too short for analysis. Please provide more content (at least 50 characters and 15 words).",
+      "docxTooShort": "The DOCX file didn't contain enough text. Try pasting your CV text directly.",
+      "docxExtractionFailed": "We couldn't read this DOCX file. Try saving it as PDF or paste the text directly.",
+      "docxExtracting": "Extracting text from DOCX...",
+      "jobPdfExtracting": "Extracting text from PDF..."
+    },
+    "preview": {
+      "sectionsFound": "sections found",
+      "cleaned": "{pct}% noise removed",
+      "language": "Language",
+      "lowConfidence": "low confidence",
+      "chars": "chars",
+      "pasteContainsPdfArtifacts": "Your pasted text contains PDF page markers — we cleaned them automatically.",
+      "noSectionsDetected": "No profile sections detected. Make sure you pasted the full export.",
+      "unsupportedLanguage": "Input language may not be fully supported. Best results with English or Spanish.",
+      "preprocessed": "Preprocessed",
+      "originalChars": "original chars",
+      "linesRemoved": "lines removed"
+    }
   },
   "features": {
     "title": "Choose Your Audit Type",
@@ -371,7 +412,23 @@
     "currentPlan": "Current Plan",
     "bestValue": "Best Value",
     "cartEmpty": "No plan selected yet.",
-    "unlockCta": "Unlock & Export"
+    "unlockCta": "Unlock & Export",
+    "pageTitle": "Simple, One-Time Pricing",
+    "pageSubtitle": "Pay once. No subscriptions. Get detailed audits, professional rewrites, and exportable results.",
+    "freePreviewLine": "Want to try first?",
+    "freePreviewCta": "Get your free score →",
+    "comparisonTitle": "What's included in each plan",
+    "featureLabel": "Feature",
+    "compExports": "All export modules",
+    "exportModulesCount": "{count} export modules",
+    "faqSectionTitle": "Pricing FAQ",
+    "faqQ1": "What's the difference between the plans?",
+    "faqA1": "The Single Source plan covers one input — either your LinkedIn profile or your CV. The Complete plan covers both, plus generates a cover letter.",
+    "faqQ2": "Is this a subscription?",
+    "faqA2": "No. Both plans are one-time payments. You pay once and keep your results forever — no recurring charges.",
+    "faqQ3": "Can I upgrade later?",
+    "faqA3": "Yes. Start with Single Source and upgrade to Complete anytime. You'll only pay the difference.",
+    "bottomCta": "Start with a Free Score"
   },
   "results": {
     "title": "Your Profile Score",
@@ -434,6 +491,11 @@
     "generationFailedTitle": "We couldn't generate personalized results",
     "generationFailedDesc": "Some results could not be fully personalized due to a temporary service issue. Please retry for accurate, input-specific results.",
     "diagnosticHint": "Details",
+    "partialDegradedTitle": "Some sections may be less accurate",
+    "partialDegradedDesc": "A few sections couldn't be fully personalized due to a temporary issue. Your other results are ready — you can retry later for a complete audit.",
+    "coreFailureWarning": "One key section couldn't be fully personalized",
+    "coreFailureWarningStrong": "Some key sections couldn't be fully personalized",
+    "coreFailureDesc": "A temporary issue affected part of your analysis. Your other results are ready — you can retry for a complete audit.",
     "perEntryBreakdown": "Per-entry breakdown",
     "detectedLanguage": "Detected Language",
     "detectedLanguageEn": "English",
@@ -445,6 +507,20 @@
     "whyThisScore": "Why this score",
     "thingsToChange": "Things to change",
     "missingFromEntry": "Missing from this entry"
+  },
+  "freePreview": {
+    "badge": "Free preview",
+    "likeWhatYouSee": "Like what you see? Unlock all {count} sections",
+    "rewritePreviewTitle": "See how we'd improve your profile",
+    "rewritePreviewCurrent": "Current",
+    "rewritePreviewImproved": "Improved",
+    "rewritePreviewCta": "We've rewritten all {count} sections. Unlock everything",
+    "unlockSection": "Unlock this section",
+    "unlockAllSections": "Unlock all {count} sections — $5",
+    "unlockRewrites": "Unlock all rewrites — $5",
+    "unlockExports": "Unlock exports — $5",
+    "sectionsPreview": "Previewing {free} of {total} sections",
+    "upgradeToSeeAll": "Upgrade to see all sections, rewrites, and exports"
   },
   "rewriteStudio": {
     "title": "Rewrite Studio",

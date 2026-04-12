@@ -38,7 +38,11 @@
     "readMore": "Leer más",
     "readLess": "Leer menos",
     "showMore": "Ver más",
-    "showLess": "Ver menos"
+    "showLess": "Ver menos",
+    "signIn": "Iniciar sesión",
+    "signOut": "Cerrar sesión",
+    "pricing": "Precios",
+    "blog": "Blog"
   },
   "sectionLabels": {
     "headline": "Titular",
@@ -260,7 +264,12 @@
     "case3Actions": "Reescritura completa con posicionamiento orientado a clientes. Estrategia de contenido de liderazgo.",
     "case3Result": "2 consultas inbound de clientes en el primer mes",
     "case3Metric": "2 consultas en el mes 1",
-    "casesPlaceholderNote": "¿Sos usuario de ProfileScore? Compartí tu caso."
+    "casesPlaceholderNote": "¿Sos usuario de ProfileScore? Compartí tu caso.",
+    "valueReinforcement": "Si tu perfil de LinkedIn y CV no están optimizados para filtros de IA, estás perdiendo oportunidades antes de que un humano vea tu solicitud.",
+    "heroCta": "Evaluar Mi Perfil Gratis",
+    "compareFeatureHeader": "Función",
+    "compareFeature6": "Coincidencia de keywords ATS",
+    "compareFeature7": "Seguimiento de postulaciones"
   },
   "input": {
     "title": "Comparte Tu Perfil",
@@ -275,6 +284,8 @@
     "linkedinUrlHelp": "Analizaremos tu perfil completo en segundos",
     "useCvAlternativeTitle": "¿Prefieres subir tu CV?",
     "linkedinUrlPlaceholder": "https://linkedin.com/in/tunombre",
+    "analyze": "Analizar",
+    "analyzing": "Analizando...",
     "linkedinTextPlaceholder": "O pega el texto completo de tu perfil de LinkedIn aquí...",
     "linkedinProvided": "Perfil de LinkedIn añadido",
     "pdfScanError": "Este PDF parece ser una imagen escaneada. Por favor sube un PDF con texto, o pega el texto de tu perfil abajo.",
@@ -320,7 +331,37 @@
     "exportLangLabel": "Idioma de exportación",
     "exportLangHelp": "Tus resultados y reescrituras se generarán en este idioma.",
     "charsOverLimit": "caracteres sobre el límite",
-    "charsProcessed": "Solo los primeros {max} caracteres serán procesados"
+    "charsProcessed": "Solo los primeros {max} caracteres serán procesados",
+    "guards": {
+      "urlAsText": "Parece que pegaste una URL. Por favor pega el texto completo de tu perfil — no podemos analizar un enlace.",
+      "tooShort": "Tu texto es demasiado corto para un análisis significativo. Pega tu perfil completo (mínimo 50 caracteres).",
+      "tooFewWords": "Tu texto necesita más contenido para un análisis significativo. Pega tu perfil completo (mínimo 15 palabras).",
+      "notLinkedinFormat": "Esto no parece una exportación de perfil de LinkedIn. Asegúrate de pegar la exportación completa, no solo una sección.",
+      "duplicateInput": "Tu texto de LinkedIn y CV parecen ser iguales. Para mejores resultados, proporciona fuentes diferentes.",
+      "docxNoExtraction": "La extracción de texto DOCX aún no está disponible. Para mejores resultados, pega el texto de tu CV directamente o sube un PDF.",
+      "jobPdfNoExtraction": "La extracción de texto de PDF de descripción de empleo aún no está disponible. Por favor pega el texto de la descripción.",
+      "qualityLow": "Calidad de entrada baja — los resultados pueden ser menos precisos",
+      "qualityMedium": "Calidad de entrada moderada",
+      "qualityHigh": "Buena calidad de entrada",
+      "inputTooShortServer": "Tu texto es demasiado corto para el análisis. Proporciona más contenido (mínimo 50 caracteres y 15 palabras).",
+      "docxTooShort": "El archivo DOCX no contiene suficiente texto. Intenta pegar el texto de tu CV directamente.",
+      "docxExtractionFailed": "No pudimos leer este archivo DOCX. Intenta guardarlo como PDF o pega el texto directamente.",
+      "docxExtracting": "Extrayendo texto del DOCX...",
+      "jobPdfExtracting": "Extrayendo texto del PDF..."
+    },
+    "preview": {
+      "sectionsFound": "secciones encontradas",
+      "cleaned": "{pct}% ruido eliminado",
+      "language": "Idioma",
+      "lowConfidence": "baja confianza",
+      "chars": "caracteres",
+      "pasteContainsPdfArtifacts": "Tu texto pegado contiene marcadores de página PDF — los limpiamos automáticamente.",
+      "noSectionsDetected": "No se detectaron secciones de perfil. Asegúrate de pegar la exportación completa.",
+      "unsupportedLanguage": "El idioma de entrada puede no ser totalmente compatible. Mejores resultados con inglés o español.",
+      "preprocessed": "Preprocesado",
+      "originalChars": "caracteres originales",
+      "linesRemoved": "líneas eliminadas"
+    }
   },
   "features": {
     "title": "Elige Tu Tipo de Auditoría",
@@ -371,7 +412,23 @@
     "currentPlan": "Plan Actual",
     "bestValue": "Mejor Valor",
     "cartEmpty": "Ningún plan seleccionado aún.",
-    "unlockCta": "Desbloquear y Exportar"
+    "unlockCta": "Desbloquear y Exportar",
+    "pageTitle": "Precios Simples, Pago Único",
+    "pageSubtitle": "Paga una vez. Sin suscripciones. Obtén auditorías detalladas, reescrituras profesionales y resultados exportables.",
+    "freePreviewLine": "¿Quieres probar primero?",
+    "freePreviewCta": "Obtén tu puntuación gratis →",
+    "comparisonTitle": "Qué incluye cada plan",
+    "featureLabel": "Función",
+    "compExports": "Todos los módulos de exportación",
+    "exportModulesCount": "{count} módulos de exportación",
+    "faqSectionTitle": "Preguntas sobre Precios",
+    "faqQ1": "¿Cuál es la diferencia entre los planes?",
+    "faqA1": "El plan Fuente Única cubre una entrada — tu perfil de LinkedIn o tu CV. El plan Completo cubre ambos, más genera una carta de presentación.",
+    "faqQ2": "¿Es una suscripción?",
+    "faqA2": "No. Ambos planes son pagos únicos. Pagas una vez y conservas tus resultados para siempre — sin cargos recurrentes.",
+    "faqQ3": "¿Puedo mejorar mi plan después?",
+    "faqA3": "Sí. Empieza con Fuente Única y mejora al plan Completo en cualquier momento. Solo pagas la diferencia.",
+    "bottomCta": "Empezar con Puntuación Gratis"
   },
   "results": {
     "title": "Tu Puntuación de Perfil",
@@ -434,6 +491,11 @@
     "generationFailedTitle": "No pudimos generar resultados personalizados",
     "generationFailedDesc": "Algunos resultados no pudieron personalizarse completamente debido a un problema temporal del servicio. Por favor, reintenta para obtener resultados precisos.",
     "diagnosticHint": "Detalles",
+    "partialDegradedTitle": "Algunas secciones pueden ser menos precisas",
+    "partialDegradedDesc": "Algunas secciones no pudieron personalizarse completamente debido a un problema temporal. Tus otros resultados están listos — puedes reintentar después para una auditoría completa.",
+    "coreFailureWarning": "Una sección clave no pudo personalizarse completamente",
+    "coreFailureWarningStrong": "Algunas secciones clave no pudieron personalizarse completamente",
+    "coreFailureDesc": "Un problema temporal afectó parte de tu análisis. Tus otros resultados están listos — puedes reintentar para una auditoría completa.",
     "perEntryBreakdown": "Desglose por entrada",
     "detectedLanguage": "Idioma detectado",
     "detectedLanguageEn": "Inglés",
@@ -445,6 +507,20 @@
     "whyThisScore": "Por qué esta puntuación",
     "thingsToChange": "Cosas a cambiar",
     "missingFromEntry": "Falta en esta entrada"
+  },
+  "freePreview": {
+    "badge": "Vista previa gratuita",
+    "likeWhatYouSee": "¿Te gusta lo que ves? Desbloquea las {count} secciones",
+    "rewritePreviewTitle": "Mira cómo mejoraríamos tu perfil",
+    "rewritePreviewCurrent": "Actual",
+    "rewritePreviewImproved": "Mejorado",
+    "rewritePreviewCta": "Hemos reescrito tus {count} secciones. Desbloquea todo",
+    "unlockSection": "Desbloquear esta sección",
+    "unlockAllSections": "Desbloquear las {count} secciones — $5",
+    "unlockRewrites": "Desbloquear todas las reescrituras — $5",
+    "unlockExports": "Desbloquear exportaciones — $5",
+    "sectionsPreview": "Vista previa de {free} de {total} secciones",
+    "upgradeToSeeAll": "Mejora tu plan para ver todas las secciones, reescrituras y exportaciones"
   },
   "rewriteStudio": {
     "title": "Estudio de Reescritura",
