@@ -189,6 +189,10 @@ const REWRITE_CALL_TIMEOUT_MS = 20_000;
 // HOTFIX-9: Removed first-pass cap — process ALL parsed entries (was 4 in HOTFIX-5)
 const MAX_ENTRIES_FIRST_PASS = 20;
 
+// Chunk size for parallel entry rewriting — entries are split into groups of this size
+// and rewritten in parallel to avoid timeout on large experience sections
+const ENTRY_REWRITE_CHUNK_SIZE = 4;
+
 // PERF-HOTFIX-2: Global orchestration time budget — skip non-essential stages if exceeded
 const ORCHESTRATION_BUDGET_MS = 45_000;
 
@@ -1046,77 +1050,48 @@ async function rewriteSection(
   return null;
 }
 
-// ── Rewrite a section with per-entry breakdown (experience/education) ──
-// Cost controls: max MAX_ENTRIES_PER_SECTION entries, each truncated to MAX_CHARS_PER_ENTRY
-async function rewriteSectionWithEntries(
+// ── Helper: rewrite a single chunk of entries via LLM ──
+// Encapsulates the LLM call, JSON parse, Zod validation, and attachment integrity check.
+// Returns RewriteEntry[] on success, null on failure (both attempts exhausted).
+type CappedEntry = {
+  index: number;
+  title: string;
+  organization: string;
+  dateRange: string;
+  description: string;
+};
+
+async function rewriteEntryChunkLLM(
   sectionId: string,
-  entries: ParsedEntry[],
+  chunkEntries: CappedEntry[],
   fullSectionContent: string,
-  promptKey: string,
+  promptContent: string,
   targetRole: string,
   jobObjective: string,
   framing: ObjectiveFraming,
   locale: Locale,
-  promptVersions: Record<string, number>,
   failureReasons: FailureReason[],
-  sectionDiagnostics: SectionDiagnostic[],
-  retryAttemptsByReason: Record<string, number>,
-): Promise<{ rewrite: RewritePreview; modelUsed: string } | null> {
-  // HOTFIX-5 D.8: First-pass entry cap for fast initial results
-  // Cap to MAX_ENTRIES_FIRST_PASS for initial response speed; remaining entries
-  // are available for on-demand regeneration.
-  const firstPassCap = Math.min(
-    MAX_ENTRIES_FIRST_PASS,
-    MAX_ENTRIES_PER_SECTION,
-  );
-  const cappedEntries = entries.slice(0, firstPassCap).map((e, i) => ({
-    index: i,
-    title: e.title.slice(0, 200),
-    organization: e.organization.slice(0, 200),
-    dateRange: e.dateRange.slice(0, 100),
-    description: e.description.slice(0, MAX_CHARS_PER_ENTRY),
-  }));
-  if (entries.length > firstPassCap) {
-    console.log(
-      `[perf] First-pass cap: ${sectionId} has ${entries.length} entries, processing first ${firstPassCap}`,
-    );
-  }
+): Promise<{
+  entries: RewriteEntry[];
+  sectionLevel: {
+    original: string;
+    improvements: string;
+    missingSuggestions: string[];
+    rewritten: string;
+  };
+  modelUsed: string;
+} | null> {
+  const chunkEntriesJson = JSON.stringify(chunkEntries, null, 2);
 
-  const entriesJson = JSON.stringify(cappedEntries, null, 2);
-
-  // Try per-entry prompt first, fall back to standard rewrite prompt
-  const prompt = await getActivePromptWithVersion(promptKey, locale);
-  if (!prompt) {
-    // Fall back to standard section rewrite if entry-specific prompt not found
-    console.warn(
-      `[diag] No entry-level prompt found (${promptKey}), falling back to standard rewrite`,
-    );
-    return rewriteSection(
-      sectionId,
-      fullSectionContent,
-      promptKey.replace(".entries", ""),
-      targetRole,
-      jobObjective,
-      framing,
-      locale,
-      promptVersions,
-      failureReasons,
-      sectionDiagnostics,
-      retryAttemptsByReason,
-    );
-  }
-
-  promptVersions[promptKey] = prompt.version;
-
-  const systemPrompt = interpolatePrompt(prompt.content, {
+  const systemPrompt = interpolatePrompt(promptContent, {
     section_name: SECTION_DISPLAY_NAMES[sectionId] ?? sectionId,
     original_content: truncate(
       fullSectionContent,
       MAX_SECTION_CHARS,
       sectionId,
     ),
-    entries_json: entriesJson,
-    entry_count: String(cappedEntries.length),
+    entries_json: chunkEntriesJson,
+    entry_count: String(chunkEntries.length),
     target_role: targetRole,
     job_objective: jobObjective,
     objective_mode_label: framing.objective_mode_label,
@@ -1126,7 +1101,6 @@ async function rewriteSectionWithEntries(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      // HOTFIX-2: Explicit language instruction for non-English locales
       const langInstruction =
         locale !== "en"
           ? " ALL output text (original, improvements, missingSuggestions, rewritten, and all entry fields) MUST be in Spanish."
@@ -1137,7 +1111,6 @@ async function rewriteSectionWithEntries(
           ? `Rewrite this ${SECTION_DISPLAY_NAMES[sectionId] ?? sectionId} section. Provide BOTH a section-level summary AND per-entry rewrites. Respond in JSON with keys: original, improvements, missingSuggestions, rewritten, entries (array of {entryTitle, original, improvements, missingSuggestions, rewritten}).${langInstruction}`
           : `Your previous response was not valid JSON. Please respond with ONLY valid JSON.${langInstruction}`;
 
-      // HOTFIX-5 D.9: Per-rewrite 20s hard timeout via AbortController
       const rewriteController = new AbortController();
       const rewriteTimeout = setTimeout(
         () => rewriteController.abort(),
@@ -1173,15 +1146,14 @@ async function rewriteSectionWithEntries(
       const parsed = RewriteSectionWithEntriesOutput.safeParse(rawEntryParsed);
 
       if (parsed.success) {
-        // HOTFIX-5 B.4: Attachment integrity check — verify each rewritten entry
-        // corresponds to the right original entry (prevents cross-contamination)
+        // Attachment integrity check
         let wrongAttachmentCount = 0;
         let attachmentSimilaritySum = 0;
         let attachmentFallbackApplied = 0;
 
         const rewriteEntries: RewriteEntry[] = (parsed.data.entries ?? []).map(
           (e, i) => {
-            const originalEntry = cappedEntries[i];
+            const originalEntry = chunkEntries[i];
             const originalText = originalEntry
               ? [
                   originalEntry.title,
@@ -1190,33 +1162,29 @@ async function rewriteSectionWithEntries(
                 ].join(" ")
               : "";
 
-            // Compute similarity between rewritten text and original entry text
             const similarity =
               originalText.length > 20
                 ? computeInputOverlap(originalText, e.rewritten)
-                : 1; // Skip check for very short entries
+                : 1;
             attachmentSimilaritySum += similarity;
 
             let rewrittenText = stripNonFlagEmojis(e.rewritten);
 
-            // If similarity is suspiciously low, the rewrite may be attached to wrong entry
             if (similarity < 0.15 && originalText.length > 50) {
               wrongAttachmentCount++;
-              // Fallback: use original description instead of potentially contaminated rewrite
               if (originalEntry?.description) {
                 rewrittenText = originalEntry.description;
                 attachmentFallbackApplied++;
                 console.warn(
-                  `[guard] Attachment mismatch: section=${sectionId}, entry=${i}, ` +
+                  `[guard] Attachment mismatch: section=${sectionId}, entry=${originalEntry.index}, ` +
                     `similarity=${similarity.toFixed(2)}, falling back to original`,
                 );
               }
             }
 
             return {
-              entryIndex: i,
+              entryIndex: originalEntry?.index ?? i,
               entryTitle: e.entryTitle,
-              // Carry forward structured fields from original parsed entries
               organization: originalEntry?.organization || undefined,
               title: originalEntry?.title || undefined,
               dateRange: originalEntry?.dateRange || undefined,
@@ -1241,86 +1209,16 @@ async function rewriteSectionWithEntries(
           );
         }
 
-        // HOTFIX-9b: Append passthrough entries for any entries beyond the LLM cap
-        // This ensures ALL parsed entries appear in the final output
-        if (entries.length > firstPassCap) {
-          const remainingEntries: RewriteEntry[] = entries
-            .slice(firstPassCap)
-            .map((e, i) => ({
-              entryIndex: firstPassCap + i,
-              entryTitle:
-                [e.title, e.organization].filter(Boolean).join(" at ") ||
-                `Entry ${firstPassCap + i + 1}`,
-              organization: e.organization || undefined,
-              title: e.title || undefined,
-              dateRange: e.dateRange || undefined,
-              original: e.description,
-              improvements: "",
-              missingSuggestions: getFallbackSuggestions(sectionId),
-              rewritten: e.description, // passthrough: original = rewritten
-            }));
-          rewriteEntries.push(...remainingEntries);
-          console.log(
-            `[hotfix-9b] Appended ${remainingEntries.length} passthrough entries for ${sectionId} (total: ${rewriteEntries.length})`,
-          );
-        }
-
-        const rewrite: RewritePreview = {
-          sectionId,
-          source: promptKey.includes("linkedin") ? "linkedin" : "cv",
-          original: parsed.data.original,
-          improvements: parsed.data.improvements,
-          missingSuggestions: parsed.data.missingSuggestions,
-          rewritten: stripNonFlagEmojis(parsed.data.rewritten),
-          locked: false,
-          entries: rewriteEntries.length > 0 ? rewriteEntries : undefined,
+        return {
+          entries: rewriteEntries,
+          sectionLevel: {
+            original: parsed.data.original,
+            improvements: parsed.data.improvements,
+            missingSuggestions: parsed.data.missingSuggestions,
+            rewritten: parsed.data.rewritten,
+          },
+          modelUsed: result.modelUsed,
         };
-
-        // HOTFIX-9b: Ensure missingSuggestions is never empty (filter empty strings)
-        rewrite.missingSuggestions = (rewrite.missingSuggestions ?? []).filter(
-          (s) => s.trim().length > 0,
-        );
-        if (rewrite.missingSuggestions.length === 0) {
-          rewrite.missingSuggestions = getFallbackSuggestions(sectionId);
-        }
-        // HOTFIX-9b: Ensure entry-level missingSuggestions are never empty
-        if (rewrite.entries) {
-          for (const entry of rewrite.entries) {
-            entry.missingSuggestions = (entry.missingSuggestions ?? []).filter(
-              (s: string) => s.trim().length > 0,
-            );
-            if (entry.missingSuggestions.length === 0) {
-              entry.missingSuggestions = getFallbackSuggestions(sectionId);
-            }
-          }
-        }
-
-        if (isMockRewrite(rewrite)) {
-          console.warn(
-            `[guard] Mock fingerprint in entry rewrite ${sectionId} (attempt ${attempt + 1}), retrying`,
-          );
-          failureReasons.push("mock_fingerprint_retry");
-          continue;
-        }
-
-        // HOTFIX-2: Language drift detection — retry if rewrite is in wrong language
-        if (
-          locale !== "en" &&
-          attempt === 0 &&
-          !isOutputInTargetLocale(rewrite.rewritten, locale)
-        ) {
-          console.warn(
-            `[lang-guard] Language drift in entry rewrite ${sectionId} (attempt ${attempt + 1}), retrying`,
-          );
-          failureReasons.push("lang_drift_retry");
-          continue;
-        }
-
-        console.log(
-          `[rewrite] Per-entry rewrite: section=${sectionId}, entries=${rewriteEntries.length}/${cappedEntries.length}`,
-        );
-
-        return { rewrite, modelUsed: result.modelUsed };
       }
 
       failureReasons.push("invalid_json");
@@ -1335,8 +1233,8 @@ async function rewriteSectionWithEntries(
       );
       logError({
         level: "warn",
-        source: "orchestrator/rewriteSectionWithEntries",
-        message: `Entry rewrite failed: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}`,
+        source: "orchestrator/rewriteEntryChunkLLM",
+        message: `Entry rewrite chunk failed: section=${sectionId}, attempt=${attempt + 1}, reason=${reason}`,
         error: err,
         code: "REWRITE_FAILED",
         inputMeta: { sectionId, attempt: attempt + 1, reason },
@@ -1344,23 +1242,297 @@ async function rewriteSectionWithEntries(
     }
   }
 
-  // Fall back to standard whole-section rewrite
-  console.warn(
-    `[fallback] Entry-level rewrite failed for ${sectionId}, falling back to section-level`,
+  return null;
+}
+
+// ── Rewrite a section with per-entry breakdown (experience/education) ──
+// Cost controls: max MAX_ENTRIES_PER_SECTION entries, each truncated to MAX_CHARS_PER_ENTRY
+// When entries > ENTRY_REWRITE_CHUNK_SIZE, splits into parallel chunks for reliability.
+async function rewriteSectionWithEntries(
+  sectionId: string,
+  entries: ParsedEntry[],
+  fullSectionContent: string,
+  promptKey: string,
+  targetRole: string,
+  jobObjective: string,
+  framing: ObjectiveFraming,
+  locale: Locale,
+  promptVersions: Record<string, number>,
+  failureReasons: FailureReason[],
+  sectionDiagnostics: SectionDiagnostic[],
+  retryAttemptsByReason: Record<string, number>,
+): Promise<{ rewrite: RewritePreview; modelUsed: string } | null> {
+  // HOTFIX-5 D.8: First-pass entry cap for fast initial results
+  const firstPassCap = Math.min(
+    MAX_ENTRIES_FIRST_PASS,
+    MAX_ENTRIES_PER_SECTION,
   );
-  return rewriteSection(
+  const cappedEntries = entries.slice(0, firstPassCap).map((e, i) => ({
+    index: i,
+    title: e.title.slice(0, 200),
+    organization: e.organization.slice(0, 200),
+    dateRange: e.dateRange.slice(0, 100),
+    description: e.description.slice(0, MAX_CHARS_PER_ENTRY),
+  }));
+  if (entries.length > firstPassCap) {
+    console.log(
+      `[perf] First-pass cap: ${sectionId} has ${entries.length} entries, processing first ${firstPassCap}`,
+    );
+  }
+
+  // Try per-entry prompt first, fall back to standard rewrite prompt
+  const prompt = await getActivePromptWithVersion(promptKey, locale);
+  if (!prompt) {
+    console.warn(
+      `[diag] No entry-level prompt found (${promptKey}), falling back to standard rewrite`,
+    );
+    return rewriteSection(
+      sectionId,
+      fullSectionContent,
+      promptKey.replace(".entries", ""),
+      targetRole,
+      jobObjective,
+      framing,
+      locale,
+      promptVersions,
+      failureReasons,
+      sectionDiagnostics,
+      retryAttemptsByReason,
+    );
+  }
+
+  promptVersions[promptKey] = prompt.version;
+
+  let allRewriteEntries: RewriteEntry[] = [];
+  let sectionLevelData: {
+    original: string;
+    improvements: string;
+    missingSuggestions: string[];
+    rewritten: string;
+  } | null = null;
+  let modelUsed = LLM_MODEL_QUALITY;
+
+  if (cappedEntries.length <= ENTRY_REWRITE_CHUNK_SIZE) {
+    // ── Single-call path (1-4 entries) — no chunking needed ──
+    const result = await rewriteEntryChunkLLM(
+      sectionId,
+      cappedEntries,
+      fullSectionContent,
+      prompt.content,
+      targetRole,
+      jobObjective,
+      framing,
+      locale,
+      failureReasons,
+    );
+
+    if (!result) {
+      // Fall back to standard whole-section rewrite
+      console.warn(
+        `[fallback] Entry-level rewrite failed for ${sectionId}, falling back to section-level`,
+      );
+      return rewriteSection(
+        sectionId,
+        fullSectionContent,
+        promptKey.replace(".entries", ""),
+        targetRole,
+        jobObjective,
+        framing,
+        locale,
+        promptVersions,
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason,
+      );
+    }
+
+    allRewriteEntries = result.entries;
+    sectionLevelData = result.sectionLevel;
+    modelUsed = result.modelUsed;
+  } else {
+    // ── Chunked parallel path (5+ entries) — split and run in parallel ──
+    const chunks: CappedEntry[][] = [];
+    for (let i = 0; i < cappedEntries.length; i += ENTRY_REWRITE_CHUNK_SIZE) {
+      chunks.push(cappedEntries.slice(i, i + ENTRY_REWRITE_CHUNK_SIZE));
+    }
+
+    console.log(
+      `[perf] ${sectionId}: chunking ${cappedEntries.length} entries into ${chunks.length} parallel calls (chunk size=${ENTRY_REWRITE_CHUNK_SIZE})`,
+    );
+
+    const chunkResults = await Promise.allSettled(
+      chunks.map((chunk) =>
+        rewriteEntryChunkLLM(
+          sectionId,
+          chunk,
+          fullSectionContent,
+          prompt.content,
+          targetRole,
+          jobObjective,
+          framing,
+          locale,
+          failureReasons,
+        ),
+      ),
+    );
+
+    let anySucceeded = false;
+    for (const [idx, result] of chunkResults.entries()) {
+      if (result.status === "fulfilled" && result.value !== null) {
+        anySucceeded = true;
+        allRewriteEntries.push(...result.value.entries);
+        // Use section-level data from the first successful chunk
+        if (!sectionLevelData) {
+          sectionLevelData = result.value.sectionLevel;
+          modelUsed = result.value.modelUsed;
+        }
+      } else {
+        // Chunk failed — passthrough those entries with fallback suggestions
+        const failedChunk = chunks[idx];
+        for (const entry of failedChunk) {
+          allRewriteEntries.push({
+            entryIndex: entry.index,
+            entryTitle:
+              [entry.title, entry.organization].filter(Boolean).join(" at ") ||
+              `Entry ${entry.index + 1}`,
+            organization: entry.organization || undefined,
+            title: entry.title || undefined,
+            dateRange: entry.dateRange || undefined,
+            original: entry.description,
+            improvements: "",
+            missingSuggestions: getFallbackSuggestions(sectionId),
+            rewritten: entry.description, // passthrough
+          });
+        }
+        const reason =
+          result.status === "rejected" ? result.reason : "chunk_returned_null";
+        console.warn(`[warn] ${sectionId} chunk ${idx} failed: ${reason}`);
+      }
+    }
+
+    if (!anySucceeded) {
+      // All chunks failed — fall back to section-level rewrite
+      console.warn(
+        `[fallback] All ${chunks.length} chunks failed for ${sectionId}, falling back to section-level`,
+      );
+      return rewriteSection(
+        sectionId,
+        fullSectionContent,
+        promptKey.replace(".entries", ""),
+        targetRole,
+        jobObjective,
+        framing,
+        locale,
+        promptVersions,
+        failureReasons,
+        sectionDiagnostics,
+        retryAttemptsByReason,
+      );
+    }
+  }
+
+  // Sort entries by entryIndex to preserve original order after parallel execution
+  allRewriteEntries.sort((a, b) => a.entryIndex - b.entryIndex);
+
+  // HOTFIX-9b: Append passthrough entries for any entries beyond the LLM cap
+  if (entries.length > firstPassCap) {
+    const remainingEntries: RewriteEntry[] = entries
+      .slice(firstPassCap)
+      .map((e, i) => ({
+        entryIndex: firstPassCap + i,
+        entryTitle:
+          [e.title, e.organization].filter(Boolean).join(" at ") ||
+          `Entry ${firstPassCap + i + 1}`,
+        organization: e.organization || undefined,
+        title: e.title || undefined,
+        dateRange: e.dateRange || undefined,
+        original: e.description,
+        improvements: "",
+        missingSuggestions: getFallbackSuggestions(sectionId),
+        rewritten: e.description, // passthrough: original = rewritten
+      }));
+    allRewriteEntries.push(...remainingEntries);
+    console.log(
+      `[hotfix-9b] Appended ${remainingEntries.length} passthrough entries for ${sectionId} (total: ${allRewriteEntries.length})`,
+    );
+  }
+
+  const rewrite: RewritePreview = {
     sectionId,
-    fullSectionContent,
-    promptKey.replace(".entries", ""),
-    targetRole,
-    jobObjective,
-    framing,
-    locale,
-    promptVersions,
-    failureReasons,
-    sectionDiagnostics,
-    retryAttemptsByReason,
+    source: promptKey.includes("linkedin") ? "linkedin" : "cv",
+    original: sectionLevelData?.original ?? "",
+    improvements: sectionLevelData?.improvements ?? "",
+    missingSuggestions: sectionLevelData?.missingSuggestions ?? [],
+    rewritten: stripNonFlagEmojis(sectionLevelData?.rewritten ?? ""),
+    locked: false,
+    entries: allRewriteEntries.length > 0 ? allRewriteEntries : undefined,
+  };
+
+  // HOTFIX-9b: Ensure missingSuggestions is never empty
+  rewrite.missingSuggestions = (rewrite.missingSuggestions ?? []).filter(
+    (s) => s.trim().length > 0,
   );
+  if (rewrite.missingSuggestions.length === 0) {
+    rewrite.missingSuggestions = getFallbackSuggestions(sectionId);
+  }
+  // HOTFIX-9b: Ensure entry-level missingSuggestions are never empty
+  if (rewrite.entries) {
+    for (const entry of rewrite.entries) {
+      entry.missingSuggestions = (entry.missingSuggestions ?? []).filter(
+        (s: string) => s.trim().length > 0,
+      );
+      if (entry.missingSuggestions.length === 0) {
+        entry.missingSuggestions = getFallbackSuggestions(sectionId);
+      }
+    }
+  }
+
+  if (isMockRewrite(rewrite)) {
+    console.warn(
+      `[guard] Mock fingerprint in entry rewrite ${sectionId}, falling back to section-level`,
+    );
+    failureReasons.push("mock_fingerprint_retry");
+    return rewriteSection(
+      sectionId,
+      fullSectionContent,
+      promptKey.replace(".entries", ""),
+      targetRole,
+      jobObjective,
+      framing,
+      locale,
+      promptVersions,
+      failureReasons,
+      sectionDiagnostics,
+      retryAttemptsByReason,
+    );
+  }
+
+  // HOTFIX-2: Language drift detection
+  if (locale !== "en" && !isOutputInTargetLocale(rewrite.rewritten, locale)) {
+    console.warn(
+      `[lang-guard] Language drift in entry rewrite ${sectionId}, falling back to section-level`,
+    );
+    failureReasons.push("lang_drift_retry");
+    return rewriteSection(
+      sectionId,
+      fullSectionContent,
+      promptKey.replace(".entries", ""),
+      targetRole,
+      jobObjective,
+      framing,
+      locale,
+      promptVersions,
+      failureReasons,
+      sectionDiagnostics,
+      retryAttemptsByReason,
+    );
+  }
+
+  console.log(
+    `[rewrite] Per-entry rewrite: section=${sectionId}, entries=${allRewriteEntries.length}/${cappedEntries.length}`,
+  );
+
+  return { rewrite, modelUsed };
 }
 
 // ── PERF-HOTFIX: Fast section-level rewrite (Haiku, 8s, single attempt) ──
