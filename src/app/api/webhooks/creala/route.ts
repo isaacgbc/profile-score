@@ -75,7 +75,7 @@ const EVENT_TO_ANALYTICS: Record<CrealaEvent, string> = {
 async function verifySignature(
   rawBody: string,
   signature: string,
-  secret: string
+  secret: string,
 ): Promise<boolean> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -83,7 +83,7 @@ async function verifySignature(
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"]
+    ["sign"],
   );
   const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(rawBody));
   const computed = Array.from(new Uint8Array(sig))
@@ -104,11 +104,14 @@ async function verifySignature(
 // ── Webhook handler ──────────────────────────────────────
 export async function POST(request: Request) {
   const webhookSecret = process.env.CREALA_WEBHOOK_SECRET;
-  if (!webhookSecret || webhookSecret === "whsec_REPLACE_WITH_YOUR_CREALA_SECRET") {
+  if (
+    !webhookSecret ||
+    webhookSecret === "whsec_REPLACE_WITH_YOUR_CREALA_SECRET"
+  ) {
     console.error("[Creala] CREALA_WEBHOOK_SECRET not configured");
     return NextResponse.json(
       { error: "Webhook not configured" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -137,12 +140,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { event, saleId, product, customer, subscription, test: isTest } = payload;
+  const {
+    event,
+    saleId,
+    product,
+    customer,
+    subscription,
+    test: isTest,
+  } = payload;
 
   // Validate required fields
   if (!event || !product || !customer) {
     console.error("[Creala] Missing required fields in payload");
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing required fields" },
+      { status: 400 },
+    );
   }
 
   // payment_failed events may have empty saleId — generate a synthetic one
@@ -154,8 +167,13 @@ export async function POST(request: Request) {
       where: { saleId: effectiveSaleId },
     });
     if (existing) {
-      console.log(`[Creala] Duplicate webhook ignored: saleId=${effectiveSaleId}`);
-      return NextResponse.json({ status: "duplicate", saleId: effectiveSaleId });
+      console.log(
+        `[Creala] Duplicate webhook ignored: saleId=${effectiveSaleId}`,
+      );
+      return NextResponse.json({
+        status: "duplicate",
+        saleId: effectiveSaleId,
+      });
     }
   }
 
@@ -188,7 +206,7 @@ export async function POST(request: Request) {
       } else {
         reconciliationStatus = "pending";
         console.warn(
-          `[Creala] No user match for saleId=${effectiveSaleId} email=${customer.email} — storing as pending`
+          `[Creala] No user match for saleId=${effectiveSaleId} email=${customer.email} — storing as pending`,
         );
       }
     }
@@ -230,7 +248,7 @@ export async function POST(request: Request) {
     console.error("[Creala] Failed to persist order:", err);
     return NextResponse.json(
       { error: "Failed to persist order" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -248,6 +266,8 @@ export async function POST(request: Request) {
               subscriptionExpiresAt: subscription?.nextBillingDate
                 ? new Date(subscription.nextBillingDate)
                 : null,
+              // Plan 01-07: reset Apify quota on plan upgrade (D-14)
+              apifyScrapeQuota: null,
             },
           });
           break;
@@ -294,7 +314,7 @@ export async function POST(request: Request) {
 
   // ── Log for operational visibility ──
   console.log(
-    `[Creala] ${event}: saleId=${effectiveSaleId} customer=${customer.email} plan=${planId} price=${product.price} ${product.currency} test=${isTest}`
+    `[Creala] ${event}: saleId=${effectiveSaleId} customer=${customer.email} plan=${planId} price=${product.price} ${product.currency} test=${isTest}`,
   );
 
   return NextResponse.json({ status: "ok", saleId: effectiveSaleId, planId });
