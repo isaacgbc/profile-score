@@ -16,8 +16,13 @@ import EmailCaptureModal from "@/components/ui/EmailCaptureModal";
 import StepIndicator from "@/components/layout/StepIndicator";
 import PricingModal from "@/components/pricing/PricingModal";
 import GenerationProgress from "@/components/ui/GenerationProgress";
-import { getSectionLabel } from "@/lib/section-labels";
-import { GlobeIcon, LockIcon, SparklesIcon, ChevronRightIcon } from "@/components/ui/Icons";
+import { ApifyQuotaChip } from "@/components/results/ApifyQuotaChip";
+import {
+  GlobeIcon,
+  LockIcon,
+  SparklesIcon,
+  ChevronRightIcon,
+} from "@/components/ui/Icons";
 import type { ScoreTier, SourceType } from "@/lib/types";
 
 export default function ResultsPage() {
@@ -44,6 +49,8 @@ export default function ResultsPage() {
     progressLabel,
     completedSections,
     totalExpectedSections,
+    // Phase 01: Apify quota state
+    apifyQuota,
   } = useApp();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -62,9 +69,15 @@ export default function ResultsPage() {
   // Auto-select available source when only one exists
   useEffect(() => {
     if (results) {
-      if (results.linkedinSections.length === 0 && results.cvSections.length > 0) {
+      if (
+        results.linkedinSections.length === 0 &&
+        results.cvSections.length > 0
+      ) {
         setActiveSource("cv");
-      } else if (results.cvSections.length === 0 && results.linkedinSections.length > 0) {
+      } else if (
+        results.cvSections.length === 0 &&
+        results.linkedinSections.length > 0
+      ) {
         setActiveSource("linkedin");
       }
     }
@@ -91,7 +104,9 @@ export default function ResultsPage() {
       if (!cancelled) setLoading(false);
     }
     run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -106,7 +121,7 @@ export default function ResultsPage() {
   }
 
   function getTierBadgeVariant(
-    tier: ScoreTier
+    tier: ScoreTier,
   ): "warning" | "accent" | "success" | "muted" {
     const map: Record<ScoreTier, "warning" | "accent" | "success" | "muted"> = {
       poor: "warning",
@@ -123,10 +138,10 @@ export default function ResultsPage() {
     router.push("/checkout");
   }
 
-  const sectionLabels = t.sectionLabels as Record<string, string>;
-
   // --- Error state ---
-  if (generationError && !isGenerating) {
+  // BUG FIX: Only show error screen when NO results exist.
+  // If results arrived despite a transient error, let the user see them.
+  if (generationError && !isGenerating && !results) {
     return (
       <div className="animate-fade-in">
         <StepIndicator currentStep="results" />
@@ -135,14 +150,14 @@ export default function ResultsPage() {
             <span className="text-2xl">!</span>
           </div>
           <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-            Generation failed
+            {t.results.generationFailedTitle}
           </h2>
           <p className="text-sm text-[var(--text-secondary)] mb-6 max-w-md mx-auto">
             {generationError}
           </p>
           <div className="flex items-center justify-center gap-3">
             <Link href="/input">
-              <Button variant="ghost">Back to input</Button>
+              <Button variant="ghost">{t.common.back}</Button>
             </Link>
             <Button
               variant="primary"
@@ -151,7 +166,7 @@ export default function ResultsPage() {
                 generateResults().finally(() => setLoading(false));
               }}
             >
-              Retry
+              {t.results.retryFresh}
             </Button>
           </div>
         </div>
@@ -162,7 +177,8 @@ export default function ResultsPage() {
   // --- Loading state (Sprint 2: progressive or spinner) ---
   if (loading || isGenerating) {
     // Sprint 2: Show progressive generation UI when streaming is active
-    const hasProgressData = progressStage !== null || completedSections.length > 0;
+    const hasProgressData =
+      progressStage !== null || completedSections.length > 0;
 
     if (hasProgressData) {
       return (
@@ -187,7 +203,9 @@ export default function ResultsPage() {
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-20 text-center">
           <div className="w-16 h-16 mx-auto mb-6 rounded-full border-4 border-[var(--accent-light)] border-t-[var(--accent)] animate-spin" />
           <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-            {isPaid ? t.results.unlockingAnimation : "Analyzing your profile..."}
+            {isPaid
+              ? t.results.unlockingAnimation
+              : "Analyzing your profile..."}
           </h2>
           <p className="text-sm text-[var(--text-secondary)]">
             This may take 30-60 seconds while our AI reviews your profile.
@@ -199,13 +217,11 @@ export default function ResultsPage() {
 
   if (!results) return null;
 
-  // ── P0-6: STRICT degraded-mode gate ──
-  // If generation had ANY fallback or is degraded, show ONLY error state.
-  // Never render fallback/placeholder content as if it were real results.
-  const generationHasIssues =
-    generationMeta?.degraded || generationMeta?.hasFallback;
+  // ── Tiered degradation gate ──
+  const degradationLevel = generationMeta?.degradationLevel ?? "none";
 
-  if (generationHasIssues) {
+  // SEVERE: hard block — results are too unreliable to show
+  if (degradationLevel === "severe") {
     return (
       <div className="animate-fade-in">
         <StepIndicator currentStep="results" />
@@ -227,17 +243,21 @@ export default function ResultsPage() {
               variant="primary"
               onClick={() => {
                 setLoading(true);
-                generateResults({ forceFresh: true }).finally(() => setLoading(false));
+                generateResults({ forceFresh: true }).finally(() =>
+                  setLoading(false),
+                );
               }}
             >
               {t.results.retryFresh}
             </Button>
           </div>
-          {generationMeta?.failureReasons && generationMeta.failureReasons.length > 0 && (
-            <p className="mt-4 text-xs text-[var(--text-muted)]">
-              {t.results.diagnosticHint}: {generationMeta.failureReasons.join(", ")}
-            </p>
-          )}
+          {generationMeta?.failureReasons &&
+            generationMeta.failureReasons.length > 0 && (
+              <p className="mt-4 text-xs text-[var(--text-muted)]">
+                {t.results.diagnosticHint}:{" "}
+                {generationMeta.failureReasons.join(", ")}
+              </p>
+            )}
         </div>
       </div>
     );
@@ -252,6 +272,48 @@ export default function ResultsPage() {
   return (
     <div className="animate-fade-in">
       <StepIndicator currentStep="results" />
+
+      {/* PARTIAL DEGRADATION: yellow warning — some sections less accurate, results still usable */}
+      {degradationLevel === "partial" && (
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 mb-6">
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 flex items-start gap-3">
+            <span className="text-yellow-600 text-lg mt-0.5">⚠</span>
+            <div>
+              <p className="text-sm font-medium text-yellow-800">
+                {t.results.partialDegradedTitle}
+              </p>
+              <p className="text-xs text-yellow-700 mt-0.5">
+                {t.results.partialDegradedDesc}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CORE FAILURES: amber warning — key sections had issues, results still visible */}
+      {degradationLevel !== "partial" &&
+        (generationMeta?.coreFailureCount ?? 0) > 0 && (
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 mb-6">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
+              <span className="text-amber-600 text-lg mt-0.5">⚠</span>
+              <div>
+                <p className="text-sm font-medium text-amber-800">
+                  {(generationMeta?.coreFailureCount ?? 0) >= 2
+                    ? ((t.results as Record<string, string>)
+                        .coreFailureWarningStrong ??
+                      "Some key sections couldn\u2019t be fully personalized")
+                    : ((t.results as Record<string, string>)
+                        .coreFailureWarning ??
+                      "One key section couldn\u2019t be fully personalized")}
+                </p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  {(t.results as Record<string, string>).coreFailureDesc ??
+                    "A temporary issue affected part of your analysis. Your other results are ready \u2014 you can retry for a complete audit."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       <PricingModal />
       <EmailCaptureModal
         isOpen={showEmailCaptureModal}
@@ -268,15 +330,18 @@ export default function ResultsPage() {
           <p className="text-[var(--text-secondary)]">{t.results.subtitle}</p>
         </div>
 
-        {/* Export language indicator */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <GlobeIcon size={14} className="text-[var(--text-muted)]" />
-          <span className="text-xs text-[var(--text-muted)]">
-            {t.results.exportingIn}:{" "}
-            <strong className="text-[var(--text-secondary)]">
-              {exportLocale === "en" ? "English" : "Español"}
-            </strong>
-          </span>
+        {/* Export language indicator + Apify quota chip */}
+        <div className="flex items-center justify-center gap-4 flex-wrap mb-8">
+          <div className="flex items-center gap-2">
+            <GlobeIcon size={14} className="text-[var(--text-muted)]" />
+            <span className="text-xs text-[var(--text-muted)]">
+              {t.results.exportingIn}:{" "}
+              <strong className="text-[var(--text-secondary)]">
+                {exportLocale === "en" ? "English" : "Español"}
+              </strong>
+            </span>
+          </div>
+          <ApifyQuotaChip quota={apifyQuota} />
         </div>
 
         {/* ─── Overall Score ─── */}
@@ -300,7 +365,9 @@ export default function ResultsPage() {
           </Badge>
 
           <p className="mt-4 text-sm text-[var(--text-secondary)] max-w-lg mx-auto leading-relaxed">
-            {results.overallDescriptor ?? results.linkedinSections[0]?.explanation ?? ""}
+            {results.overallDescriptor ??
+              results.linkedinSections[0]?.explanation ??
+              ""}
           </p>
 
           {/* Free tier CTA */}
@@ -324,137 +391,174 @@ export default function ResultsPage() {
         </Card>
 
         {/* ─────────────────────────────────────────────────
-            FREE TIER: Locked audit preview cards
+            FREE TIER: Tiered preview — first 2 sections unlocked,
+            rest blurred with real content + rewrite teaser
             ───────────────────────────────────────────────── */}
-        {!isPaid && (
-          <section className="mb-10">
-            {/* ATS insight banner */}
-            <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/50 p-4 mb-6">
-              <p className="text-sm text-amber-800 text-center font-medium">
-                {t.results.atsInsight}
-              </p>
-            </div>
+        {!isPaid &&
+          (() => {
+            const fp =
+              (t as unknown as Record<string, Record<string, string>>)
+                .freePreview ?? {};
+            const allSections =
+              activeSource === "linkedin"
+                ? results.linkedinSections
+                : results.cvSections;
+            const freeCount = allSections.filter(
+              (s) => s.freePreview && !s.locked,
+            ).length;
+            const lockedCount = allSections.filter((s) => s.locked).length;
 
-            {/* Preview heading */}
-            <div className="text-center mb-6">
-              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">
-                {t.results.lockedPreviewTitle}
-              </h2>
-              <p className="text-sm text-[var(--text-secondary)] max-w-lg mx-auto">
-                {t.results.lockedPreviewDesc}
-              </p>
-            </div>
+            // Get first free-preview rewrite for teaser
+            const allRewrites =
+              activeSource === "linkedin"
+                ? results.linkedinRewrites
+                : results.cvRewrites;
+            const teaserRewrite = allRewrites.find(
+              (r) => r.freePreview && !r.locked,
+            );
 
-            {/* LinkedIn locked previews */}
-            {hasLinkedinSections && (
-              <>
-                <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-                  {t.results.linkedinAuditTitle}
-                </h3>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-                  {results.linkedinSections.map((section, idx) => (
-                    <Card
-                      key={section.id}
-                      variant="default"
-                      padding="md"
-                      locked
-                      className="animate-slide-up"
-                      style={{ animationDelay: `${idx * 50}ms` }}
-                    >
-                      <div className="flex items-start gap-3 mb-3">
-                        <ScoreRing
-                          score={section.score}
-                          maxScore={section.maxScore}
-                          tier={section.tier}
-                          size="sm"
-                          animate={false}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1 truncate">
-                            {getSectionLabel(section.id, sectionLabels)}
-                          </h3>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={getTierBadgeVariant(section.tier)}>
-                              {getTierLabel(section.tier)}
-                            </Badge>
-                            <span className="text-xs font-medium text-[var(--text-muted)] tabular-nums">
-                              {section.score}/{section.maxScore}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      {/* Blurred preview hint */}
-                      <div className="h-12 rounded-lg bg-gradient-to-r from-[var(--surface-secondary)] to-[var(--border-light)] opacity-40" />
-                    </Card>
-                  ))}
+            return (
+              <section className="mb-10">
+                {/* ATS insight banner */}
+                <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/50 p-4 mb-6">
+                  <p className="text-sm text-amber-800 text-center font-medium">
+                    {t.results.atsInsight}
+                  </p>
                 </div>
-              </>
-            )}
 
-            {/* CV locked previews */}
-            {hasCvSections && (
-              <>
-                <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-                  {t.results.cvAuditTitle}
-                </h3>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
-                  {results.cvSections.map((section, idx) => (
-                    <Card
-                      key={section.id}
-                      variant="default"
-                      padding="md"
-                      locked
-                      className="animate-slide-up"
-                      style={{ animationDelay: `${(idx + results.linkedinSections.length) * 50}ms` }}
-                    >
-                      <div className="flex items-start gap-3 mb-3">
-                        <ScoreRing
-                          score={section.score}
-                          maxScore={section.maxScore}
-                          tier={section.tier}
-                          size="sm"
-                          animate={false}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1 truncate">
-                            {getSectionLabel(section.id, sectionLabels)}
-                          </h3>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={getTierBadgeVariant(section.tier)}>
-                              {getTierLabel(section.tier)}
-                            </Badge>
-                            <span className="text-xs font-medium text-[var(--text-muted)] tabular-nums">
-                              {section.score}/{section.maxScore}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="h-12 rounded-lg bg-gradient-to-r from-[var(--surface-secondary)] to-[var(--border-light)] opacity-40" />
-                    </Card>
-                  ))}
+                {/* Preview heading with counts */}
+                <div className="text-center mb-6">
+                  <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">
+                    {(
+                      fp.sectionsPreview ??
+                      "Previewing {free} of {total} sections"
+                    )
+                      .replace("{free}", String(freeCount))
+                      .replace("{total}", String(allSections.length))}
+                  </h2>
+                  <p className="text-sm text-[var(--text-secondary)] max-w-lg mx-auto">
+                    {fp.upgradeToSeeAll ??
+                      "Upgrade to see all sections, rewrites, and exports"}
+                  </p>
                 </div>
-              </>
-            )}
 
-            {/* Unlock CTA */}
-            <Card variant="elevated" padding="lg" className="text-center">
-              <LockIcon size={24} className="text-[var(--accent)] mx-auto mb-3" />
-              <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">
-                {t.results.lockedSectionsCount.replace("{count}", String(totalSectionsCount))}
-              </p>
-              <p className="text-xs text-[var(--text-secondary)] mb-4 max-w-md mx-auto">
-                {t.results.lockedPreviewDesc}
-              </p>
-              <Button
-                variant="primary"
-                size="lg"
-                onClick={() => setShowPricingModal(true)}
-              >
-                {t.results.upgradeCta}
-              </Button>
-            </Card>
-          </section>
-        )}
+                {/* Source Toggle (show for free users too when both sources exist) */}
+                {hasLinkedinSections && hasCvSections && (
+                  <div className="flex justify-center mb-6">
+                    <SourceToggle
+                      active={activeSource}
+                      onChange={handleSourceChange}
+                    />
+                  </div>
+                )}
+
+                {/* ScoreCardGrid — now handles free preview + blurred locked natively */}
+                <div className="mb-8">
+                  <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
+                    {activeSource === "linkedin"
+                      ? t.results.linkedinAuditTitle
+                      : t.results.cvAuditTitle}
+                  </h3>
+                  <ScoreCardGrid
+                    sections={allSections}
+                    onUpgradeClick={() => setShowPricingModal(true)}
+                  />
+                </div>
+
+                {/* ── Rewrite Teaser: Show one before/after ── */}
+                {teaserRewrite && (
+                  <Card variant="elevated" padding="lg" className="mb-8">
+                    <div className="text-center mb-4">
+                      <SparklesIcon
+                        size={20}
+                        className="text-[var(--accent)] mx-auto mb-2"
+                      />
+                      <h3 className="text-base font-semibold text-[var(--text-primary)]">
+                        {fp.rewritePreviewTitle ??
+                          "See how we'd improve your profile"}
+                      </h3>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {/* Original */}
+                      <div className="bg-red-50/40 border border-red-100 rounded-xl p-4">
+                        <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wider mb-2">
+                          {fp.rewritePreviewCurrent ?? "Current"}
+                        </p>
+                        <p className="text-sm text-[var(--text-secondary)] leading-relaxed line-clamp-6">
+                          {teaserRewrite.original.substring(0, 300)}
+                          {teaserRewrite.original.length > 300 ? "..." : ""}
+                        </p>
+                      </div>
+                      {/* Improved */}
+                      <div className="border-2 border-emerald-200 bg-emerald-50/30 rounded-xl p-4">
+                        <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mb-2">
+                          {fp.rewritePreviewImproved ?? "Improved"}
+                        </p>
+                        <p className="text-sm text-[var(--text-primary)] leading-relaxed line-clamp-6">
+                          {teaserRewrite.rewritten.substring(0, 300)}
+                          {teaserRewrite.rewritten.length > 300 ? "..." : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 text-center">
+                      <p className="text-xs text-[var(--text-secondary)] mb-3">
+                        {(
+                          fp.rewritePreviewCta ??
+                          "We've rewritten all {count} sections. Unlock everything"
+                        ).replace("{count}", String(allRewrites.length))}
+                      </p>
+                      <Button
+                        variant="primary"
+                        size="lg"
+                        onClick={() => setShowPricingModal(true)}
+                      >
+                        {t.results.upgradeCta}
+                      </Button>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Bottom unlock CTA */}
+                {lockedCount > 0 && (
+                  <Card variant="elevated" padding="lg" className="text-center">
+                    <LockIcon
+                      size={24}
+                      className="text-[var(--accent)] mx-auto mb-3"
+                    />
+                    <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">
+                      {t.results.lockedSectionsCount.replace(
+                        "{count}",
+                        String(lockedCount),
+                      )}
+                    </p>
+                    <p className="text-xs text-[var(--text-secondary)] mb-4 max-w-md mx-auto">
+                      {t.results.lockedPreviewDesc}
+                    </p>
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      onClick={() => setShowPricingModal(true)}
+                    >
+                      {t.results.upgradeCta}
+                    </Button>
+                  </Card>
+                )}
+
+                {/* Continue to Rewrite Studio (free users can now visit with limited access) */}
+                <div className="flex flex-col items-center gap-4 mt-8">
+                  <Link href={`/rewrite-studio?source=${activeSource}`}>
+                    <Button variant="outline" size="lg">
+                      <span className="flex items-center gap-2">
+                        <SparklesIcon size={18} />
+                        {t.results.continueToRewrite}
+                        <ChevronRightIcon size={16} />
+                      </span>
+                    </Button>
+                  </Link>
+                </div>
+              </section>
+            );
+          })()}
 
         {/* ─────────────────────────────────────────────────
             PAID TIER: Source Toggle + Audit + Rewrite Studio CTA
