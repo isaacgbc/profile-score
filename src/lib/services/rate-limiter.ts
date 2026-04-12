@@ -1,3 +1,5 @@
+import { logError } from "./error-logger";
+
 interface RateLimiterConfig {
   windowMs: number;
   maxRequests: number;
@@ -24,7 +26,7 @@ export function createRateLimiter(config: RateLimiterConfig) {
     const now = Date.now();
     for (const [key, entry] of store) {
       entry.timestamps = entry.timestamps.filter(
-        (ts) => now - ts < config.windowMs
+        (ts) => now - ts < config.windowMs,
       );
       if (entry.timestamps.length === 0) store.delete(key);
     }
@@ -37,14 +39,25 @@ export function createRateLimiter(config: RateLimiterConfig) {
 
       // Remove timestamps outside the window
       entry.timestamps = entry.timestamps.filter(
-        (ts) => now - ts < config.windowMs
+        (ts) => now - ts < config.windowMs,
       );
 
       if (entry.timestamps.length >= config.maxRequests) {
         const oldestInWindow = entry.timestamps[0];
         const retryAfter = Math.ceil(
-          (oldestInWindow + config.windowMs - now) / 1000
+          (oldestInWindow + config.windowMs - now) / 1000,
         );
+        logError({
+          level: "info",
+          source: "rate-limiter",
+          message: `Rate limit hit: key=${key.slice(0, 12)}, max=${config.maxRequests}/${config.windowMs}ms, retryAfter=${retryAfter}s`,
+          code: "RATE_LIMIT_HIT",
+          inputMeta: {
+            maxRequests: config.maxRequests,
+            windowMs: config.windowMs,
+            retryAfter,
+          },
+        });
         return { allowed: false, retryAfter };
       }
 
@@ -64,5 +77,13 @@ export const exportRateLimiter = createRateLimiter({
 /** Rate limiter for regenerate-rewrite: 3 requests per minute per IP */
 export const regenerateRateLimiter = createRateLimiter({
   windowMs: 60_000,
+  maxRequests: 3,
+});
+
+// Rate limiter for Apify scrape route. 3 req/min per key.
+// Second layer of cost-abuse defense (first layer is per-fingerprint quota).
+// Per 01-RESEARCH.md Security Domain.
+export const scrapeRateLimiter = createRateLimiter({
+  windowMs: 60000,
   maxRequests: 3,
 });

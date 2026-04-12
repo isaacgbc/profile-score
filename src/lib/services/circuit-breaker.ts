@@ -12,6 +12,8 @@
  * - Rich diagnostic logging on every state transition
  */
 
+import { logError } from "./error-logger";
+
 export type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
 
 interface CircuitBreakerConfig {
@@ -52,7 +54,11 @@ class CircuitBreaker {
   /** Reason the breaker last opened (for diagnostics) */
   private lastOpenReason: string = "";
   /** Breakdown of failure types when breaker opened */
-  private lastOpenBreakdown: { hard: number; transient: number; total: number } = {
+  private lastOpenBreakdown: {
+    hard: number;
+    transient: number;
+    total: number;
+  } = {
     hard: 0,
     transient: 0,
     total: 0,
@@ -69,8 +75,14 @@ class CircuitBreaker {
         this.state = "HALF_OPEN";
         this.halfOpenSuccessStreak = 0;
         console.log(
-          `[CircuitBreaker] OPEN → HALF_OPEN (cooldown elapsed, probing)`
+          `[CircuitBreaker] OPEN → HALF_OPEN (cooldown elapsed, probing)`,
         );
+        logError({
+          level: "warn",
+          source: "circuit-breaker",
+          message: "OPEN → HALF_OPEN (cooldown elapsed, probing)",
+          code: "CIRCUIT_STATE_CHANGE",
+        });
       }
     }
     return this.state;
@@ -84,7 +96,11 @@ class CircuitBreaker {
 
   /** Record a successful call */
   recordSuccess(): void {
-    this.records.push({ success: true, transient: false, timestamp: Date.now() });
+    this.records.push({
+      success: true,
+      transient: false,
+      timestamp: Date.now(),
+    });
     this.trimWindow();
 
     if (this.state === "HALF_OPEN") {
@@ -92,8 +108,14 @@ class CircuitBreaker {
       if (this.halfOpenSuccessStreak >= this.config.successStreakToClose) {
         this.state = "CLOSED";
         console.log(
-          `[CircuitBreaker] HALF_OPEN → CLOSED (${this.halfOpenSuccessStreak} consecutive successes)`
+          `[CircuitBreaker] HALF_OPEN → CLOSED (${this.halfOpenSuccessStreak} consecutive successes)`,
         );
+        logError({
+          level: "warn",
+          source: "circuit-breaker",
+          message: `HALF_OPEN → CLOSED (${this.halfOpenSuccessStreak} consecutive successes)`,
+          code: "CIRCUIT_STATE_CHANGE",
+        });
         this.halfOpenSuccessStreak = 0;
       }
     }
@@ -114,8 +136,15 @@ class CircuitBreaker {
       this.halfOpenSuccessStreak = 0;
       this.lastOpenReason = `probe_failed(transient=${transient})`;
       console.error(
-        `[CircuitBreaker] HALF_OPEN → OPEN (probe failed, transient=${transient})`
+        `[CircuitBreaker] HALF_OPEN → OPEN (probe failed, transient=${transient})`,
       );
+      logError({
+        level: "warn",
+        source: "circuit-breaker",
+        message: `HALF_OPEN → OPEN (probe failed, transient=${transient})`,
+        code: "CIRCUIT_STATE_CHANGE",
+        inputMeta: { transient },
+      });
       return;
     }
 
@@ -140,8 +169,21 @@ class CircuitBreaker {
             `(${(stats.hardFailureRate * 100).toFixed(1)}%) | ` +
             `transientFailures=${stats.transientFailures} (not counted) | ` +
             `threshold=${(this.config.failureThreshold * 100).toFixed(0)}% | ` +
-            `minSamples=${this.config.minSamples}`
+            `minSamples=${this.config.minSamples}`,
         );
+        logError({
+          level: "error",
+          source: "circuit-breaker",
+          message: `CLOSED → OPEN: hardFailures=${stats.hardFailures}/${stats.totalCalls} (${(stats.hardFailureRate * 100).toFixed(1)}%)`,
+          code: "CIRCUIT_STATE_CHANGE",
+          inputMeta: {
+            hardFailures: stats.hardFailures,
+            transientFailures: stats.transientFailures,
+            totalCalls: stats.totalCalls,
+            hardFailureRate: stats.hardFailureRate,
+            threshold: this.config.failureThreshold,
+          },
+        });
       }
     }
   }
@@ -215,3 +257,14 @@ class CircuitBreaker {
 
 /** Singleton circuit breaker for LLM calls */
 export const llmCircuitBreaker = new CircuitBreaker();
+
+// Singleton circuit breaker for Apify HarvestAPI calls.
+// Config mirrors LLM breaker but with lower minSamples (Apify is called less frequently per Lambda).
+// Per 01-RESEARCH.md Pattern 2 and CONTEXT.md D-06.
+export const apifyCircuitBreaker = new CircuitBreaker({
+  windowSize: 30,
+  failureThreshold: 0.6,
+  minSamples: 8,
+  cooldownMs: 20000,
+  successStreakToClose: 2,
+});
