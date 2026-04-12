@@ -1,0 +1,290 @@
+[
+  {
+    "_note": {
+      "source": "real-apify-probe",
+      "actor": "harvestapi~linkedin-profile-scraper",
+      "profileUrl": "https://www.linkedin.com/in/williamhgates",
+      "probedAt": "2026-04-12T02:15:15.296Z",
+      "latencyMs": 6800,
+      "actorInputSchema": {
+        "queries": "string[]",
+        "profileScraperMode": "enum(\"Profile details no email ($4 per 1k)\"|\"Profile details + email search ($10 per 1k)\")"
+      },
+      "a1Resolution": "Actor uses field name `queries` (not `profileUrls` as research assumed)",
+      "a4Resolution": "Sync latency ~6.8s for single profile, well under 60s Vercel Hobby limit",
+      "plan_01_04_note": "Consider probing a denser profile (with skills/certs/recommendations populated) for formatter-test fixture data. Bill Gates profile is sparse."
+    },
+    "id": "ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc",
+    "publicIdentifier": "williamhgates",
+    "linkedinUrl": "https://www.linkedin.com/in/williamhgates",
+    "firstName": "Bill",
+    "lastName": "Gates",
+    "emails": [],
+    "companyWebsites": [
+      {
+        "url": "http://gatesfoundation.com",
+        "domain": "gatesfoundation.com"
+      }
+    ],
+    "headline": "Chair, Gates Foundation and Founder, Breakthrough Energy",
+    "premium": true,
+    "influencer": true,
+    "location": {
+      "linkedinText": "Seattle, Washington, United States",
+      "countryCode": "US",
+      "parsed": {
+        "text": "Seattle, Washington, United States",
+        "countryCode": "US",
+        "regionCode": null,
+        "country": "United States",
+        "countryFull": "United States",
+        "state": "Washington",
+        "city": "Seattle"
+      }
+    },
+    "objectUrn": "251749025",
+    "registeredAt": null,
+    "topSkills": null,
+    "connectionsCount": 8,
+    "followerCount": 40175415,
+    "about": "Chair of the Gates Foundation. Founder of Breakthrough Energy. Co-founder of Microsoft. Voracious reader. Avid traveler. Active blogger.",
+    "currentPosition": [
+      {
+        "companyId": "8736",
+        "companyLinkedinUrl": "https://www.linkedin.com/company/gates-foundation/",
+        "companyName": "Gates Foundation"
+      }
+    ],
+    "profileTopEducation": [
+      {
+        "schoolId": "18483",
+        "companyId": "1646",
+        "schoolLinkedinUrl": "https://www.linkedin.com/school/harvard-university/",
+        "schoolName": "Harvard University"
+      }
+    ],
+    "profileActions": [],
+    "profilePicture": {
+      "url": "https://media.licdn.com/dms/image/v2/D5603AQF-RYZP55jmXA/profile-displayphoto-shrink_800_800/B56ZRi8g.aGsAc-/0/1736826818808?e=1777507200&v=beta&t=qExLlq7HhWwIuSYUcPqYqC4J4UqX2BYtCiH4kKCLlZ4",
+      "sizes": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D5603AQF-RYZP55jmXA/profile-displayphoto-shrink_200_200/B56ZRi8g.aGsAY-/0/1736826818802?e=1777507200&v=beta&t=FWTq7qNpFAOBjNbzaFRTIngZJFJZX-3iTrW8D8WicP0",
+          "width": 200,
+          "height": 200,
+          "expiresAt": null
+        },
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D5603AQF-RYZP55jmXA/profile-displayphoto-shrink_400_400/B56ZRi8g.aGsAg-/0/1736826818802?e=1777507200&v=beta&t=u1Pjhyw2twDuEda-x1cgIAojVcRTWyW6fEclaOYQiTo",
+          "width": 400,
+          "height": 400,
+          "expiresAt": null
+        },
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D5603AQF-RYZP55jmXA/profile-displayphoto-shrink_100_100/B56ZRi8g.aGsAU-/0/1736826818802?e=1777507200&v=beta&t=yu0ScI-U6ejhjorup2HObdNrtmQ90ijYyZwG8hb5zO4",
+          "width": 100,
+          "height": 100,
+          "expiresAt": null
+        },
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D5603AQF-RYZP55jmXA/profile-displayphoto-shrink_800_800/B56ZRi8g.aGsAc-/0/1736826818808?e=1777507200&v=beta&t=qExLlq7HhWwIuSYUcPqYqC4J4UqX2BYtCiH4kKCLlZ4",
+          "width": 800,
+          "height": 800,
+          "expiresAt": null
+        }
+      ]
+    },
+    "coverPicture": {
+      "url": "https://media.licdn.com/dms/image/v2/D5616AQEjhPbTCeblYg/profile-displaybackgroundimage-shrink_350_1400/B56ZcytR5SGsAg-/0/1748902420393?e=1777507200&v=beta&t=yHhV1Ukjan7CF_EqSkNmfmjf_2LnbYnshjIL6FVxJlg",
+      "sizes": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D5616AQEjhPbTCeblYg/profile-displaybackgroundimage-shrink_350_1400/B56ZcytR5SGsAg-/0/1748902420393?e=1777507200&v=beta&t=yHhV1Ukjan7CF_EqSkNmfmjf_2LnbYnshjIL6FVxJlg",
+          "width": 1400,
+          "height": 350,
+          "expiresAt": null
+        },
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D5616AQEjhPbTCeblYg/profile-displaybackgroundimage-shrink_200_800/B56ZcytR5SGsAc-/0/1748902420393?e=1777507200&v=beta&t=w-ZBl5YCwTSFTAWvaz0TJwK8s7UFfGu0kUVb0bjgexE",
+          "width": 800,
+          "height": 200,
+          "expiresAt": null
+        }
+      ]
+    },
+    "photo": "https://media.licdn.com/dms/image/v2/D5603AQF-RYZP55jmXA/profile-displayphoto-shrink_800_800/B56ZRi8g.aGsAc-/0/1736826818808?e=1777507200&v=beta&t=qExLlq7HhWwIuSYUcPqYqC4J4UqX2BYtCiH4kKCLlZ4",
+    "profileLocales": [
+      {
+        "country": "US",
+        "language": "en"
+      }
+    ],
+    "primaryLocale": {
+      "country": "US",
+      "language": "en"
+    },
+    "services": null,
+    "experience": [
+      {
+        "position": "Co-chair",
+        "location": "",
+        "employmentType": "",
+        "workplaceType": "",
+        "companyName": "Gates Foundation",
+        "companyLinkedinUrl": "https://www.linkedin.com/company/gates-foundation/",
+        "companyId": "8736",
+        "companyUniversalName": "gates-foundation",
+        "duration": null,
+        "description": "",
+        "skills": [],
+        "startDate": {
+          "month": null,
+          "year": 2000,
+          "text": "2000"
+        },
+        "endDate": {
+          "text": "Present"
+        },
+        "companyLogo": {
+          "url": "https://media.licdn.com/dms/image/v2/D560BAQEgMqqFTd40Tg/company-logo_400_400/company-logo_400_400/0/1736784969376/bill__melinda_gates_foundation_logo?e=1777507200&v=beta&t=YEcet7g64_--VIP-eXNKxmMb4U73vkb4Jr0OgRt8mco",
+          "sizes": []
+        }
+      },
+      {
+        "position": "Founder",
+        "location": "",
+        "employmentType": "",
+        "workplaceType": "",
+        "companyName": "Breakthrough Energy ",
+        "companyLinkedinUrl": "https://www.linkedin.com/company/breakthrough-energy/",
+        "companyId": "19141006",
+        "companyUniversalName": "breakthrough-energy",
+        "duration": null,
+        "description": "",
+        "skills": [],
+        "startDate": {
+          "month": null,
+          "year": 2015,
+          "text": "2015"
+        },
+        "endDate": {
+          "text": "Present"
+        },
+        "companyLogo": {
+          "url": "https://media.licdn.com/dms/image/v2/D560BAQFRMYiQN7-2kA/company-logo_400_400/B56ZoI4SGPI0AY-/0/1761085563539/breakthrough_energy_logo?e=1777507200&v=beta&t=aae8oluMjUTGlVCMaVttiRa2KJGCX1bI_QnIWKDO0qo",
+          "sizes": []
+        }
+      },
+      {
+        "position": "Co-founder",
+        "location": "",
+        "employmentType": "",
+        "workplaceType": "",
+        "companyName": "Microsoft",
+        "companyLinkedinUrl": "https://www.linkedin.com/company/microsoft/",
+        "companyId": "1035",
+        "companyUniversalName": "microsoft",
+        "duration": null,
+        "description": "",
+        "skills": [],
+        "startDate": {
+          "month": null,
+          "year": 1975,
+          "text": "1975"
+        },
+        "endDate": {
+          "text": "Present"
+        },
+        "companyLogo": {
+          "url": "https://media.licdn.com/dms/image/v2/D560BAQH32RJQCl3dDQ/company-logo_400_400/B56ZYQ0mrGGoAc-/0/1744038948046/microsoft_logo?e=1777507200&v=beta&t=avuLYiq7rRVmOwLM-EtiTYevmne4NgbFOJ9YZg6z0pw",
+          "sizes": []
+        }
+      }
+    ],
+    "education": [
+      {
+        "schoolName": "Harvard University",
+        "schoolLinkedinUrl": "https://www.linkedin.com/school/harvard-university/",
+        "schoolId": "1646",
+        "degree": "",
+        "fieldOfStudy": "",
+        "skills": [],
+        "startDate": {
+          "month": null,
+          "year": 1973,
+          "text": "1973"
+        },
+        "endDate": {
+          "month": null,
+          "year": 1975,
+          "text": "1975"
+        },
+        "period": "1973 - 1975",
+        "schoolLogo": {
+          "url": "https://media.licdn.com/dms/image/v2/C4E0BAQF5t62bcL0e9g/company-logo_200_200/company-logo_200_200/0/1631318058235?e=1777507200&v=beta&t=GSTHtA-4Y2CU4S-NEPK0jDrW_zAa3q8hkhKiAyO1Hwg",
+          "sizes": [
+            {
+              "url": "https://media.licdn.com/dms/image/v2/C4E0BAQF5t62bcL0e9g/company-logo_200_200/company-logo_200_200/0/1631318058235?e=1777507200&v=beta&t=GSTHtA-4Y2CU4S-NEPK0jDrW_zAa3q8hkhKiAyO1Hwg",
+              "width": 200,
+              "height": 200
+            },
+            {
+              "url": "https://media.licdn.com/dms/image/v2/C4E0BAQF5t62bcL0e9g/company-logo_100_100/company-logo_100_100/0/1631318058235?e=1777507200&v=beta&t=-g8qzg2RQK4P3l1d9de47M-k_OLfjf3ytoufqMjg0Ps",
+              "width": 100,
+              "height": 100
+            },
+            {
+              "url": "https://media.licdn.com/dms/image/v2/C4E0BAQF5t62bcL0e9g/company-logo_400_400/company-logo_400_400/0/1631318058235?e=1777507200&v=beta&t=dN_keU9qeNB-CbKxkWq-EUQU-rQNskLg937dflf9wIg",
+              "width": 400,
+              "height": 400
+            }
+          ]
+        }
+      },
+      {
+        "schoolName": "Lakeside School",
+        "schoolLinkedinUrl": "https://www.linkedin.com/school/lakeside-school/",
+        "schoolId": "30288",
+        "degree": "",
+        "fieldOfStudy": "",
+        "skills": [],
+        "startDate": null,
+        "endDate": null,
+        "period": " - ",
+        "schoolLogo": {
+          "url": "https://media.licdn.com/dms/image/v2/D560BAQGFmOQmzpxg9A/company-logo_200_200/company-logo_200_200/0/1683732883164/lakeside_school_logo?e=1777507200&v=beta&t=EwuWs4tLqC781QZ6RGvrencvwlEri3bPRmZDDBHwdRQ",
+          "sizes": [
+            {
+              "url": "https://media.licdn.com/dms/image/v2/D560BAQGFmOQmzpxg9A/company-logo_200_200/company-logo_200_200/0/1683732883164/lakeside_school_logo?e=1777507200&v=beta&t=EwuWs4tLqC781QZ6RGvrencvwlEri3bPRmZDDBHwdRQ",
+              "width": 200,
+              "height": 200
+            },
+            {
+              "url": "https://media.licdn.com/dms/image/v2/D560BAQGFmOQmzpxg9A/company-logo_100_100/company-logo_100_100/0/1683732883164/lakeside_school_logo?e=1777507200&v=beta&t=6iLL_PUv3B-1xpv_DnATZJn0ARLhEIf_0bu0knMvZAU",
+              "width": 100,
+              "height": 100
+            },
+            {
+              "url": "https://media.licdn.com/dms/image/v2/D560BAQGFmOQmzpxg9A/company-logo_400_400/company-logo_400_400/0/1683732883164/lakeside_school_logo?e=1777507200&v=beta&t=RfD8IR-6SH4JmACT1o7mCs3Gb5hE1Hxj56MrWhP3Ds4",
+              "width": 400,
+              "height": 400
+            }
+          ]
+        }
+      }
+    ],
+    "certifications": [],
+    "projects": [],
+    "volunteering": [],
+    "receivedRecommendations": [],
+    "skills": [],
+    "publications": [],
+    "courses": [],
+    "honorsAndAwards": [],
+    "languages": [],
+    "causes": [],
+    "featured": null,
+    "moreProfiles": [],
+    "originalQuery": {
+      "query": "https://www.linkedin.com/in/williamhgates"
+    }
+  }
+]

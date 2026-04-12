@@ -1,0 +1,15 @@
+[
+  {
+    "_note": "Synthetic minimal fixture — tests formatter handling of sparse profiles. Hand-crafted from the real Apify shape (per 01-RESEARCH §Example 3 + Plan 01-01 Task 4) with ONLY headline + one experience entry set. No `about`. All other fields omitted so formatter must handle missing-key branches.",
+    "publicIdentifier": "minimal-test-user",
+    "headline": "Software Engineer",
+    "experience": [
+      {
+        "position": "Software Engineer",
+        "companyName": "Example Corp",
+        "duration": "Jan 2023 - Present",
+        "description": "Built things."
+      }
+    ]
+  }
+]

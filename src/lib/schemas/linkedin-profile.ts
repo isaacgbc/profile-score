@@ -61,20 +61,24 @@ export type ScrapeLinkedinRequest = z.infer<typeof scrapeLinkedinRequestSchema>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * A single experience entry. All fields optional — HarvestAPI may use either
- * `position`/`title` or `company`/`companyName` depending on actor version.
+ * A single experience entry. Every string field uses `.nullish()` — HarvestAPI
+ * emits `null` (not undefined) for absent string fields on real profiles (e.g.
+ * `duration: null` on Bill Gates' probe response). Drift tolerance is critical
+ * at this layer — any `null` from the actor must not cause parse failure.
  */
+const nullishString = z.string().nullish();
+
 const experienceEntrySchema = z
   .object({
-    position: z.string().optional(),
-    title: z.string().optional(),
-    company: z.string().optional(),
-    companyName: z.string().optional(),
-    duration: z.string().optional(),
-    dateRange: z.string().optional(),
-    description: z.string().optional(),
-    location: z.string().optional(),
-    skills: z.array(z.string()).optional(),
+    position: nullishString,
+    title: nullishString,
+    company: nullishString,
+    companyName: nullishString,
+    duration: nullishString,
+    dateRange: nullishString,
+    description: nullishString,
+    location: nullishString,
+    skills: z.array(z.string()).nullish(),
   })
   .passthrough();
 
@@ -85,28 +89,37 @@ const experienceEntrySchema = z
  */
 export const harvestProfileSchema = z
   .object({
-    publicIdentifier: z.string().optional(),
-    linkedinUrl: z.string().optional(),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    headline: z.string().optional(),
-    about: z.string().optional(),
+    publicIdentifier: nullishString,
+    linkedinUrl: nullishString,
+    firstName: nullishString,
+    lastName: nullishString,
+    headline: nullishString,
+    about: nullishString,
     location: z
       .union([z.string(), z.record(z.string(), z.unknown())])
-      .optional(),
-    experience: z.array(experienceEntrySchema).optional().default([]),
-    education: z.array(z.object({}).passthrough()).optional().default([]),
-    skills: z.array(z.object({}).passthrough()).optional().default([]),
-    topSkills: z.array(z.string()).optional().default([]),
-    certifications: z.array(z.object({}).passthrough()).optional().default([]),
-    recommendations: z.array(z.object({}).passthrough()).optional().default([]),
-    projects: z.array(z.object({}).passthrough()).optional().default([]),
-    languages: z.array(z.object({}).passthrough()).optional().default([]),
-    publications: z.array(z.object({}).passthrough()).optional().default([]),
-    honors: z.array(z.object({}).passthrough()).optional().default([]),
-    volunteering: z.array(z.object({}).passthrough()).optional().default([]),
-    connectionsCount: z.number().optional(),
-    followerCount: z.number().optional(),
+      .nullish(),
+    experience: z.array(experienceEntrySchema).nullish().default([]),
+    education: z.array(z.object({}).passthrough()).nullish().default([]),
+    skills: z.array(z.object({}).passthrough()).nullish().default([]),
+    topSkills: z.array(z.object({}).passthrough()).nullish().default([]),
+    certifications: z.array(z.object({}).passthrough()).nullish().default([]),
+    // Field name drift: HarvestAPI actor uses `receivedRecommendations` (probed
+    // 2026-04-11 against public profile). Accept both names via passthrough.
+    recommendations: z.array(z.object({}).passthrough()).nullish().default([]),
+    receivedRecommendations: z
+      .array(z.object({}).passthrough())
+      .nullish()
+      .default([]),
+    projects: z.array(z.object({}).passthrough()).nullish().default([]),
+    languages: z.array(z.object({}).passthrough()).nullish().default([]),
+    publications: z.array(z.object({}).passthrough()).nullish().default([]),
+    // Field name drift: HarvestAPI uses `honorsAndAwards` not `honors`.
+    honors: z.array(z.object({}).passthrough()).nullish().default([]),
+    honorsAndAwards: z.array(z.object({}).passthrough()).nullish().default([]),
+    volunteering: z.array(z.object({}).passthrough()).nullish().default([]),
+    featured: z.array(z.object({}).passthrough()).nullish().default([]),
+    connectionsCount: z.number().nullish(),
+    followerCount: z.number().nullish(),
   })
   .passthrough();
 

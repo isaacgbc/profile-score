@@ -110,4 +110,61 @@ describe("harvestProfileSchema", () => {
     }) as { unknownField?: string };
     expect(parsed.unknownField).toBe("x");
   });
+
+  it("Test 13: tolerates real-world null string fields (drift)", () => {
+    // Real HarvestAPI probe emits `duration: null` for Bill Gates' experience.
+    const result = harvestProfileSchema.safeParse({
+      headline: "Chair",
+      experience: [
+        {
+          position: "Co-chair",
+          companyName: "Gates Foundation",
+          duration: null, // <-- real Apify response sends null
+          description: null,
+          location: null,
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("harvestProfileSchema fixture integration", () => {
+  it("parses the real Apify sample fixture (resolves A1/A2/A4)", async () => {
+    const fs = await import("node:fs");
+    const arr = JSON.parse(
+      fs.readFileSync(
+        "src/lib/services/__tests__/fixtures/apify-profile-sample.json",
+        "utf8",
+      ),
+    );
+    expect(Array.isArray(arr)).toBe(true);
+    expect(arr.length).toBeGreaterThan(0);
+    const result = harvestProfileSchema.safeParse(arr[0]);
+    expect(result.success).toBe(true);
+  });
+
+  it("parses the minimal synthetic fixture", async () => {
+    const fs = await import("node:fs");
+    const arr = JSON.parse(
+      fs.readFileSync(
+        "src/lib/services/__tests__/fixtures/apify-profile-minimal.json",
+        "utf8",
+      ),
+    );
+    const result = harvestProfileSchema.safeParse(arr[0]);
+    expect(result.success).toBe(true);
+  });
+
+  it("empty fixture is an empty array (private profile case A3)", async () => {
+    const fs = await import("node:fs");
+    const arr = JSON.parse(
+      fs.readFileSync(
+        "src/lib/services/__tests__/fixtures/apify-profile-empty.json",
+        "utf8",
+      ),
+    );
+    expect(Array.isArray(arr)).toBe(true);
+    expect(arr.length).toBe(0);
+  });
 });
