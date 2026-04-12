@@ -2385,8 +2385,20 @@ export async function generateAuditResults(
     );
   }
   try {
+    // Phase 1: When preparsed sections are provided (Apify path), include their
+    // content in the cache key so different profiles don't collide.
+    const cacheLinkedinText =
+      input.preparsedLinkedinSections &&
+      Object.keys(input.preparsedLinkedinSections).length > 0
+        ? JSON.stringify(
+            Object.keys(input.preparsedLinkedinSections)
+              .sort()
+              .map((k) => [k, input.preparsedLinkedinSections![k]]),
+          )
+        : input.linkedinText;
+
     const inputHash = await computeInputHash({
-      linkedinText: input.linkedinText,
+      linkedinText: cacheLinkedinText,
       cvText: input.cvText,
       jobDescription: input.jobDescription,
       locale,
@@ -2464,15 +2476,30 @@ export async function generateAuditResults(
 
   // ─── 1a. Prompt readiness preflight ──────────────────
   // Verify required prompt keys are active before spending LLM budget.
-  const hasLinkedinInput = input.linkedinText.trim().length > 0;
+  const hasLinkedinInput: boolean =
+    input.linkedinText.trim().length > 0 ||
+    !!(
+      input.preparsedLinkedinSections &&
+      Object.keys(input.preparsedLinkedinSections).length > 0
+    );
   const hasCvInput = (input.cvText ?? "").trim().length > 20;
+
+  // Phase 1: Select apify prompt variants when source is apify, with graceful fallback
+  const usingApifyPath = input.linkedinProfileSource === "apify";
 
   const requiredPromptKeys: string[] = [];
   if (hasLinkedinInput) {
-    requiredPromptKeys.push(
-      "audit.linkedin.system",
-      "rewrite.linkedin.section",
-    );
+    if (usingApifyPath) {
+      requiredPromptKeys.push(
+        "audit.linkedin.system.apify",
+        "rewrite.linkedin.section.apify",
+      );
+    } else {
+      requiredPromptKeys.push(
+        "audit.linkedin.system",
+        "rewrite.linkedin.section",
+      );
+    }
   }
   if (hasCvInput) {
     requiredPromptKeys.push("audit.cv.system", "rewrite.cv.section");
@@ -2481,7 +2508,20 @@ export async function generateAuditResults(
   const preflightMissing: string[] = [];
   for (const key of requiredPromptKeys) {
     const prompt = await getActivePromptWithVersion(key, locale);
-    if (!prompt) preflightMissing.push(key);
+    if (!prompt) {
+      // Phase 1: Graceful fallback — if apify variant missing, try base key
+      if (usingApifyPath && key.endsWith(".apify")) {
+        const baseKey = key.replace(/\.apify$/, "");
+        const fallback = await getActivePromptWithVersion(baseKey, locale);
+        if (fallback) {
+          console.log(
+            `[diag] request=${requestId} | Apify prompt "${key}" not found, falling back to "${baseKey}"`,
+          );
+          continue; // base key exists — not a preflight failure
+        }
+      }
+      preflightMissing.push(key);
+    }
   }
 
   const preflightResult = {
@@ -2514,7 +2554,20 @@ export async function generateAuditResults(
   let structuringSkippedReason: string | undefined;
 
   let linkedinSections: Record<string, string> = {};
-  if (input.linkedinText.trim()) {
+  if (
+    input.preparsedLinkedinSections &&
+    Object.keys(input.preparsedLinkedinSections).length > 0
+  ) {
+    // Phase 1 Apify path: sections already structured by linkedin-profile-formatter
+    // — skip regex parser AND LLM structurer entirely
+    linkedinSections = input.preparsedLinkedinSections;
+    structuringUsed = true; // treat as "already structured" for metadata consistency
+    structuringDurationMs = 0;
+    console.log(
+      `[diag] request=${requestId} | APIFY PATH: using ${Object.keys(linkedinSections).length} preparsed sections ` +
+        `[${Object.keys(linkedinSections).join(", ")}]`,
+    );
+  } else if (input.linkedinText.trim()) {
     if (wantStructuring) {
       // PERF-HOTFIX-2: Phase 1 — regex-only parse first (~0ms)
       const regexResult = await parseLinkedinWithStructuring(
