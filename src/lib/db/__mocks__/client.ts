@@ -105,12 +105,29 @@ export const prisma = {
       }: {
         where: { fingerprintHash: string };
         create: AnonRow;
-        update: Partial<AnonRow>;
+        update: Record<string, unknown>;
       }) => {
         const existing = anonStore.get(fingerprintHash);
-        const row = existing
-          ? { ...existing, ...update }
-          : { id: crypto.randomUUID(), ...create };
+        if (existing) {
+          const resolved: Record<string, unknown> = {};
+          for (const [key, val] of Object.entries(update)) {
+            if (
+              val &&
+              typeof val === "object" &&
+              "increment" in (val as Record<string, unknown>)
+            ) {
+              resolved[key] =
+                ((existing as Record<string, unknown>)[key] as number) +
+                ((val as Record<string, number>).increment ?? 0);
+            } else {
+              resolved[key] = val;
+            }
+          }
+          const row = { ...existing, ...resolved };
+          anonStore.set(fingerprintHash, row as AnonRow);
+          return row;
+        }
+        const row = { id: crypto.randomUUID(), ...create };
         anonStore.set(fingerprintHash, row as AnonRow);
         return row;
       },
@@ -127,11 +144,26 @@ export const prisma = {
         data,
       }: {
         where: { id: string };
-        data: Partial<UserRow>;
+        data: Record<string, unknown>;
       }) => {
         const existing = userStore.get(id);
         if (!existing) throw new Error("User not found");
-        const row = { ...existing, ...data };
+        const resolved: Record<string, unknown> = {};
+        for (const [key, val] of Object.entries(data)) {
+          if (
+            val &&
+            typeof val === "object" &&
+            "increment" in (val as Record<string, unknown>)
+          ) {
+            // Prisma atomic increment: { increment: N }
+            resolved[key] =
+              ((existing as Record<string, unknown>)[key] as number) +
+              ((val as Record<string, number>).increment ?? 0);
+          } else {
+            resolved[key] = val;
+          }
+        }
+        const row = { ...existing, ...resolved };
         userStore.set(id, row as UserRow);
         return row;
       },
