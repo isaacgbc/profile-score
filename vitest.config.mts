@@ -1,8 +1,9 @@
 import { defineConfig } from "vitest/config";
 import tsconfigPaths from "vite-tsconfig-paths";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
+  plugins: [tsconfigPaths(), react()],
   test: {
     environment: "happy-dom",
     globals: true,
@@ -22,7 +23,7 @@ export default defineConfig({
       "src/components/checkout/__tests__/export-module-card-states.test.ts",
       "src/lib/utils/__tests__/placeholder-detect.test.ts",
     ],
-    setupFiles: [],
+    setupFiles: ["./vitest.setup.ts"],
     testTimeout: 10_000,
   },
 });
