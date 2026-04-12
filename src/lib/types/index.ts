@@ -246,3 +246,26 @@ export interface FeatureFlags {
   paymentsEnabled: boolean;
   adminBypass: boolean;
 }
+
+// ─── Apify LinkedIn scrape types (Phase 01) ──────────
+export type {
+  HarvestProfile,
+  ScrapeLinkedinRequest,
+} from "@/lib/schemas/linkedin-profile";
+
+export type ApifyScrapeError =
+  | "APIFY_INVALID_URL"
+  | "APIFY_PROFILE_PRIVATE"
+  | "APIFY_RATE_LIMITED"
+  | "APIFY_CIRCUIT_OPEN"
+  | "APIFY_QUOTA_EXCEEDED"
+  | "APIFY_SCRAPE_FAILED"
+  | "APIFY_DISABLED"
+  | "APIFY_TOKEN_MISSING";
+
+export type LinkedinProfileSource = "paste" | "apify" | "pdf";
+
+export interface ApifyQuotaState {
+  remaining: number | null; // null = unlimited (paid tiers)
+  plan: "free" | "starter" | "recommended";
+}
