@@ -28,7 +28,9 @@ interface GenerationProgressProps {
   outputLanguage?: string;
 }
 
-function getTierBadgeVariant(tier: ScoreTier): "warning" | "accent" | "success" | "muted" {
+function getTierBadgeVariant(
+  tier: ScoreTier,
+): "warning" | "accent" | "success" | "muted" {
   const map: Record<ScoreTier, "warning" | "accent" | "success" | "muted"> = {
     poor: "warning",
     fair: "warning",
@@ -51,20 +53,28 @@ function getTierLabel(tier: ScoreTier, t: Record<string, string>): string {
 function getStageLabel(
   stage: ProgressStage | null,
   label: string,
-  progress: Record<string, string>
+  progress: Record<string, string>,
 ): string {
   if (label) return label;
   if (!stage) return "";
 
   const stageMap: Record<string, string> = {
+    scraping_profile:
+      progress.stageScraping ?? "Analyzing your LinkedIn profile...",
     cache_check: progress.stageExtractingInput ?? "Reading your profile...",
-    extracting_input: progress.stageExtractingInput ?? "Reading your profile...",
-    structuring_profile: progress.stageStructuring ?? "Structuring your profile...",
+    extracting_input:
+      progress.stageExtractingInput ?? "Reading your profile...",
+    structuring_profile:
+      progress.stageStructuring ?? "Structuring your profile...",
     auditing_sections: progress.stageAuditing ?? "Scoring your sections...",
-    generating_rewrites: progress.stageRewrites ?? "Generating optimized rewrites...",
-    scoring_entries: progress.stageScoringEntries ?? "Scoring individual entries...",
-    generating_extras: progress.stageExtras ?? "Generating cover letter & summary...",
-    finalizing_results: progress.stageFinalizing ?? "Finalizing your results...",
+    generating_rewrites:
+      progress.stageRewrites ?? "Generating optimized rewrites...",
+    scoring_entries:
+      progress.stageScoringEntries ?? "Scoring individual entries...",
+    generating_extras:
+      progress.stageExtras ?? "Generating cover letter & summary...",
+    finalizing_results:
+      progress.stageFinalizing ?? "Finalizing your results...",
   };
 
   return stageMap[stage] ?? "";
@@ -83,7 +93,8 @@ export default function GenerationProgress({
 }: GenerationProgressProps) {
   const { t } = useI18n();
   const sectionLabels = t.sectionLabels as Record<string, string>;
-  const progressStrings = (t as Record<string, Record<string, string>>).progress ?? {};
+  const progressStrings =
+    (t as unknown as Record<string, Record<string, string>>).progress ?? {};
   const resultsStrings = t.results as Record<string, string>;
 
   const displayLabel = getStageLabel(stage, label, progressStrings);
