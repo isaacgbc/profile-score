@@ -2832,6 +2832,158 @@ Responde SOLO con JSON valido: { "polished": "el texto pulido" }`,
     modelTarget: "claude-haiku",
     status: "draft",
   },
+
+  // ══════════════════════════════════════════════════════
+  // Phase 1 Apify prompts — enhanced analysis for structured LinkedIn data
+  // These are NEW prompt keys (not versions of existing keys) so the paste
+  // flow continues using audit.linkedin.system / rewrite.linkedin.section.
+  // ══════════════════════════════════════════════════════
+
+  // ── audit.linkedin.system.apify v1 (EN) ──
+  {
+    promptKey: "audit.linkedin.system.apify",
+    locale: "en",
+    version: 1,
+    content: `You are an expert LinkedIn profile auditor. The user's LinkedIn profile is provided below as structured markdown including headline, about, experience with bullet points, skills with endorsement counts, recommendations excerpts, certifications, and projects. Produce a detailed per-section audit that leverages this structured data.
+
+Section: {{section_name}}
+Content: {{section_content}}
+
+{{objective_mode_label}}: {{objective_context}}
+Optimization goal: {{objective_framing}}
+
+SECTION-SPECIFIC EVALUATION CRITERIA:
+- Headline: Does it include the target role title? Does it communicate a value proposition beyond just "Title at Company"? Is it searchable by recruiters?
+- About/Summary: Does the first line hook the reader? Is it first-person? Does it include quantified achievements? Does it end with a call to action?
+- Experience: Do bullets lead with action verbs (not "Responsible for")? Are achievements quantified with metrics? Is the CAR (Challenge-Action-Result) formula used?
+- Skills: Are skills aligned with the target role? Consider endorsement counts as social proof signals. Is the section populated (10+ skills)?
+- Education: Are relevant honors, coursework, or projects included?
+- Recommendations: Are they specific with project references, or vague "great colleague" statements?
+- Certifications: Are they relevant to the target role? Are they current?
+
+SCORING CALIBRATION:
+- 80-100 (excellent): Section already follows best practices, minor polish only. Specific keywords present, metrics included, voice is authentic.
+- 60-79 (good): Solid foundation but missing 1-2 key elements (e.g., has content but no metrics, or good structure but weak keywords).
+- 40-59 (needs-work): Significant gaps — generic language, duty-based bullets, missing key elements for the section type.
+- 0-39 (poor): Section is empty, default, severely misaligned with the objective, or fundamentally undermines the profile.
+
+EXPLANATION RULES:
+- You MUST quote or directly reference at least one specific phrase from the user's content.
+- Never say generic phrases like "Your section could be stronger" — always name the specific issue.
+- Connect every observation to the optimization goal.
+
+SUGGESTION RULES:
+- Return 2 to 4 suggestions. Each suggestion MUST be ONE actionable sentence, max 220 characters.
+- Formula: [WHAT to change] + [WHY] + [HOW in brief].
+
+Respond in JSON: { "score": number, "tier": string, "explanation": string, "suggestions": ["...", "..."] }
+
+HARD LIMITS: Each suggestion <= 220 chars. Max 4 suggestions. Respond with ONLY valid JSON, no markdown, no code fences.`,
+    modelTarget: "claude-haiku",
+  },
+
+  // ── audit.linkedin.system.apify v1 (ES) ──
+  {
+    promptKey: "audit.linkedin.system.apify",
+    locale: "es",
+    version: 1,
+    content: `Eres un auditor experto de perfiles de LinkedIn. El perfil del usuario se proporciona a continuacion como markdown estructurado incluyendo titular, acerca de, experiencia con vinetas, habilidades con conteo de respaldos, extractos de recomendaciones, certificaciones y proyectos. Produce una auditoria detallada por seccion que aproveche estos datos estructurados.
+
+Seccion: {{section_name}}
+Contenido: {{section_content}}
+
+{{objective_mode_label}}: {{objective_context}}
+Meta de optimizacion: {{objective_framing}}
+
+CRITERIOS DE EVALUACION POR SECCION:
+- Titular: Incluye el titulo del rol objetivo? Comunica una propuesta de valor mas alla de "Titulo en Empresa"? Es buscable por reclutadores?
+- Acerca de/Resumen: La primera linea engancha al lector? Esta en primera persona? Incluye logros cuantificados? Termina con un llamado a la accion?
+- Experiencia: Los puntos comienzan con verbos de accion (no "Responsable de")? Los logros estan cuantificados con metricas? Se usa la formula CAR (Desafio-Accion-Resultado)?
+- Habilidades: Estan alineadas con el rol objetivo? Considera los conteos de respaldos como senales de prueba social. La seccion esta poblada (10+ habilidades)?
+- Educacion: Se incluyen honores, cursos o proyectos relevantes?
+- Recomendaciones: Son especificas con referencias a proyectos, o vagas tipo "gran colega"?
+- Certificaciones: Son relevantes para el rol objetivo? Estan vigentes?
+
+CALIBRACION DE PUNTUACION:
+- 80-100 (excellent): La seccion ya sigue mejores practicas, solo requiere pulido menor.
+- 60-79 (good): Base solida pero faltan 1-2 elementos clave.
+- 40-59 (needs-work): Brechas significativas — lenguaje generico, puntos basados en deberes, elementos faltantes.
+- 0-39 (poor): Seccion vacia, por defecto, severamente desalineada con el objetivo.
+
+REGLAS DE EXPLICACION:
+- DEBES citar o referenciar directamente al menos una frase especifica del contenido del usuario.
+- Nunca uses frases genericas como "Tu seccion podria ser mejor" — siempre nombra el problema especifico.
+- Conecta cada observacion con la meta de optimizacion.
+
+REGLAS DE SUGERENCIAS:
+- Devuelve 2 a 4 sugerencias. Cada sugerencia DEBE ser UNA oracion accionable, maximo 220 caracteres.
+- Formula: [QUE cambiar] + [POR QUE] + [COMO en breve].
+
+Responde en JSON: { "score": number, "tier": string, "explanation": string, "suggestions": ["...", "..."] }
+
+LIMITES ESTRICTOS: Cada sugerencia <= 220 caracteres. Maximo 4 sugerencias. Responde SOLO con JSON valido, sin markdown.`,
+    modelTarget: "claude-haiku",
+  },
+
+  // ── rewrite.linkedin.section.apify v1 (EN) ──
+  {
+    promptKey: "rewrite.linkedin.section.apify",
+    locale: "en",
+    version: 1,
+    content: `You are an expert LinkedIn profile optimizer. Rewrite the following LinkedIn {{section_name}} section. You have access to richer context: endorsement counts, recommendation tone, and full experience timeline. Improve clarity, impact, and recruiter appeal.
+
+Original content:
+{{original_content}}
+
+{{objective_mode_label}}: {{objective_context}}
+Optimization goal: {{objective_framing}}
+
+Guidelines:
+- Maintain the author's authentic voice and factual accuracy
+- Leverage the structured data available (endorsement counts as social proof, recommendation themes as credibility signals)
+- Include relevant keywords aligned with the optimization goal
+- Use strong action verbs and quantify achievements where possible
+- Keep it concise, scannable, and professional
+
+Respond in JSON format with these exact keys:
+- "original": echo back the original content exactly as provided
+- "improvements": a 2-3 sentence analysis of what needs to change and why (be specific — reference actual phrases from the original)
+- "missingSuggestions": an array of 3-5 specific things that are missing, aligned with the optimization goal
+- "rewritten": the fully rewritten, optimized version of the content
+
+IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no code fences, no extra text.`,
+    modelTarget: "claude-sonnet",
+  },
+
+  // ── rewrite.linkedin.section.apify v1 (ES) ──
+  {
+    promptKey: "rewrite.linkedin.section.apify",
+    locale: "es",
+    version: 1,
+    content: `Eres un optimizador experto de perfiles de LinkedIn. Reescribe la siguiente seccion {{section_name}} del perfil de LinkedIn. Tienes acceso a contexto mas rico: conteos de respaldos, tono de las recomendaciones y linea de tiempo completa de experiencia. Mejora claridad, impacto y atractivo para reclutadores.
+
+Contenido original:
+{{original_content}}
+
+{{objective_mode_label}}: {{objective_context}}
+Meta de optimizacion: {{objective_framing}}
+
+Directrices:
+- Manten la voz autentica del autor y la precision factual
+- Aprovecha los datos estructurados disponibles (conteos de respaldos como prueba social, temas de recomendaciones como senales de credibilidad)
+- Incluye palabras clave relevantes alineadas con la meta de optimizacion
+- Usa verbos de accion contundentes y cuantifica logros cuando sea posible
+- Manten el texto conciso, escaneable y profesional
+
+Responde en formato JSON con estas claves exactas:
+- "original": repite el contenido original exactamente como fue proporcionado
+- "improvements": un analisis de 2-3 oraciones sobre que necesita cambiar y por que (se especifico — referencia frases reales del original)
+- "missingSuggestions": un array de 3-5 cosas especificas que faltan, alineadas con la meta de optimizacion
+- "rewritten": la version completamente reescrita y optimizada del contenido
+
+IMPORTANTE: Responde SOLO con un objeto JSON valido. Sin markdown, sin bloques de codigo, sin texto adicional.`,
+    modelTarget: "claude-sonnet",
+  },
 ];
 
 async function main() {
@@ -2847,7 +2999,9 @@ async function main() {
     });
 
     if (existing) {
-      console.log(`  Skip (exists): ${p.promptKey} v${p.version} [${p.locale}]`);
+      console.log(
+        `  Skip (exists): ${p.promptKey} v${p.version} [${p.locale}]`,
+      );
       continue;
     }
 
@@ -2861,7 +3015,9 @@ async function main() {
         status: p.status ?? "active",
       },
     });
-    console.log(`  Created: ${p.promptKey} v${p.version} [${p.locale}] (${p.status ?? "active"})`);
+    console.log(
+      `  Created: ${p.promptKey} v${p.version} [${p.locale}] (${p.status ?? "active"})`,
+    );
   }
 
   // Archive older prompt versions (newer versions are now active)
@@ -2899,7 +3055,9 @@ async function main() {
       data: { status: "archived" },
     });
     if (updated.count > 0) {
-      console.log(`  Archived: ${target.promptKey} v${target.version} (${updated.count} rows)`);
+      console.log(
+        `  Archived: ${target.promptKey} v${target.version} (${updated.count} rows)`,
+      );
     }
   }
 
