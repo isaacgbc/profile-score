@@ -14,9 +14,32 @@ export type ErrorCode =
   | "LLM_TIMEOUT"
   | "LLM_RATE_LIMITED"
   | "LLM_SCHEMA_INVALID"
+  // Pipeline stage codes (Phase 1.1)
+  | "CACHE_CHECK_FAILED"
+  | "SCORING_FAILED"
+  | "SCORING_TIMEOUT"
+  | "PARSE_LINKEDIN_FAILED"
+  | "PARSE_CV_FAILED"
+  | "PROMPT_PREFLIGHT_FAILED"
+  | "ENTRY_PARSING_FAILED"
+  | "ENTRY_SCORING_FAILED"
+  | "REWRITE_FAILED"
+  | "REWRITE_TIMEOUT"
+  | "DESCRIPTOR_FAILED"
+  | "COVER_LETTER_FAILED"
+  | "DEGRADATION_GATE_TRIGGERED"
+  | "CACHE_STORAGE_FAILED"
+  | "PARSE_LINKEDIN_LLM_FALLBACK"
+  | "CV_STRUCTURING_FAILED"
+  | "CIRCUIT_STATE_CHANGE"
+  | "RATE_LIMIT_HIT"
+  | "HEALTH_CHECK_FAILED"
+  | "INPUT_TOO_SHORT"
+  // Apify scraper codes (Phase 01-04)
+  | "APIFY_SCRAPE_FAILED"
   | "UNKNOWN";
 
-export type ErrorLevel = "error" | "warn" | "fatal";
+export type ErrorLevel = "error" | "warn" | "fatal" | "info";
 
 export interface LogErrorInput {
   level?: ErrorLevel;
@@ -65,34 +88,53 @@ export function logError(input: LogErrorInput): void {
   console.error(
     `${tag} ${source} | ${code ?? "UNKNOWN"} | ${message}` +
       (requestId ? ` | reqId=${requestId}` : "") +
-      (statusCode ? ` | status=${statusCode}` : "")
+      (statusCode ? ` | status=${statusCode}` : ""),
   );
   if (stack) {
     console.error(stack);
   }
 
   // Persist to DB — fire-and-forget (don't await, don't throw)
-  prisma.errorLog
-    .create({
-      data: {
-        level,
-        source,
-        message: message.slice(0, 2000),
-        stack: stack?.slice(0, 4000),
-        code: code ?? "UNKNOWN",
-        statusCode,
-        requestId,
-        userId,
-        ip: ip?.slice(0, 45), // IPv6 max
-        userAgent: userAgent?.slice(0, 500),
-        locale,
-        inputMeta: (inputMeta as Prisma.InputJsonValue) ?? undefined,
-      },
-    })
-    .catch((dbErr) => {
-      // Last resort: if DB write fails, at least the console.error above was emitted
-      console.error("[ErrorLogger] Failed to persist error log:", dbErr);
-    });
+  try {
+    prisma.errorLog
+      .create({
+        data: {
+          level,
+          source,
+          message: message.slice(0, 2000),
+          stack: stack?.slice(0, 4000),
+          code: code ?? "UNKNOWN",
+          statusCode,
+          requestId,
+          userId,
+          ip: ip?.slice(0, 45), // IPv6 max
+          userAgent: userAgent?.slice(0, 500),
+          locale,
+          inputMeta: inputMeta
+            ? (JSON.parse(JSON.stringify(inputMeta)) as Prisma.InputJsonValue)
+            : undefined,
+        },
+      })
+      .then(() => {
+        // DB write succeeded — no action needed
+      })
+      .catch((dbErr) => {
+        // DB write failed — log details so we can diagnose in Vercel logs
+        const errMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+        const errCode = (dbErr as Record<string, unknown>)?.code;
+        console.error(
+          `[ErrorLogger] DB write FAILED: ${errMsg}` +
+            (errCode ? ` | prismaCode=${errCode}` : "") +
+            ` | source=${source} | code=${code ?? "UNKNOWN"}`,
+        );
+      });
+  } catch (syncErr) {
+    // Synchronous error before the Promise was even created (e.g., serialization failure)
+    console.error(
+      "[ErrorLogger] Sync error before DB write:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
 }
 
 // ── Helper: extract request metadata ─────────────────────
