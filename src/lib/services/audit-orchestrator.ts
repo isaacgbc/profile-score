@@ -2556,14 +2556,6 @@ export async function generateAuditResults(
   let structuringSkippedReason: string | undefined;
 
   let linkedinSections: Record<string, string> = {};
-  console.log("[DEBUG] orchestrator Stage 2 bypass check:", {
-    hasPreparsed: !!input.preparsedLinkedinSections,
-    type: typeof input.preparsedLinkedinSections,
-    keys: input.preparsedLinkedinSections
-      ? Object.keys(input.preparsedLinkedinSections)
-      : "none",
-    linkedinProfileSource: input.linkedinProfileSource,
-  });
   if (
     input.preparsedLinkedinSections &&
     Object.keys(input.preparsedLinkedinSections).length > 0
@@ -2956,6 +2948,36 @@ export async function generateAuditResults(
       let textToParse = linkedinSections[sectionId];
 
       if (sectionId === "experience") {
+        // ── APIFY STRUCTURED ENTRIES: zero-cost bypass when available ──
+        if (
+          input.linkedinProfileSource === "apify" &&
+          input.preparsedLinkedinEntries?.experience &&
+          input.preparsedLinkedinEntries.experience.length > 0
+        ) {
+          const apifyEntries: ParsedEntry[] =
+            input.preparsedLinkedinEntries.experience.map(
+              (e: Record<string, unknown>) => ({
+                title: String(e.position || e.title || ""),
+                organization: String(e.company || e.companyName || ""),
+                dateRange: String(e.duration || e.dateRange || ""),
+                description: String(e.description || ""),
+                sourceLineStart: 0,
+                sourceLineEnd: 0,
+              }),
+            );
+
+          linkedinEntries[sectionId] = apifyEntries;
+          linkedinExpArchetypeUsed = true;
+          linkedinExpStructurerSkipped = true;
+          linkedinExpParserConfidence = "high";
+          linkedinExpRawCount = apifyEntries.length;
+
+          console.log(
+            `[perf] request=${requestId} | Experience: ${apifyEntries.length} pre-structured Apify entries (parser skipped)`,
+          );
+          continue;
+        }
+
         // ── ARCHETYPE PARSER: deterministic-first, try before anything else ──
         const archetypeParsed = parseLinkedinExperienceArchetype(
           textToParse,
@@ -3121,6 +3143,32 @@ export async function generateAuditResults(
           );
         }
         continue; // Already handled experience
+      }
+
+      // ── APIFY STRUCTURED ENTRIES: zero-cost bypass for education when available ──
+      if (
+        input.linkedinProfileSource === "apify" &&
+        input.preparsedLinkedinEntries?.[sectionId] &&
+        input.preparsedLinkedinEntries[sectionId].length > 0
+      ) {
+        const apifyEntries: ParsedEntry[] = input.preparsedLinkedinEntries[
+          sectionId
+        ].map((e: Record<string, unknown>) => ({
+          title: String(e.degree || e.fieldOfStudy || e.title || e.name || ""),
+          organization: String(
+            e.schoolName || e.school || e.organization || "",
+          ),
+          dateRange: String(e.period || e.dateRange || e.duration || ""),
+          description: String(e.description || ""),
+          sourceLineStart: 0,
+          sourceLineEnd: 0,
+        }));
+
+        linkedinEntries[sectionId] = apifyEntries;
+        console.log(
+          `[perf] request=${requestId} | ${sectionId}: ${apifyEntries.length} pre-structured Apify entries (parser skipped)`,
+        );
+        continue;
       }
 
       // Non-experience sections (education): normal parse
