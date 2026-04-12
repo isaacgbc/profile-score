@@ -157,16 +157,43 @@ export default function InputPage() {
       const markdown = profileToMarkdown(scrapedProfile);
       const sections = profileToSectionRecord(scrapedProfile);
 
-      // Set linkedin text from the structured markdown so existing flow works
-      setUserInput({ linkedinText: markdown, linkedinUrl: "" });
+      // Set linkedin text + method so existing results flow works
+      setUserInput({
+        linkedinText: markdown,
+        linkedinUrl: "",
+        method: "linkedin",
+      });
 
-      // Store preparsed sections for the audit API (Plan 01-10 will formalize in AppContext)
+      // Store preparsed sections for the audit API
       try {
         sessionStorage.setItem(
           "__ps_preparsedLinkedinSections",
           JSON.stringify(sections),
         );
         sessionStorage.setItem("__ps_linkedinProfileSource", "apify");
+
+        // Store structured entries for direct orchestrator consumption (skip re-parsing)
+        const structuredEntries: Record<string, unknown[]> = {};
+        const p = scrapedProfile as Record<string, unknown>;
+        for (const key of [
+          "experience",
+          "education",
+          "certifications",
+          "volunteering",
+          "projects",
+          "publications",
+        ]) {
+          const arr = p[key];
+          if (Array.isArray(arr) && arr.length > 0) {
+            structuredEntries[key] = arr;
+          }
+        }
+        if (Object.keys(structuredEntries).length > 0) {
+          sessionStorage.setItem(
+            "__ps_preparsedLinkedinEntries",
+            JSON.stringify(structuredEntries),
+          );
+        }
       } catch {
         // sessionStorage unavailable (e.g., private browsing) — the markdown path still works
       }
@@ -321,7 +348,7 @@ export default function InputPage() {
           </div>
         </div>
 
-        {/* Full Name */}
+        {/* Full Name + Email (visible for both Apify and CV paths) */}
         <UserInfoFields
           name={userInput.userName}
           email={userEmail}
@@ -330,6 +357,12 @@ export default function InputPage() {
           onNameChange={(v) => setUserInput({ userName: v })}
           onEmailChange={setUserEmail}
           onAudienceChange={(v) => setUserInput({ targetAudience: v })}
+          i18n={inputI18n}
+        />
+        <EmailField
+          email={userEmail}
+          hasEmail={hasEmail}
+          onEmailChange={setUserEmail}
           i18n={inputI18n}
         />
 
@@ -346,6 +379,7 @@ export default function InputPage() {
             isSubmitting={scrapeStatus === "scraping"}
             errorKey={scrapeErrorKey}
             errorCode={scrapeErrorCode}
+            canAnalyze={hasName && hasEmail}
             onSubmit={async (url) => {
               await triggerScrape(url);
             }}
@@ -368,7 +402,11 @@ export default function InputPage() {
         {/* ── SECONDARY: CV upload + LinkedIn paste (demoted to <details> toggle) ── */}
         <details
           ref={detailsRef}
-          className="mb-8 rounded-xl border border-[var(--border-subtle)]"
+          className="mb-8 rounded-xl"
+          style={{
+            border: "1px solid var(--border-subtle)",
+            backgroundColor: "var(--surface-secondary)",
+          }}
         >
           <summary
             className="cursor-pointer px-5 py-3 text-sm font-medium select-none list-none flex items-center gap-2"
@@ -488,14 +526,6 @@ export default function InputPage() {
               i18n={inputI18n}
               guardI18n={guardI18n}
               commonI18n={commonI18n}
-            />
-
-            {/* Email */}
-            <EmailField
-              email={userEmail}
-              hasEmail={hasEmail}
-              onEmailChange={setUserEmail}
-              i18n={inputI18n}
             />
 
             {/* Audience */}
