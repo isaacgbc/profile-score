@@ -54,6 +54,7 @@ export async function POST(request: Request) {
             forceFresh: parsed.forceFresh,
             isPdfSource: parsed.isPdfSource,
             preparsedLinkedinSections: parsed.preparsedLinkedinSections,
+            preparsedLinkedinEntries: parsed.preparsedLinkedinEntries,
             linkedinProfileSource: parsed.linkedinProfileSource,
           },
           parsed.locale as Locale,

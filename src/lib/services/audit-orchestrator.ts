@@ -274,6 +274,8 @@ export interface AuditInput {
   isPdfSource?: boolean;
   /** Phase 1: Pre-parsed LinkedIn sections from Apify formatter — bypasses Stage 2 parser */
   preparsedLinkedinSections?: Record<string, string>;
+  /** Structured Apify entries — bypasses entry re-parsing when present */
+  preparsedLinkedinEntries?: Record<string, Record<string, unknown>[]>;
   /** Phase 1: Source of LinkedIn profile data */
   linkedinProfileSource?: "paste" | "apify" | "pdf";
 }
@@ -2554,6 +2556,14 @@ export async function generateAuditResults(
   let structuringSkippedReason: string | undefined;
 
   let linkedinSections: Record<string, string> = {};
+  console.log("[DEBUG] orchestrator Stage 2 bypass check:", {
+    hasPreparsed: !!input.preparsedLinkedinSections,
+    type: typeof input.preparsedLinkedinSections,
+    keys: input.preparsedLinkedinSections
+      ? Object.keys(input.preparsedLinkedinSections)
+      : "none",
+    linkedinProfileSource: input.linkedinProfileSource,
+  });
   if (
     input.preparsedLinkedinSections &&
     Object.keys(input.preparsedLinkedinSections).length > 0
