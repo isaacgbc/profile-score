@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LiveDemo Animation</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap');
+
+  :root {
+    --accent: #2563eb;
+    --accent-light: #eff6ff;
+    --text-primary: #111827;
+    --text-secondary: #4b5563;
+    --text-muted: #9ca3af;
+    --border: #e5e7eb;
+    --border-light: #f3f4f6;
+    --surface: #ffffff;
+    --surface-secondary: #f9fafb;
+    --success: #10b981;
+    --warning: #f59e0b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Outfit', -apple-system, sans-serif;
+    background: var(--surface-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  .demo-container {
+    max-width: 640px;
+    width: 100%;
+    padding: 32px 24px;
+  }
+
+  .demo-header {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+
+  .demo-header h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+    letter-spacing: -0.02em;
+  }
+
+  .demo-header p {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  /* Stage Dots */
+  .stage-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+
+  .stage-dot {
+    padding: 6px 16px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    border: none;
+    cursor: pointer;
+  }
+
+  .stage-dot.active {
+    background: var(--accent);
+    color: white;
+  }
+
+  .stage-dot.inactive {
+    background: var(--border);
+    color: var(--text-muted);
+  }
+
+  /* Viewport */
+  .demo-viewport {
+    background: white;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    overflow: hidden;
+    min-height: 180px;
+    position: relative;
+  }
+
+  .stage {
+    display: none;
+    padding: 20px 24px;
+  }
+
+  .stage.active {
+    display: block;
+    animation: fadeIn 0.35s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes chipAppear {
+    from { opacity: 0; transform: translateY(8px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes scoreReveal {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* ─── Input Stage ─── */
+  .input-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--surface-secondary);
+    border-radius: 8px;
+    width: fit-content;
+    margin-bottom: 16px;
+  }
+
+  .input-tab {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .input-tab.active { background: white; color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  .input-tab.inactive { color: var(--text-muted); }
+
+  .field-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+
+  .field-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: white;
+    margin-bottom: 14px;
+  }
+
+  .field-box svg { color: var(--text-muted); flex-shrink: 0; }
+
+  .field-text {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .cursor-blink {
+    display: inline-block;
+    width: 2px;
+    height: 14px;
+    background: var(--accent);
+    margin-left: 1px;
+    vertical-align: middle;
+    animation: pulse 0.8s infinite;
+  }
+
+  .green-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    margin-left: auto;
+  }
+
+  .target-field {
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.5s ease-out;
+  }
+
+  .target-field.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ─── Analysis Stage ─── */
+  .analysis-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 8px 0 16px;
+  }
+
+  .analysis-header span {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    animation: pulse 1.5s infinite;
+  }
+
+  .progress-bar-track {
+    width: 100%;
+    max-width: 360px;
+    height: 8px;
+    background: var(--border-light);
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 0 auto 16px;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #3b82f6);
+    border-radius: 999px;
+    transition: width 0.1s linear;
+    width: 0%;
+  }
+
+  .analysis-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0;
+    animation: chipAppear 0.3s ease-out forwards;
+  }
+
+  .chip .done-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--success);
+    margin-left: 2px;
+  }
+
+  /* ─── Results Stage ─── */
+  .results-layout {
+    display: flex;
+    gap: 20px;
+  }
+
+  .score-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 40%;
+    animation: scoreReveal 0.5s ease-out;
+  }
+
+  .score-ring {
+    position: relative;
+    width: 96px;
+    height: 96px;
+  }
+
+  .score-ring svg { transform: rotate(-90deg); }
+
+  .score-ring .track { fill: none; stroke: var(--border-light); stroke-width: 6; }
+  .score-ring .fill { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 1s ease-out; }
+
+  .score-ring .score-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .score-ring .score-num {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+  }
+
+  .score-ring .score-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+
+  .badge-success {
+    background: #ecfdf5;
+    color: #059669;
+  }
+
+  .improve-col {
+    width: 60%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .improve-col .section-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .improve-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    opacity: 0;
+    animation: chipAppear 0.3s ease-out forwards;
+  }
+
+  .improve-item svg { color: var(--warning); flex-shrink: 0; margin-top: 1px; }
+
+  .section-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--surface-secondary);
+    border: 1px solid var(--border-light);
+    opacity: 0;
+    animation: chipAppear 0.3s ease-out forwards;
+  }
+
+  .section-card .sec-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .section-card .sec-tip {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: auto;
+    text-align: right;
+    max-width: 55%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ─── Output Stage ─── */
+  .output-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .output-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: white;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    opacity: 0;
+    animation: chipAppear 0.3s ease-out forwards;
+  }
+
+  .output-card .icon-box {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--accent-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .output-card .icon-box svg { color: var(--accent); }
+
+  .output-card .card-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .output-card .card-stat {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--success);
+  }
+
+  .output-success {
+    display: flex;
+    justify-content: center;
+    opacity: 0;
+    animation: chipAppear 0.4s ease-out forwards;
+  }
+
+  .output-success .badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="demo-container">
+  <div class="demo-header">
+    <h2>See it in action</h2>
+    <p>From profile to interview-ready in 4 simple steps</p>
+  </div>
+
+  <div class="stage-dots" id="dots"></div>
+
+  <div class="demo-viewport">
+    <!-- Stage 0: Input -->
+    <div class="stage" id="stage-0">
+      <div class="input-tabs">
+        <div class="input-tab active">LinkedIn</div>
+        <div class="input-tab inactive">CV</div>
+      </div>
+      <div class="field-label">Profile URL</div>
+      <div class="field-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <span class="field-text" id="url-text"></span>
+        <span class="cursor-blink" id="cursor"></span>
+        <span class="green-dot" id="green-dot" style="display:none"></span>
+      </div>
+      <div class="target-field" id="target-field">
+        <div class="field-label">Target job (optional)</div>
+        <div class="field-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+          <span style="font-size:13px;color:var(--text-secondary)">Product Manager at Stripe</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stage 1: Analysis -->
+    <div class="stage" id="stage-1">
+      <div class="analysis-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+        <span>Analyzing your profile...</span>
+        <span class="pulse-dot"></span>
+      </div>
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <div class="analysis-chips" id="analysis-chips"></div>
+    </div>
+
+    <!-- Stage 2: Results -->
+    <div class="stage" id="stage-2">
+      <div class="results-layout">
+        <div class="score-col">
+          <div class="score-ring">
+            <svg width="96" height="96" viewBox="0 0 96 96">
+              <circle class="track" cx="48" cy="48" r="42"/>
+              <circle class="fill" id="score-circle" cx="48" cy="48" r="42" stroke-dasharray="263.9" stroke-dashoffset="263.9"/>
+            </svg>
+            <div class="score-text">
+              <span class="score-num" id="score-num">0</span>
+              <span class="score-label">Overall Score</span>
+            </div>
+          </div>
+          <span class="badge badge-success">Good</span>
+        </div>
+        <div class="improve-col">
+          <div class="section-title">Things to improve</div>
+          <div id="improve-items"></div>
+          <div id="section-cards" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stage 3: Output -->
+    <div class="stage" id="stage-3">
+      <div class="output-grid" id="output-grid"></div>
+      <div class="output-success" id="output-success" style="animation-delay:500ms">
+        <span class="badge badge-success">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5"/><polyline points="16 7 8 15 3 10"/></svg>
+          Score improved by +16 points
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STAGES = ["Input", "Analysis", "Results", "Output"];
+const STAGE_DURATION = 3500;
+const URL_TEXT = "linkedin.com/in/sarah-chen";
+
+const chipData = [
+  { label: "Scanning headline", threshold: 0 },
+  { label: "Reviewing experience", threshold: 25 },
+  { label: "Evaluating skills", threshold: 50 },
+  { label: "Checking keywords", threshold: 75 },
+];
+
+const improveItems = [
+  "Headline lacks target keywords",
+  "Experience needs quantified metrics",
+  "Skills section is missing 4 key terms",
+];
+
+const sectionCards = [
+  { label: "Headline", tip: 'Add "Product Manager" + industry keywords' },
+  { label: "Experience", tip: "Quantify impact: revenue, users, % growth" },
+  { label: "Skills", tip: "Add 4 missing skills recruiters search for" },
+];
+
+const outputCards = [
+  { label: "Updated CV", stat: "+12 keywords added", icon: "file" },
+  { label: "LinkedIn Rewrites", stat: "8 sections rewritten", icon: "link" },
+  { label: "Cover Letter", stat: "Job-targeted copy", icon: "mail" },
+  { label: "Results Summary", stat: "78 → 94 projected", icon: "chart" },
+];
+
+const icons = {
+  file: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>',
+  link: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  mail: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>',
+  chart: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg>',
+  search: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
+  briefcase: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>',
+  barchart: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg>',
+  target: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+  trending: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>',
+  sparkles: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>',
+};
+
+const chipIcons = [icons.search, icons.briefcase, icons.barchart, icons.target];
+
+let activeStage = -1;
+let typeInterval = null;
+let analysisRAF = null;
+
+// Render dots
+const dotsEl = document.getElementById("dots");
+STAGES.forEach((label, i) => {
+  const btn = document.createElement("button");
+  btn.className = "stage-dot inactive";
+  btn.textContent = label;
+  btn.dataset.idx = i;
+  dotsEl.appendChild(btn);
+});
+
+function updateDots() {
+  dotsEl.querySelectorAll(".stage-dot").forEach((btn, i) => {
+    btn.className = i === activeStage ? "stage-dot active" : "stage-dot inactive";
+  });
+}
+
+// ─── Stage activators ───
+function activateInput() {
+  const urlEl = document.getElementById("url-text");
+  const cursorEl = document.getElementById("cursor");
+  const dotEl = document.getElementById("green-dot");
+  const targetEl = document.getElementById("target-field");
+
+  urlEl.textContent = "";
+  cursorEl.style.display = "inline-block";
+  dotEl.style.display = "none";
+  targetEl.classList.remove("visible");
+
+  let idx = 0;
+  typeInterval = setInterval(() => {
+    if (idx < URL_TEXT.length) {
+      urlEl.textContent = URL_TEXT.slice(0, ++idx);
+    } else {
+      clearInterval(typeInterval);
+      cursorEl.style.display = "none";
+      dotEl.style.display = "block";
+      setTimeout(() => targetEl.classList.add("visible"), 300);
+    }
+  }, 55);
+}
+
+function activateAnalysis() {
+  const fillEl = document.getElementById("progress-fill");
+  const chipsEl = document.getElementById("analysis-chips");
+  chipsEl.innerHTML = "";
+  fillEl.style.width = "0%";
+
+  const start = Date.now();
+  const duration = 2300;
+  let shownChips = 0;
+
+  function frame() {
+    const elapsed = Date.now() - start;
+    const pct = Math.min(100, Math.round((elapsed / duration) * 100));
+    fillEl.style.width = pct + "%";
+
+    // Add chips at thresholds
+    while (shownChips < chipData.length && pct >= chipData[shownChips].threshold) {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.style.animationDelay = (shownChips * 80) + "ms";
+      const hasDone = pct >= chipData[shownChips].threshold + 25;
+      chip.innerHTML = chipIcons[shownChips] + " " + chipData[shownChips].label +
+        (hasDone ? ' <span class="done-dot"></span>' : "");
+      chipsEl.appendChild(chip);
+      shownChips++;
+    }
+
+    // Update done dots for already-shown chips
+    chipsEl.querySelectorAll(".chip").forEach((el, i) => {
+      if (pct >= chipData[i].threshold + 25 && !el.querySelector(".done-dot")) {
+        el.innerHTML += ' <span class="done-dot"></span>';
+      }
+    });
+
+    if (pct < 100) {
+      analysisRAF = requestAnimationFrame(frame);
+    }
+  }
+  analysisRAF = requestAnimationFrame(frame);
+}
+
+function activateResults() {
+  // Animate score ring
+  const circle = document.getElementById("score-circle");
+  const numEl = document.getElementById("score-num");
+  const circumference = 2 * Math.PI * 42;
+  const target = 78;
+  const offset = circumference * (1 - target / 100);
+
+  circle.style.strokeDasharray = circumference;
+  circle.style.strokeDashoffset = circumference;
+  setTimeout(() => { circle.style.strokeDashoffset = offset; }, 50);
+
+  // Animate number
+  let current = 0;
+  const numInterval = setInterval(() => {
+    current += 2;
+    if (current >= target) { current = target; clearInterval(numInterval); }
+    numEl.textContent = current;
+  }, 25);
+
+  // Improve items
+  const improveEl = document.getElementById("improve-items");
+  improveEl.innerHTML = "";
+  improveItems.forEach((text, i) => {
+    const div = document.createElement("div");
+    div.className = "improve-item";
+    div.style.animationDelay = (300 + i * 120) + "ms";
+    div.innerHTML = icons.trending + " " + text;
+    improveEl.appendChild(div);
+  });
+
+  // Section cards
+  const cardsEl = document.getElementById("section-cards");
+  cardsEl.innerHTML = "";
+  sectionCards.forEach((sec, i) => {
+    const div = document.createElement("div");
+    div.className = "section-card";
+    div.style.animationDelay = (660 + i * 100) + "ms";
+    div.innerHTML = icons.sparkles +
+      ' <span class="sec-label">' + sec.label + '</span>' +
+      ' <span class="sec-tip">' + sec.tip + '</span>';
+    cardsEl.appendChild(div);
+  });
+}
+
+function activateOutput() {
+  const gridEl = document.getElementById("output-grid");
+  gridEl.innerHTML = "";
+  outputCards.forEach((card, i) => {
+    const div = document.createElement("div");
+    div.className = "output-card";
+    div.style.animationDelay = (i * 100) + "ms";
+    div.innerHTML =
+      '<div class="icon-box">' + icons[card.icon] + '</div>' +
+      '<div><div class="card-label">' + card.label + '</div>' +
+      '<div class="card-stat">' + card.stat + '</div></div>';
+    gridEl.appendChild(div);
+  });
+
+  const successEl = document.getElementById("output-success");
+  successEl.style.animation = "none";
+  successEl.offsetHeight; // reflow
+  successEl.style.animation = "chipAppear 0.4s ease-out 500ms forwards";
+  successEl.style.opacity = "0";
+}
+
+function setStage(idx) {
+  // Cleanup previous
+  if (typeInterval) clearInterval(typeInterval);
+  if (analysisRAF) cancelAnimationFrame(analysisRAF);
+
+  activeStage = idx;
+  updateDots();
+
+  document.querySelectorAll(".stage").forEach((el, i) => {
+    el.classList.toggle("active", i === idx);
+  });
+
+  if (idx === 0) activateInput();
+  else if (idx === 1) activateAnalysis();
+  else if (idx === 2) activateResults();
+  else if (idx === 3) activateOutput();
+}
+
+// Auto-play
+let stageTimer;
+function autoPlay() {
+  setStage(0);
+  stageTimer = setInterval(() => {
+    setStage((activeStage + 1) % 4);
+  }, STAGE_DURATION);
+}
+
+autoPlay();
+
+// Expose reset for programmatic capture
+window.resetAnimation = function() {
+  clearInterval(stageTimer);
+  activeStage = -1;
+  autoPlay();
+};
+</script>
+</body>
+</html>
