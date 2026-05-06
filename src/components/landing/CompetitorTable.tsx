@@ -33,37 +33,41 @@ interface Row {
 }
 
 const rows: Row[] = [
-  { featureKey: "compareFeature1", ps: "yes", jobscan: "no",      careerflow: "no",      rezi: "no",      teal: "no"      },
-  { featureKey: "compareFeature2", ps: "yes", jobscan: "no",      careerflow: "no",      rezi: "no",      teal: "no"      },
-  { featureKey: "compareFeature3", ps: "yes", jobscan: "no",      careerflow: "no",      rezi: "no",      teal: "no"      },
-  { featureKey: "compareFeature4", ps: "yes", jobscan: "no",      careerflow: "no",      rezi: "no",      teal: "no"      },
-  { featureKey: "compareFeature5", ps: "yes", jobscan: "partial", careerflow: "partial", rezi: "partial", teal: "partial" },
+  { featureKey: "compareFeature1", ps: "yes",     jobscan: "no",      careerflow: "no",      rezi: "no",      teal: "no"      },
+  { featureKey: "compareFeature2", ps: "yes",     jobscan: "no",      careerflow: "no",      rezi: "no",      teal: "no"      },
+  { featureKey: "compareFeature3", ps: "yes",     jobscan: "no",      careerflow: "no",      rezi: "no",      teal: "no"      },
+  { featureKey: "compareFeature4", ps: "yes",     jobscan: "no",      careerflow: "no",      rezi: "no",      teal: "no"      },
+  { featureKey: "compareFeature5", ps: "yes",     jobscan: "partial", careerflow: "partial", rezi: "partial", teal: "partial" },
+  { featureKey: "compareFeature6", ps: "partial", jobscan: "yes",     careerflow: "no",      rezi: "partial", teal: "no"      },
+  { featureKey: "compareFeature7", ps: "no",      jobscan: "no",      careerflow: "no",      rezi: "no",      teal: "yes"    },
 ];
 
-function Cell({ value, partial }: { value: CellValue; partial: string }) {
+function CellContent({ value, partial }: { value: CellValue; partial: string }) {
   if (value === "yes") {
     return (
-      <td className="py-4 px-3 text-center">
-        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-50 text-emerald-600">
-          <CheckIcon size={14} />
-        </span>
-      </td>
+      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-50 text-emerald-600">
+        <CheckIcon size={14} />
+      </span>
     );
   }
   if (value === "partial") {
     return (
-      <td className="py-4 px-3 text-center">
-        <span className="inline-flex items-center justify-center text-[11px] font-semibold text-amber-600 bg-amber-50 rounded-full px-2 py-0.5 border border-amber-100 whitespace-nowrap">
-          {partial}
-        </span>
-      </td>
+      <span className="inline-flex items-center justify-center text-[11px] font-semibold text-amber-600 bg-amber-50 rounded-full px-2 py-0.5 border border-amber-100 whitespace-nowrap">
+        {partial}
+      </span>
     );
   }
   return (
+    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[var(--surface-secondary)] text-[var(--text-muted)]">
+      <XIcon size={13} />
+    </span>
+  );
+}
+
+function Cell({ value, partial }: { value: CellValue; partial: string }) {
+  return (
     <td className="py-4 px-3 text-center">
-      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[var(--surface-secondary)] text-[var(--text-muted)]">
-        <XIcon size={13} />
-      </span>
+      <CellContent value={value} partial={partial} />
     </td>
   );
 }
@@ -94,7 +98,7 @@ export default function CompetitorTable() {
               <tr className="bg-[var(--surface-secondary)] border-b border-[var(--border)]">
                 {/* Feature column */}
                 <th className="py-3.5 px-4 text-left font-semibold text-[var(--text-primary)] text-xs uppercase tracking-wide min-w-[180px]">
-                  Feature
+                  {l.compareFeatureHeader ?? "Feature"}
                 </th>
 
                 {/* ProfileScore — highlighted column */}
@@ -132,9 +136,7 @@ export default function CompetitorTable() {
 
                   {/* ProfileScore cell — accented */}
                   <td className="py-4 px-3 text-center bg-[var(--accent-light)]/50 border-x border-blue-100/60">
-                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-50 text-emerald-600">
-                      <CheckIcon size={14} />
-                    </span>
+                    <CellContent value={row.ps} partial={l.comparePartial ?? "Partial"} />
                   </td>
 
                   {/* Competitor cells */}

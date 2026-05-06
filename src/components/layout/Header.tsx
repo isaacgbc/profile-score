@@ -77,7 +77,7 @@ export default function Header() {
                   onClick={() => signOut()}
                   className="text-xs text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
                 >
-                  Sign out
+                  {(t.common as Record<string, string>).signOut ?? "Sign out"}
                 </button>
               </div>
             ) : !authLoading ? (
@@ -86,7 +86,7 @@ export default function Header() {
                 className="hidden sm:flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium
                   text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
               >
-                Sign in
+                {(t.common as Record<string, string>).signIn ?? "Sign in"}
               </Link>
             ) : null}
 
@@ -134,13 +134,22 @@ export default function Header() {
               {isAdmin ? t.common.adminActive : t.common.admin}
             </button>
 
+            {/* Pricing link */}
+            <Link
+              href="/pricing"
+              className="hidden sm:flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium
+                text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
+            >
+              {(t.common as Record<string, string>).pricing ?? "Pricing"}
+            </Link>
+
             {/* Blog link */}
             <Link
               href="/blog"
               className="hidden sm:flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium
                 text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition-colors"
             >
-              Blog
+              {(t.common as Record<string, string>).blog ?? "Blog"}
             </Link>
 
             {/* Language switcher */}

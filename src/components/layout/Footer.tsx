@@ -7,11 +7,11 @@ import { GlobeIcon } from "@/components/ui/Icons";
 
 export default function Footer() {
   const { t, locale, setLocale } = useI18n();
-  const ft = (t as Record<string, Record<string, string>>).footer ?? {};
+  const ft = (t as unknown as Record<string, Record<string, string>>).footer ?? {};
 
   const productLinks = [
     { href: "/#features", label: ft.features ?? "Features" },
-    { href: "/#pricing", label: ft.pricing ?? "Pricing" },
+    { href: "/pricing", label: ft.pricing ?? "Pricing" },
     { href: "/#how-it-works", label: ft.howItWorks ?? "How It Works" },
   ];
 

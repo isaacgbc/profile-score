@@ -5,17 +5,11 @@ import { trackEvent, hasTrackedThisSession, markTrackedThisSession } from "@/lib
 
 import HeroSection from "./HeroSection";
 import LiveDemo from "./LiveDemo";
-import StatsRow from "./StatsRow";
 import ValueCards from "./ValueCards";
-import ATSWarning from "./ATSWarning";
 import FeaturesGrid from "./FeaturesGrid";
-import WhySection from "./WhySection";
-import ComparisonSection from "./ComparisonSection";
-import CompetitorTable from "./CompetitorTable";
-import SocialProofSection from "./SocialProofSection";
-import CaseStudiesSection from "./CaseStudiesSection";
-import TrustMarquee from "./TrustMarquee";
 import HowItWorksSection from "./HowItWorksSection";
+import ComparisonSection from "./ComparisonSection";
+import CaseStudiesSection from "./CaseStudiesSection";
 import FAQSection from "./FAQSection";
 import BottomCTA from "./BottomCTA";
 
@@ -30,20 +24,23 @@ export default function LandingClient() {
 
   return (
     <div className="animate-fade-in relative">
+      {/* 1. Hero with dual CTAs */}
       <HeroSection />
+      {/* 2. Interactive 4-stage demo */}
       <LiveDemo />
-      <StatsRow />
+      {/* 3. Stats + Value propositions (merged) */}
       <ValueCards />
-      <ATSWarning />
+      {/* 4. Feature benefits grid */}
       <FeaturesGrid />
-      <WhySection />
-      <ComparisonSection />
-      <CompetitorTable />
-      <SocialProofSection />
-      <CaseStudiesSection />
-      <TrustMarquee />
+      {/* 5. How it works — 3 steps */}
       <HowItWorksSection />
+      {/* 6. Free vs Paid comparison */}
+      <ComparisonSection />
+      {/* 7. Case studies — before/after transformations */}
+      <CaseStudiesSection />
+      {/* 8. FAQ with JSON-LD */}
       <FAQSection />
+      {/* 9. Final CTA with social proof */}
       <BottomCTA />
     </div>
   );

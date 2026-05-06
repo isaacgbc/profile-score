@@ -55,7 +55,7 @@ export default function HowItWorksSection() {
 
         {/* CTA below how-it-works */}
         <div className="text-center mt-14 animate-slide-up" style={{ animationDelay: "400ms" }}>
-          <Link href="/features">
+          <Link href="/input">
             <Button size="lg">
               {t.landing.cta}
               <ChevronRight />

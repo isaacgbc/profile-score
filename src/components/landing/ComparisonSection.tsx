@@ -9,7 +9,7 @@ export default function ComparisonSection() {
   const { t } = useI18n();
 
   return (
-    <section className="max-w-4xl mx-auto px-4 sm:px-6 py-20">
+    <section id="pricing" className="max-w-4xl mx-auto px-4 sm:px-6 py-20">
       <h2 className="text-xl sm:text-2xl font-bold text-[var(--text-primary)] text-center mb-3 animate-slide-up tracking-tight">
         {t.landing.freeTitle}
       </h2>

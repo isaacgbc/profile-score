@@ -134,8 +134,8 @@ export default function HeroSection() {
 
         {/* Dual CTAs */}
         <div className="flex flex-col sm:flex-row gap-3 justify-center animate-slide-up" style={{ animationDelay: "220ms" }}>
-          <Link href="/features" className="btn-gradient inline-flex items-center justify-center gap-2 font-medium px-7 py-3.5 text-base rounded-xl shadow-sm transition-all duration-200 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]">
-            {t.landing.cta}
+          <Link href="/input" className="btn-gradient inline-flex items-center justify-center gap-2 font-medium px-7 py-3.5 text-base rounded-xl shadow-sm transition-all duration-200 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]">
+            {landingT.heroCta ?? t.landing.cta}
             <ChevronRight />
           </Link>
           <a href="#how-it-works">

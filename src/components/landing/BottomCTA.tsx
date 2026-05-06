@@ -71,7 +71,7 @@ export default function BottomCTA() {
         </div>
 
         <div className="animate-slide-up" style={{ animationDelay: "160ms" }}>
-          <Link href="/features">
+          <Link href="/input">
             <Button size="lg">
               {t.landing.cta}
               <ChevronRight />

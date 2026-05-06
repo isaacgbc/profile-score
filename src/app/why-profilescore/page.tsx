@@ -3,6 +3,8 @@ import Link from "next/link";
 import WhySection from "@/components/landing/WhySection";
 import CompetitorTable from "@/components/landing/CompetitorTable";
 
+const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "https://profilescore.app";
+
 export const metadata: Metadata = {
   title: "Por qué ProfileScore – Diferente por diseño",
   description:
@@ -12,7 +14,15 @@ export const metadata: Metadata = {
     title: "Por qué ProfileScore – Diferente por diseño",
     description:
       "Score unificado, optimización para freelancers e interfaz en español. Todo lo que otras herramientas no tienen.",
-    url: "/why-profilescore",
+    url: `${baseUrl}/why-profilescore`,
+    type: "website",
+    images: [{ url: `${baseUrl}/brand/logo.png`, width: 1000, height: 1000, alt: "Profile Score" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Por qué ProfileScore – Diferente por diseño",
+    description:
+      "Score unificado, optimización para freelancers e interfaz en español. Todo lo que otras herramientas no tienen.",
   },
 };
 
