@@ -12,6 +12,10 @@
  * - Fallback count
  */
 
+// Load environment variables from .env.local (Next.js doesn't auto-load for tsx scripts)
+import { config } from "dotenv";
+config({ path: ".env.local", override: true });
+
 import { EVAL_FIXTURES, type EvalFixture } from "./fixtures";
 import { generateAuditResults, type GenerationResult } from "../services/audit-orchestrator";
 import { AuditSectionOutput } from "../schemas/llm-output";

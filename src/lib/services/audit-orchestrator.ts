@@ -193,6 +193,33 @@ const MAX_ENTRIES_FIRST_PASS = 20;
 // and rewritten in parallel to avoid timeout on large experience sections
 const ENTRY_REWRITE_CHUNK_SIZE = 4;
 
+/**
+ * Derives a human-readable date range from Apify entry shape.
+ * Apify returns `duration` (may be null), `dateRange` (may be absent),
+ * or structured `startDate` / `endDate` objects with `text` / `year` fields.
+ * Falls back through these in order.
+ */
+function deriveApifyDateRange(e: Record<string, unknown>): string {
+  // Prefer explicit duration/dateRange/period strings
+  const explicit = e.duration || e.dateRange || e.period;
+  if (explicit && typeof explicit === "string" && explicit.trim()) {
+    return explicit.trim();
+  }
+  // Derive from structured startDate/endDate objects
+  const start = e.startDate as Record<string, unknown> | null | undefined;
+  const end = e.endDate as Record<string, unknown> | null | undefined;
+  const startText =
+    (start && typeof start.text === "string" && start.text) ||
+    (start && start.year ? String(start.year) : "");
+  const endText =
+    (end && typeof end.text === "string" && end.text) ||
+    (end && end.year ? String(end.year) : "");
+  if (startText && endText) return `${startText} - ${endText}`;
+  if (startText) return startText;
+  if (endText) return endText;
+  return "";
+}
+
 // PERF-HOTFIX-2: Global orchestration time budget — skip non-essential stages if exceeded
 const ORCHESTRATION_BUDGET_MS = 45_000;
 
@@ -1487,12 +1514,26 @@ async function rewriteSectionWithEntries(
     }
   }
 
-  if (isMockRewrite(rewrite)) {
+  // HOTFIX-APIFY-ENTRIES: When per-entry rewrites exist and section-level checks fail,
+  // re-run ONLY the section-level summary instead of throwing away all entry work.
+  // Previously: mock fingerprint / lang drift would trigger rewriteSection() and strip entries → UI shows one text block.
+  // Now: preserve entries, regenerate section-level summary only.
+  const sectionLevelFailed =
+    isMockRewrite(rewrite) ||
+    (locale !== "en" && !isOutputInTargetLocale(rewrite.rewritten, locale));
+
+  if (sectionLevelFailed && allRewriteEntries.length > 0) {
+    const reason = isMockRewrite(rewrite) ? "mock_fingerprint" : "lang_drift";
     console.warn(
-      `[guard] Mock fingerprint in entry rewrite ${sectionId}, falling back to section-level`,
+      `[guard] Section-level ${reason} in ${sectionId}, preserving ${allRewriteEntries.length} entries, regenerating section summary only`,
     );
-    failureReasons.push("mock_fingerprint_retry");
-    return rewriteSection(
+    failureReasons.push(
+      reason === "mock_fingerprint"
+        ? "mock_fingerprint_retry"
+        : "lang_drift_retry",
+    );
+
+    const sectionOnlyResult = await rewriteSection(
       sectionId,
       fullSectionContent,
       promptKey.replace(".entries", ""),
@@ -1505,14 +1546,37 @@ async function rewriteSectionWithEntries(
       sectionDiagnostics,
       retryAttemptsByReason,
     );
+
+    // If the section-level retry also failed, keep the original entry-level rewrite
+    // (partial success is better than dropping entries entirely).
+    if (!sectionOnlyResult) {
+      console.warn(
+        `[guard] Section-level retry returned null for ${sectionId}, keeping original entry-level rewrite with ${allRewriteEntries.length} entries`,
+      );
+      return { rewrite, modelUsed };
+    }
+
+    // Merge: use regenerated section-level text but keep per-entry work
+    return {
+      rewrite: {
+        ...sectionOnlyResult.rewrite,
+        entries: allRewriteEntries,
+      },
+      modelUsed: sectionOnlyResult.modelUsed,
+    };
   }
 
-  // HOTFIX-2: Language drift detection
-  if (locale !== "en" && !isOutputInTargetLocale(rewrite.rewritten, locale)) {
+  // No entries at all — full fallback is appropriate
+  if (sectionLevelFailed) {
+    const reason = isMockRewrite(rewrite) ? "mock_fingerprint" : "lang_drift";
     console.warn(
-      `[lang-guard] Language drift in entry rewrite ${sectionId}, falling back to section-level`,
+      `[guard] ${reason} in entry rewrite ${sectionId} with no entries, full fallback to section-level`,
     );
-    failureReasons.push("lang_drift_retry");
+    failureReasons.push(
+      reason === "mock_fingerprint"
+        ? "mock_fingerprint_retry"
+        : "lang_drift_retry",
+    );
     return rewriteSection(
       sectionId,
       fullSectionContent,
@@ -3131,7 +3195,7 @@ export async function generateAuditResults(
               (e: Record<string, unknown>) => ({
                 title: String(e.position || e.title || ""),
                 organization: String(e.company || e.companyName || ""),
-                dateRange: String(e.duration || e.dateRange || ""),
+                dateRange: deriveApifyDateRange(e),
                 description: String(e.description || ""),
                 sourceLineStart: 0,
                 sourceLineEnd: 0,
@@ -3330,7 +3394,7 @@ export async function generateAuditResults(
           organization: String(
             e.schoolName || e.school || e.organization || "",
           ),
-          dateRange: String(e.period || e.dateRange || e.duration || ""),
+          dateRange: deriveApifyDateRange(e),
           description: String(e.description || ""),
           sourceLineStart: 0,
           sourceLineEnd: 0,
@@ -3635,6 +3699,19 @@ export async function generateAuditResults(
     }
     const { rewrite } = result;
     primaryModel = result.modelUsed;
+    // Diagnostic: entry preservation for experience/education
+    if (
+      rewrite.sectionId === "experience" ||
+      rewrite.sectionId === "education" ||
+      rewrite.sectionId === "work-experience" ||
+      rewrite.sectionId === "education-section"
+    ) {
+      console.log(
+        `[diag] request=${requestId} | ENTRY_STATE sectionId=${rewrite.sectionId} ` +
+          `entries=${rewrite.entries?.length ?? 0} ` +
+          `rewrittenLen=${rewrite.rewritten?.length ?? 0}`,
+      );
+    }
     if (rewrite.source === "linkedin") {
       linkedinRewrites.push(rewrite);
     } else {

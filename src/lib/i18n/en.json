@@ -286,6 +286,7 @@
     "linkedinUrlPlaceholder": "https://linkedin.com/in/yourname",
     "analyze": "Analyze",
     "analyzing": "Analyzing...",
+    "fillNameEmailFirst": "Fill in your name and email above to analyze",
     "linkedinTextPlaceholder": "Or paste your full LinkedIn profile text here...",
     "linkedinProvided": "LinkedIn profile added",
     "pdfScanError": "This PDF appears to be a scanned image. Please upload a text-based PDF, or paste your profile text below.",

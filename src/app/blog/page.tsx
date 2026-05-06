@@ -13,6 +13,12 @@ export const metadata: Metadata = {
       "Expert tips on LinkedIn optimization, ATS-friendly resumes, and career growth.",
     type: "website",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Blog | Profile Score",
+    description:
+      "Expert tips on LinkedIn optimization, ATS-friendly resumes, and career growth.",
+  },
 };
 
 export const dynamic = "force-dynamic";

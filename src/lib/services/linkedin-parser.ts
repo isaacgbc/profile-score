@@ -18,6 +18,7 @@ import { callLLM, LLM_MODEL_FAST } from "./llm-client";
 import { extractJson } from "@/lib/schemas/llm-output";
 import { cleanLinkedinPdfText } from "./linkedin-pdf-cleaner";
 import type { Locale } from "@/lib/types";
+import { logError } from "./error-logger";
 
 // ── Section header patterns → internal IDs ───────────────
 // V2: prefix matching instead of exact line matching, so
@@ -216,6 +217,13 @@ export async function parseLinkedinSectionsWithFallback(
   }
 
   console.log(`[parser] LLM fallback triggered (${sectionCount} sections from ${cleaned.length} chars)`);
+  logError({
+    level: "warn",
+    source: "linkedin-parser/parseWithFallback",
+    message: `LLM fallback triggered: regex found ${sectionCount} sections from ${cleaned.length} chars`,
+    code: "PARSE_LINKEDIN_LLM_FALLBACK",
+    inputMeta: { sectionCount, inputChars: cleaned.length },
+  });
 
   // LLM fallback: text is substantial but regex found ≤1 section
   try {
@@ -258,8 +266,16 @@ export async function parseLinkedinSectionsWithFallback(
     } finally {
       clearTimeout(timeout);
     }
-  } catch {
-    // LLM fallback failed — silently return regex results
+  } catch (fallbackErr) {
+    // LLM fallback failed — return regex results but log the failure
+    logError({
+      level: "warn",
+      source: "linkedin-parser/llmFallback",
+      message: `LLM fallback failed: ${fallbackErr instanceof Error ? fallbackErr.message : "Unknown"}`,
+      error: fallbackErr,
+      code: "PARSE_LINKEDIN_FAILED",
+      inputMeta: { inputChars: cleaned.length },
+    });
   }
 
   return regexResult;
@@ -1111,6 +1127,14 @@ export async function parseLinkedinWithStructuring(
         err instanceof Error ? err.message : String(err)
       }`
     );
+    logError({
+      level: "warn",
+      source: "linkedin-parser/structuringPass",
+      message: `Structuring pass failed: ${err instanceof Error ? err.message : "Unknown"}`,
+      error: err,
+      code: "PARSE_LINKEDIN_FAILED",
+      inputMeta: { inputChars: rawText.length },
+    });
   }
 
   // Structuring returned null or failed — fall back to regex

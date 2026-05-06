@@ -40,7 +40,14 @@ export const metadata: Metadata = {
   creator: "Profile Score",
   publisher: "Profile Score",
   robots: { index: true, follow: true },
-  alternates: { canonical: "/" },
+  alternates: {
+    canonical: "/",
+    languages: {
+      "en": baseUrl,
+      "es": baseUrl,
+      "x-default": baseUrl,
+    },
+  },
   icons: {
     icon: [
       { url: "/brand/logo.svg", type: "image/svg+xml" },
@@ -101,13 +108,6 @@ const jsonLd = {
           description: "LinkedIn + CV together, plus cover letter generation",
         },
       ],
-      aggregateRating: {
-        "@type": "AggregateRating",
-        ratingValue: "4.8",
-        ratingCount: "2340",
-        bestRating: "5",
-        worstRating: "1",
-      },
       featureList: [
         "AI-powered profile scoring",
         "Section-by-section audit",

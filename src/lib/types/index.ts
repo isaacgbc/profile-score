@@ -109,6 +109,8 @@ export interface ScoreSection {
   maxScore: number;
   tier: ScoreTier;
   locked: boolean;
+  /** True when section is unlocked as a free tier teaser, not because user paid */
+  freePreview?: boolean;
   source: SourceType;
   explanation: string;
   improvementSuggestions: string[];
@@ -140,6 +142,8 @@ export interface RewritePreview {
   missingSuggestions: string[];
   rewritten: string;
   locked: boolean;
+  /** True when rewrite is unlocked as a free tier teaser, not because user paid */
+  freePreview?: boolean;
   /** Per-entry rewrites for experience/education sections (optional, backward compat) */
   entries?: RewriteEntry[];
 }
@@ -203,6 +207,9 @@ export interface PromptRecord {
   updatedAt: string;
 }
 
+// ─── Degradation ─────────────────────────────────────
+export type DegradationLevel = "none" | "partial" | "severe";
+
 // ─── App State ────────────────────────────────────────
 export interface GenerationMetaClient {
   modelUsed: string;
@@ -211,10 +218,14 @@ export interface GenerationMetaClient {
   durationMs: number;
   /** Number of sections that fell back to mock data */
   fallbackCount: number;
-  /** True when fallbackCount is high enough that results are unreliable */
+  /** True when fallbackCount is high enough that results are unreliable (backward compat) */
   degraded: boolean;
+  /** Tiered degradation: "none" | "partial" | "severe" */
+  degradationLevel: DegradationLevel;
   /** Categorized failure reasons for diagnostics */
   failureReasons: string[];
+  /** Number of core section failures (headline, summary, etc.) */
+  coreFailureCount: number;
   /** v1: Detected profile language from heuristic analysis */
   detectedLanguage?: "en" | "es" | "unknown";
   languageConfidence?: number;

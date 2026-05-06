@@ -9,3 +9,15 @@ build
 .DS_Store
 .vercel
 .env*.local
+
+# Claude Code
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Build artifacts
+*.tsbuildinfo
+
+# Scratch / regeneratable
+demo-animation.gif
+sprint*.json
+docs/eval-post-*.md
