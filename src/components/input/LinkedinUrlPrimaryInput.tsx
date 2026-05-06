@@ -20,6 +20,8 @@ interface LinkedinUrlPrimaryInputProps {
   onRetry?: () => void;
   /** Called when user clicks "Upload CV instead" in error banner */
   onSwitchToCv?: () => void;
+  /** Whether name + email are filled (gates the Analyze button) */
+  canAnalyze?: boolean;
 }
 
 // ── Component ───────────────────────────────────────────
@@ -31,6 +33,7 @@ export default function LinkedinUrlPrimaryInput({
   errorCode,
   onRetry,
   onSwitchToCv,
+  canAnalyze = true,
 }: LinkedinUrlPrimaryInputProps) {
   const { t } = useI18n();
   const [url, setUrl] = useState("");
@@ -82,17 +85,17 @@ export default function LinkedinUrlPrimaryInput({
   );
 
   const isValid = url.trim().length > 0 && !validationError;
-  const isDisabled = !isValid || isSubmitting;
+  const isDisabled = !isValid || isSubmitting || !canAnalyze;
 
   // Resolve error message from i18n key
   const resolvedError = errorKey ? resolveI18nKey(errorKey, apifyI18n) : null;
 
   return (
     <div
-      className="rounded-xl border p-5 mb-6"
+      className="rounded-xl p-5 mb-6"
       style={{
-        backgroundColor: "var(--surface-1)",
-        borderColor: "var(--border-subtle)",
+        backgroundColor: "var(--surface-secondary)",
+        border: "1px solid var(--border-subtle)",
       }}
     >
       <form onSubmit={handleSubmit}>
@@ -177,6 +180,14 @@ export default function LinkedinUrlPrimaryInput({
             style={{ color: "var(--text-error, #ef4444)" }}
           >
             {validationError}
+          </p>
+        )}
+
+        {/* Name + email required hint */}
+        {!canAnalyze && !isSubmitting && (
+          <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+            {inputI18n.fillNameEmailFirst ??
+              "Fill in your name and email above to analyze"}
           </p>
         )}
       </form>
