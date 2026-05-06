@@ -292,11 +292,11 @@ export default function RewriteStudioPage() {
     );
   }
 
-  // ── Degraded-mode gate ──
-  const generationHasIssues =
-    generationMeta?.degraded || generationMeta?.hasFallback;
+  // ── Tiered degradation gate ──
+  const degradationLevel = generationMeta?.degradationLevel ?? "none";
 
-  if (generationHasIssues) {
+  // SEVERE: hard block — results are too unreliable to show
+  if (degradationLevel === "severe") {
     return (
       <div className="animate-fade-in">
         <StepIndicator currentStep="rewrite-studio" />
@@ -360,6 +360,43 @@ export default function RewriteStudioPage() {
   return (
     <div className="animate-fade-in">
       <StepIndicator currentStep="rewrite-studio" />
+
+      {/* PARTIAL DEGRADATION: yellow warning — some sections less accurate, rewrites still usable */}
+      {degradationLevel === "partial" && (
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-4 mb-2">
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 flex items-start gap-3">
+            <span className="text-yellow-600 text-lg mt-0.5">⚠</span>
+            <div>
+              <p className="text-sm font-medium text-yellow-800">
+                {t.results.partialDegradedTitle}
+              </p>
+              <p className="text-xs text-yellow-700 mt-0.5">
+                {t.results.partialDegradedDesc}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CORE FAILURES: amber warning — key sections had issues, rewrites still visible */}
+      {degradationLevel !== "partial" && (generationMeta?.coreFailureCount ?? 0) > 0 && (
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-4 mb-2">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
+            <span className="text-amber-600 text-lg mt-0.5">⚠</span>
+            <div>
+              <p className="text-sm font-medium text-amber-800">
+                {(generationMeta?.coreFailureCount ?? 0) >= 2
+                  ? (t.results as Record<string, string>).coreFailureWarningStrong ?? "Some key sections couldn\u2019t be fully personalized"
+                  : (t.results as Record<string, string>).coreFailureWarning ?? "One key section couldn\u2019t be fully personalized"}
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                {(t.results as Record<string, string>).coreFailureDesc ?? "A temporary issue affected part of your analysis. Your other results are ready \u2014 you can retry for a complete audit."}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <PricingModal />
       <EmailCaptureModal
         isOpen={showEmailCaptureModal}

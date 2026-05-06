@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useI18n } from "@/context/I18nContext";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
+import InlineUpgradeCTA from "@/components/ui/InlineUpgradeCTA";
 import { getSectionLabel } from "@/lib/section-labels";
 import { LockIcon, SparklesIcon } from "@/components/ui/Icons";
 import StudioEntryEditor, { computeEntryStableId } from "./StudioEntryEditor";
@@ -198,8 +199,9 @@ export default function StudioSectionEditor({
     onRegenerate(intent, seeds);
   }
 
-  // ── LOCKED STATE ──
+  // ── LOCKED STATE: Blurred real content + inline CTA ──
   if (locked) {
+    const hasRealContent = rewrite.original || rewrite.rewritten;
     return (
       <div id={rewrite.sectionId} className="scroll-mt-24">
         <Card variant="default" padding="md">
@@ -209,10 +211,55 @@ export default function StudioSectionEditor({
             </h3>
             <LockIcon size={14} className="text-[var(--text-muted)]" />
           </div>
-          <div className="space-y-3">
-            <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 h-24" />
-            <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 h-32" />
-          </div>
+
+          {hasRealContent ? (
+            /* Blurred real content — shows structure & length, not readable */
+            <div className="relative">
+              <div
+                className="blur-[6px] select-none pointer-events-none space-y-3"
+                aria-hidden="true"
+              >
+                {/* Original snippet */}
+                <div className="bg-red-50/40 border border-red-100 rounded-xl p-4">
+                  <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wider mb-1">
+                    {t.rewriteStudio.original}
+                  </p>
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed line-clamp-3">
+                    {rewrite.original.substring(0, 300)}
+                  </p>
+                </div>
+                {/* Rewritten snippet */}
+                <div className="border-2 border-emerald-200 bg-emerald-50/30 rounded-xl p-4">
+                  <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">
+                    {studioT.optimizedDraft ?? "Optimized Draft"}
+                  </p>
+                  <p className="text-sm text-[var(--text-primary)] leading-relaxed line-clamp-4">
+                    {rewrite.rewritten.substring(0, 400)}
+                  </p>
+                </div>
+              </div>
+              {/* Center CTA overlay */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                <div className="flex items-center gap-2 px-5 py-2.5 bg-white/95 rounded-xl shadow-lg border border-[var(--border)]">
+                  <LockIcon size={16} className="text-[var(--accent)]" />
+                  {onUpgradeClick && (
+                    <InlineUpgradeCTA
+                      context="rewrite"
+                      totalLocked={0}
+                      onUpgrade={onUpgradeClick}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Fallback: empty gray blocks if no content */
+            <div className="space-y-3">
+              <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 h-24" />
+              <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 h-32" />
+            </div>
+          )}
+
           {onUpgradeClick && (
             <div className="mt-4 text-center">
               <p className="text-xs text-[var(--text-muted)] mb-2">

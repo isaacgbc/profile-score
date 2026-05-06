@@ -46,6 +46,11 @@ function SectionButton({
           🔒
         </span>
       )}
+      {!s.locked && s.freePreview && (
+        <span className="ml-1.5 text-[9px] font-semibold text-emerald-600">
+          ✓
+        </span>
+      )}
     </button>
   );
 }
