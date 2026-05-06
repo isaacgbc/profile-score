@@ -8,7 +8,7 @@ import { StarIcon, CheckIcon } from "@/components/ui/Icons";
 
 export default function FeedbackForm() {
   const { t } = useI18n();
-  const fbT = (t as Record<string, Record<string, string>>).feedback ?? {};
+  const fbT = (t as unknown as Record<string, Record<string, string>>).feedback ?? {};
 
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);

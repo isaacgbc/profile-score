@@ -8,7 +8,7 @@ import { BugIcon, XIcon, CheckIcon } from "@/components/ui/Icons";
 
 export default function BugReportOverlay() {
   const { t } = useI18n();
-  const brT = (t as Record<string, Record<string, string>>).bugReport ?? {};
+  const brT = (t as unknown as Record<string, Record<string, string>>).bugReport ?? {};
 
   const [open, setOpen] = useState(false);
   const [description, setDescription] = useState("");
