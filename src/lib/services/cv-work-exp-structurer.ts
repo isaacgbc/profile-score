@@ -17,6 +17,7 @@
 import { callLLM, LLM_MODEL_FAST } from "./llm-client";
 import { extractJson } from "@/lib/schemas/llm-output";
 import type { ParsedEntry } from "./linkedin-parser";
+import { logError } from "./error-logger";
 
 const MAX_INPUT_CHARS = 6_000;
 const MAX_TOKENS = 2_048;
@@ -133,6 +134,14 @@ export async function structureWorkExperience(
       console.warn(
         `${logPrefix} Error: attempt=${attempt + 1}, error=${msg.slice(0, 100)}`
       );
+      logError({
+        level: "warn",
+        source: "cv-work-exp-structurer/structureWorkExperience",
+        message: `CV structuring failed: attempt=${attempt + 1}, error=${msg.slice(0, 200)}`,
+        error: err,
+        code: "CV_STRUCTURING_FAILED",
+        inputMeta: { source, attempt: attempt + 1, inputChars: rawText.length },
+      });
       // Only retry on JSON parse errors
       if (
         attempt === 0 &&
@@ -252,6 +261,14 @@ export async function preNormalizeLinkedinExperience(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[preNormalize] Failed: ${msg.slice(0, 100)}`);
+    logError({
+      level: "warn",
+      source: "cv-work-exp-structurer/preNormalize",
+      message: `Pre-normalization failed: ${msg.slice(0, 200)}`,
+      error: err,
+      code: "CV_STRUCTURING_FAILED",
+      inputMeta: { inputChars: rawText.length },
+    });
     return null;
   }
 }

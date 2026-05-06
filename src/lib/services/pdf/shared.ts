@@ -42,8 +42,9 @@ export async function createCvBasePdf() {
   return { doc, fontRegular, fontBold, fontItalic };
 }
 
+/** Add a US Letter page (8.5" × 11" = 612 × 792 points) */
 export function addPage(doc: PDFDocument) {
-  return doc.addPage([595.28, 841.89]); // A4
+  return doc.addPage([612, 792]); // US Letter
 }
 
 /**

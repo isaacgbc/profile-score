@@ -1,42 +1,55 @@
 import type { ProfileResult } from "@/lib/types";
 import type { ExportUserInput } from "@/lib/services/export-generator";
-import { createBasePdf, addPage, wrapText, sanitizeForPdf, COLORS } from "./shared";
+import { createCvBasePdf, addPage, wrapText, sanitizeForPdf } from "./shared";
+import { rgb } from "pdf-lib";
+
+// Cover-letter-specific colors — plain black text, no branding
+const CL_TEXT = rgb(0.0, 0.0, 0.0);
+const CL_TEXT_MUTED = rgb(0.35, 0.35, 0.35);
 
 /**
- * Generate a Cover Letter PDF.
+ * PHASE 4.2 — Generate a Cover Letter PDF: Clean Letter Format
  *
- * Simple, polished layout:
- * - Title + date
- * - Optional recipient line (from job description)
- * - Body paragraphs from results.coverLetter.content
- * - Footer
+ * This should look like the USER's cover letter, NOT a ProfileScore document.
+ * - No header/logo/branding
+ * - Times New Roman 12pt (standard letter font)
+ * - US Letter (8.5" × 11")
+ * - Standard letter layout: date → recipient → greeting → body → closing
+ * - 1" margins all around
  */
 export async function generateCoverLetterPdf(
   results: ProfileResult,
   language: string,
   userInput?: ExportUserInput
 ): Promise<Uint8Array> {
-  const { doc, fontRegular, fontBold } = await createBasePdf();
-  const margin = 50;
-  const pageWidth = 595.28;
-  const contentWidth = pageWidth - margin * 2;
+  const { doc, fontRegular, fontBold } = await createCvBasePdf();
+  const margin = 72; // 1 inch = 72 points
+  const pageWidth = 612; // US Letter
+  const contentWidth = pageWidth - margin * 2; // 468pt
+  const fontSize = 12;
+  const lineHeight = 18; // 1.5× line spacing for readability
 
   let page = addPage(doc);
-  let y = page.getHeight() - margin;
+  let y = page.getHeight() - margin; // start at top margin
 
-  // ── Title ──
-  const title =
-    language === "es" ? "Carta de Presentacion" : "Cover Letter";
-  page.drawText(sanitizeForPdf(title), {
-    x: margin,
-    y,
-    size: 20,
-    font: fontBold,
-    color: COLORS.primary,
-  });
-  y -= 18;
+  // ── Helpers ──
+  function ensureSpace(needed: number) {
+    if (y < needed + margin) {
+      page = addPage(doc);
+      y = page.getHeight() - margin;
+    }
+  }
 
-  // ── Date line ──
+  function drawLine(text: string, font = fontRegular, size = fontSize, color = CL_TEXT) {
+    const lines = wrapText(sanitizeForPdf(text), font, size, contentWidth);
+    for (const line of lines) {
+      ensureSpace(lineHeight);
+      page.drawText(line, { x: margin, y, size, font, color });
+      y -= lineHeight;
+    }
+  }
+
+  // ── Date ──
   const dateStr = new Date().toLocaleDateString(
     language === "es" ? "es-ES" : "en-US",
     { year: "numeric", month: "long", day: "numeric" }
@@ -44,37 +57,21 @@ export async function generateCoverLetterPdf(
   page.drawText(sanitizeForPdf(dateStr), {
     x: margin,
     y,
-    size: 9,
+    size: fontSize,
     font: fontRegular,
-    color: COLORS.textMuted,
+    color: CL_TEXT,
   });
-  y -= 25;
+  y -= lineHeight * 2; // double space after date
 
-  // ── Target role context (if available) ──
+  // ── Recipient / target role context (if available) ──
   if (userInput?.jobDescription) {
-    const targetLine = userInput.jobDescription.split("\n")[0]?.trim().slice(0, 120);
-    if (targetLine) {
-      const targetLabel =
-        language === "es" ? "Puesto objetivo:" : "Target role:";
-      page.drawText(sanitizeForPdf(`${targetLabel} ${targetLine}`), {
-        x: margin,
-        y,
-        size: 9,
-        font: fontRegular,
-        color: COLORS.textMuted,
-      });
-      y -= 18;
+    const firstLine = userInput.jobDescription.split("\n")[0]?.trim().slice(0, 150);
+    if (firstLine) {
+      const targetLabel = language === "es" ? "Re:" : "Re:";
+      drawLine(`${targetLabel} ${firstLine}`);
+      y -= lineHeight; // extra space after recipient line
     }
   }
-
-  // Divider
-  page.drawLine({
-    start: { x: margin, y },
-    end: { x: pageWidth - margin, y },
-    thickness: 0.5,
-    color: COLORS.border,
-  });
-  y -= 25;
 
   // ── Body ──
   const content = results.coverLetter?.content ?? "";
@@ -87,9 +84,9 @@ export async function generateCoverLetterPdf(
     page.drawText(sanitizeForPdf(noContent), {
       x: margin,
       y,
-      size: 11,
+      size: fontSize,
       font: fontRegular,
-      color: COLORS.textMuted,
+      color: CL_TEXT_MUTED,
     });
   } else {
     const paragraphs = content.split("\n");
@@ -97,30 +94,32 @@ export async function generateCoverLetterPdf(
     for (const para of paragraphs) {
       // Empty lines create paragraph spacing
       if (!para.trim()) {
-        y -= 10;
+        y -= lineHeight * 0.6;
         continue;
       }
 
-      const lines = wrapText(sanitizeForPdf(para), fontRegular, 11, contentWidth);
-      for (const line of lines) {
-        if (y < 60) {
-          page = addPage(doc);
-          y = page.getHeight() - margin;
-        }
-        page.drawText(line, {
-          x: margin,
-          y,
-          size: 11,
-          font: fontRegular,
-          color: COLORS.text,
-        });
-        y -= 16;
+      const trimmed = para.trim();
+
+      // Detect greeting lines (Dear..., Estimado...) — render bold
+      const isGreeting = /^(Dear|Estimado|Estimada|To Whom)/i.test(trimmed);
+      // Detect closing lines (Sincerely, Best regards, Atentamente, etc.)
+      const isClosing = /^(Sincerely|Best regards|Kind regards|Respectfully|Atentamente|Cordialmente|Regards)/i.test(trimmed);
+
+      if (isGreeting) {
+        drawLine(trimmed, fontBold);
+        y -= lineHeight * 0.3; // slight extra space after greeting
+      } else if (isClosing) {
+        y -= lineHeight * 0.5; // extra space before closing
+        drawLine(trimmed);
+      } else {
+        drawLine(trimmed);
       }
-      y -= 6; // paragraph spacing
+
+      y -= lineHeight * 0.35; // paragraph spacing
     }
   }
 
-  // HOTFIX-9c: Removed watermark/footer text per user request
+  // No footer, no branding — this is the user's cover letter
 
   return doc.save();
 }
